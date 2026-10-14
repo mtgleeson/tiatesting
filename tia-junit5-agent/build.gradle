@@ -29,6 +29,48 @@ test {
     useJUnitPlatform()
 }
 
+// JUnit 6 compatibility: the agent's own tests, re-run with JUnit forced to 6.x on a Java 17+ JVM
+// (JUnit 6's baseline), so the @Disabled the agent adds is described from JUnit 6's class files.
+// The tests only use @Test, @Disabled and Assertions, which JUnit 6 kept, so the classes compiled
+// for the Java 8 test task are reused as they are.
+configurations {
+    // The test runtime's dependencies, resolved as a Java 17 runtime classpath: JUnit 6 publishes
+    // Java 17 variants only, which the Java 8 test runtime classpath would reject.
+    junit6TestRuntimeClasspath {
+        canBeConsumed = false
+        extendsFrom testImplementation, testRuntimeOnly
+        attributes {
+            attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME))
+            attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category, Category.LIBRARY))
+            attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements, LibraryElements.JAR))
+            attribute(Bundling.BUNDLING_ATTRIBUTE, objects.named(Bundling, Bundling.EXTERNAL))
+            attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 17)
+        }
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group in ['org.junit.jupiter', 'org.junit.platform']) {
+                details.useVersion junit6Version
+                details.because 'JUnit 6 compatibility run'
+            }
+        }
+    }
+}
+
+dependencies {
+    junit6TestRuntimeClasspath "org.junit.platform:junit-platform-launcher:$junit6Version"
+}
+
+// A locally installed JDK: Gradle's own detection, or org.gradle.java.installations.paths.
+def junit6Test = tasks.register('junit6Test', Test) {
+    description = 'Runs the agent tests on JUnit 6 on a Java 17+ JVM.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.output + sourceSets.main.output + configurations.junit6TestRuntimeClasspath
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(Integer.parseInt(junit6TestJavaVersion))
+    }
+    useJUnitPlatform()
+}
+
 Map <String, ?> attrs = [ 'Premain-Class': 'org.tiatesting.agent.Agent',
                           'Can-Redefine-Classes': true,
                           'Can-Retransform-Classes': true,
@@ -99,7 +141,7 @@ tasks.register('verifyAgentJar') {
 }
 
 tasks.named('check') {
-    dependsOn 'verifyAgentJar'
+    dependsOn 'verifyAgentJar', junit6Test
 }
 
 publishing {

@@ -17,6 +17,9 @@ wiki can also be read front to back.
   files; why only the way the fork finds them differs (system properties for Gradle/Spock, the
   JUnit 5 agent for Maven and Gradle/JUnit 5), how JUnit 5 `@Nested` classes are kept runnable,
   and why VCS libraries never reach the fork.
+- [JUnit 6 support](wiki/junit6-support.md) - why one Java 8 Tia binary serves JUnit 5 and 6, why
+  Tia never publishes the JUnit Platform launcher, the `junit6Test` suites in `check`, and the local
+  JDK 17+ contributors need for them.
 - [Logging conventions (TRACE vs DEBUG)](wiki/logging-conventions.md) - why daemon-side code must
   log at DEBUG and only test-JVM code may use TRACE.
 - [Why Tia requires Maven 3.8.1+](wiki/maven-version-requirement.md) - the CVE-driven floor and
