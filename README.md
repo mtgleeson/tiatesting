@@ -4,9 +4,9 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 
 ## Starting Points
 - [Getting started](#getting-started)
-	- [Maven and JUnit 5](#maven-and-junit-5)
+	- [Maven and JUnit 5 or 6](#maven-and-junit-5-or-6)
 	- [Gradle and Spock](#gradle-and-spock)
-	- [Gradle and JUnit 5](#gradle-and-junit-5)
+	- [Gradle and JUnit 5 or 6](#gradle-and-junit-5-or-6)
 	- [Choosing the version control system](#choosing-the-version-control-system)
 	- [Offline and pre-bundled builds](#offline-and-pre-bundled-builds)
 - [Usage](#usage)
@@ -31,20 +31,23 @@ Tia ships one plugin per build tool, plus a small module for your test framework
 
 | Build tool | Plugin | Test framework module | VCS |
 |---|---|---|---|
-| Maven 3.8.1+ | `tia-maven-plugin` (goal prefix `tia:`) | `tia-junit5` (JUnit 5), declared as a test dependency | Git or Perforce |
-| Gradle | `org.tiatesting.tia` (artifact `tia-gradle`) | `tia-junit5` (JUnit 5) or `tia-spock` (Spock), added by the plugin | Git or Perforce |
+| Maven 3.8.1+ | `tia-maven-plugin` (goal prefix `tia:`) | `tia-junit5` (JUnit 5 or 6), declared as a test dependency | Git or Perforce |
+| Gradle | `org.tiatesting.tia` (artifact `tia-gradle`) | `tia-junit5` (JUnit 5 or 6) or `tia-spock` (Spock), added by the plugin | Git or Perforce |
 
 You never declare a VCS library. The plugin works out which VCS the project uses and resolves only that one (`tia-vcs-git` or `tia-vcs-perforce`) into its own isolated class loader, so a Git project never downloads p4java, a Perforce project never downloads JGit, and neither ever reaches your test classpath. See [Choosing the version control system](#choosing-the-version-control-system).
 
 ### Requirements
 
 - **Maven**: 3.8.1 or newer is required for `tia-maven-plugin`. The floor is enforced automatically via `<prerequisites>` in the plugin's POM - invoking the plugin under an older Maven fails with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the design decision behind picking 3.8.1 specifically.
-- **Java**: 8 or newer.
+- **Java**: 8 or newer. Tia itself runs on Java 8; JUnit 6 needs Java 17 or newer, so a JUnit 6 project is on 17+ anyway.
+- **JUnit 6**: supported through the same `tia-junit5` module as JUnit 5. On Maven, JUnit 6 needs Surefire/Failsafe 3.0.0 or newer.
 - **Gradle**: no version floor is enforced beyond what your test framework's Gradle support requires.
 - **SLF4J on the test classpath** (only needed if you want to see Tia's logging from inside the test run): Tia logs via SLF4J but deliberately does not bring `slf4j-api` or a binding along transitively, so on Maven your test project must already provide them; most projects do. The Gradle plugin adds `slf4j-api` itself, so there only the binding is up to you. See [Seeing Tia's log output](#seeing-tias-log-output).
 
-### Maven and JUnit 5
+### Maven and JUnit 5 or 6
 Tia hooks into JUnit Platform via a `LauncherSessionListener` for updating test coverage mappings and stats. The listener is auto-registered from the `tia-junit5` jar's own `META-INF/services/org.junit.platform.launcher.LauncherSessionListener` descriptor, so no manual file is required - just declare the dependency. The listener only activates when `tiaEnabled=true` is set as a system property, so it is a no-op for IDE runs and any build that doesn't enable Tia.
+
+JUnit 6 uses the same `tia-junit5` dependency; nothing else changes. JUnit 6 itself needs Java 17 or newer and Surefire/Failsafe 3.0.0 or newer. `tia-junit5` brings no JUnit dependency of its own: Surefire supplies the JUnit Platform launcher that matches your JUnit, so it works with or without the JUnit BOM.
 
 Configure your test project POM for Tia by including the following configuration in the project where you execute your tests. The following configuration is for Surefire, but Tia can be configured with Failsafe as well.
 For the latest versions, see [tia-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-maven-plugin&smo=true) and [tia-junit5](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5&smo=true).
@@ -229,8 +232,8 @@ tia {
 }
 ```
 
-### Gradle and JUnit 5
-The same plugin supports JUnit 5. It detects JUnit 5 from a declared `org.junit.jupiter` dependency and adds Tia's JUnit 5 module (`tia-junit5`) to the test runtime classpath itself - you do not declare it. The `settings.gradle` is the same as for [Spock](#gradle-and-spock).
+### Gradle and JUnit 5 or 6
+The same plugin supports JUnit 5 and JUnit 6. It detects either from a declared `org.junit.jupiter` dependency (JUnit 6 keeps the group) and adds Tia's JUnit 5 module (`tia-junit5`) to the test runtime classpath itself - you do not declare it. The `settings.gradle` is the same as for [Spock](#gradle-and-spock).
 
 `build.gradle`
 ```
@@ -269,7 +272,17 @@ test {
 
 Everything described for Spock applies: the `jacoco` plugin is applied for you when a test task updates the mapping, selection runs once per test task in the Gradle daemon, and every test task is wired. The difference is how the selection reaches the test JVM. As on Maven, the plugin puts Tia's JUnit 5 agent (`tia-junit5-agent`, classifier `runtime`) on the test JVM with `-javaagent`, placed after the JaCoCo agent. The agent marks the suites Tia skips `@Disabled`, so they are reported as skipped. The agent jar is resolved from your project's repositories at the plugin's version and is never added to any of your classpaths. It contains only Tia's own classes - its one library, ByteBuddy, is renamed into Tia's package - and uses your project's JUnit, so it cannot clash with the JUnit, ByteBuddy (for example Mockito's) or other libraries your tests use.
 
-If a project declares both Spock and JUnit Jupiter but its Tia tests are JUnit 5, set the framework explicitly - detection picks Spock when both are declared:
+Tia does not add the JUnit Platform launcher to your test runtime classpath. Declare it alongside JUnit, as JUnit recommends and Gradle 9 requires, and let the JUnit BOM align its version:
+
+```
+dependencies {
+    testImplementation platform('org.junit:junit-bom:6.1.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+```
+
+If a project declares both Spock and JUnit Jupiter but its Tia tests are JUnit 5 or 6, set the framework explicitly - detection picks Spock when both are declared:
 
 ```
 tia {
@@ -790,7 +803,7 @@ Two Surefire settings can hide this output even when a binding is present:
 |tiaRunSource|runSource|<string>|The label recorded in the history row's `run_source` column, overriding Tia's own detection. Leave unset unless the detection gets it wrong: Tia reads the CI marker environment variables (which a forked test JVM inherits), so a CI job is already labelled `CI` and a developer's machine `LOCAL` with nothing configured. Set it to distinguish a build the detection cannot tell apart from any other (a nightly, a performance rig), or to label a CI system Tia does not recognise. Can also be supplied as the `TIA_RUN_SOURCE` environment variable, which reaches the forked test JVM by inheritance. Set one of the two when tests run inside a Docker container or a hosted build service (e.g. Google Cloud Build), which do not pass the CI system's marker variables through, e.g. `docker run -e TIA_RUN_SOURCE=CI`. A distributed build takes its source from the plan step, so there it only needs to be set where the plan runs.| detected: `CI` when a CI marker environment variable is present, else `LOCAL`                 |false|
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.| ${project.build.directory}/tia                                                                |true|
 |tiaVcs|vcs|git, perforce|The version control system to read changes from. Optional: when unset, a configured server URI means Perforce and a `.git` entry in the project directory or a parent means Git. See [Choosing the version control system](#choosing-the-version-control-system).| detected |false|
-|N/A|testFramework|spock, junit5|Gradle only. The test framework Tia wires into the test tasks, overriding detection from the declared test dependencies. Needed when the framework is only declared through a BOM or platform, or when a JUnit 5 project also declares Spock (detection picks Spock when both are declared).| detected |false|
+|N/A|testFramework|spock, junit5|Gradle only. The test framework Tia wires into the test tasks, overriding detection from the declared test dependencies. `junit5` covers JUnit 5 and JUnit 6. Needed when the framework is only declared through a BOM or platform, or when a JUnit 5 or 6 project also declares Spock (detection picks Spock when both are declared).| detected |false|
 |tiaVcsServerUri|vcsServerUri|<string>|Specifies the server address of the VCS system as `host:port`, the same form as `P4PORT` (for example `perforce.example.com:1666`; Tia adds the `p4java://` protocol itself). Only currently used for Perforce; setting it selects Perforce when `tiaVcs` / `vcs` is unset.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsUserName|vcsUserName|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsPassword|vcsPassword|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the locally cached p4 ticket in the users home directory. |false|
@@ -1412,6 +1425,7 @@ Maven 3.8.1 or newer is required — see [Requirements](#requirements) and the [
 | |Git|Perforce|
 |-|---|--------|
 |Junit 5|✔|✔|
+|Junit 6|✔|✔|
 |Spock 2|x|x|
 
 ### Gradle
@@ -1419,6 +1433,7 @@ Maven 3.8.1 or newer is required — see [Requirements](#requirements) and the [
 | |Git|Perforce|
 |-|---|--------|
 |Junit 5|✔|✔|
+|Junit 6|✔|✔|
 |Spock 2|✔|✔|
 
 ## Credits
