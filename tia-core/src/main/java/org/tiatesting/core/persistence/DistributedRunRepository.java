@@ -30,7 +30,7 @@ class DistributedRunRepository extends JdbcRepository {
      *
      * @param dialect the SQL dialect rendering vendor-specific statements
      * @param connections opens a connection with the per-branch schema selected
-     * @param schemaManager bootstraps and migrates the schema before first use
+     * @param schemaManager bootstraps the schema before first use
      */
     DistributedRunRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager) {
         super(dialect, connections, schemaManager);

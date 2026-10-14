@@ -85,8 +85,7 @@ would count the wrong method.
 - **A re-seed keeps them** for every method still covered, because the re-seed clear-out only
   deletes catalogue rows no remaining coverage edge references. See
   [Forced runs and re-seed](forced-runs-and-reseed.md).
-- **An existing DB starts every method at zero.** The columns are added by an
-  `ADD COLUMN IF NOT EXISTS` migration with `DEFAULT 0`.
+- **A new catalogue row starts at zero.** Both columns are declared `DEFAULT 0`.
 
 ### Cost
 

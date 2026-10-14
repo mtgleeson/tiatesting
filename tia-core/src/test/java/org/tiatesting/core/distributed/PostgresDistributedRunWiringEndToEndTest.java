@@ -3,7 +3,6 @@ package org.tiatesting.core.distributed;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
-import org.tiatesting.core.persistence.dialect.PostgresDialect;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -47,28 +46,23 @@ class PostgresDistributedRunWiringEndToEndTest extends DistributedRunWiringEndTo
     }
 
     /**
-     * Drop every table this lifecycle writes, so each test starts from an empty store and the
-     * current DDL is recreated on first contact. The per-branch schema is selected first: the
-     * store's tables live there rather than in the {@code public} schema a raw connection starts
-     * in, and a drop issued against the default schema would silently no-op.
+     * Drop the per-branch schema so each test starts from an empty store and the current DDL is
+     * recreated in full on first contact. The whole schema is dropped rather than individual
+     * tables because {@code SchemaManager.ensureSchema} creates tables only when {@code tia_core}
+     * is absent, so a partial drop would leave the store missing tables.
      *
      * @throws SQLException if the cleanup connection or the drop statement fails
      */
     private static void cleanTables() throws SQLException {
         try (Connection connection = DriverManager.getConnection(POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD);
              Statement statement = connection.createStatement()) {
-            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH, null)));
-            statement.executeUpdate("DROP TABLE IF EXISTS tia_distributed_run_group_suite, "
-                    + "tia_distributed_run_method_stage, tia_distributed_run_group, "
-                    + "tia_distributed_run, tia_source_class_method, tia_source_class, "
-                    + "tia_test_suite, tia_test_suites_failed, tia_source_method, tia_core, "
-                    + "tia_pending_library_impacted_method, tia_library_publish, tia_library, "
-                    + "tia_test_run_history CASCADE");
+            statement.executeUpdate("DROP SCHEMA IF EXISTS " + BranchSchema.schemaName(BRANCH, null)
+                    + " CASCADE");
         }
     }
 
     /**
-     * Skip when Postgres is unreachable, clear the tables under test, and open the store through
+     * Skip when Postgres is unreachable, drop the branch schema, and open the store through
      * the production factory so the runners in this build share exactly the datastore a real
      * distributed build gives them.
      *

@@ -2,7 +2,7 @@ package org.tiatesting.core.persistence;
 
 /**
  * Table, column and index names of the Tia relational schema, shared by every JDBC class in this
- * package. {@link SchemaManager} creates and migrates the tables; the repositories read and write
+ * package. {@link SchemaManager} creates the tables; the repositories read and write
  * them. Kept in one place so a rename cannot leave the DDL and the queries disagreeing.
  */
 final class TiaSchema {

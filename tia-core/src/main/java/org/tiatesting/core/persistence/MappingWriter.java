@@ -38,7 +38,7 @@ class MappingWriter extends JdbcRepository {
      *
      * @param dialect the SQL dialect rendering vendor-specific statements
      * @param connections opens a connection with the per-branch schema selected
-     * @param schemaManager bootstraps and migrates the schema before first use
+     * @param schemaManager bootstraps the schema before first use
      */
     MappingWriter(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager) {
         super(dialect, connections, schemaManager);
@@ -403,12 +403,11 @@ class MappingWriter extends JdbcRepository {
      * <p>A writer that dies after allocating leaves its block unused. That is a harmless gap in
      * the id space - ids carry no meaning beyond identity.
      *
-     * <p>Does not call {@code ensureIdBlockTableExists} itself: every path that reaches this
-     * method does so through a {@code JdbcDataStore} instance that has already run
-     * {@code ensureSchema} on the same instance (it is the single schema-bootstrap entry point,
-     * called before both {@code getTiaCore} and the full-load read that production callers use
-     * ahead of a mapping persist), so the table is already guaranteed to exist. Re-checking it
-     * here on every call would add a redundant DDL round trip to the persist path.
+     * <p>Does not call {@code ensureSchema} itself: every path that reaches this method does so
+     * through a {@code JdbcDataStore} instance that has already run {@code ensureSchema} on the
+     * same instance (it is the single schema-bootstrap entry point, called before both
+     * {@code getTiaCore} and the full-load read that production callers use ahead of a mapping
+     * persist), so the table is already guaranteed to exist.
      *
      * @param connection the connection to allocate on; its auto-commit state is restored before
      *                   returning
