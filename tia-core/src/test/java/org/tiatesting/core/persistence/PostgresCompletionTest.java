@@ -11,7 +11,6 @@ import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
-import org.tiatesting.core.persistence.dialect.PostgresDialect;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -81,24 +80,23 @@ class PostgresCompletionTest {
     }
 
     /**
-     * Drop the four distributed-run tables and the history table so each test starts from a clean
-     * schema and the current DDL - including the distributed history columns - is recreated on
-     * first contact.
+     * Drop the per-branch schema so each test starts from an empty store and the current DDL is
+     * recreated in full on first contact. The whole schema is dropped rather than individual
+     * tables because {@code SchemaManager.ensureSchema} creates tables only when {@code tia_core}
+     * is absent, so a partial drop would leave the store missing tables.
      *
      * @throws SQLException if the cleanup connection or the drop statement fails
      */
     private static void cleanTables() throws SQLException {
         try (Connection connection = DriverManager.getConnection(POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD);
              Statement statement = connection.createStatement()) {
-            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH, null)));
-            statement.executeUpdate("DROP TABLE IF EXISTS tia_distributed_run_group_suite, "
-                    + "tia_distributed_run_method_stage, tia_distributed_run_group, "
-                    + "tia_distributed_run, tia_test_run_history CASCADE");
+            statement.executeUpdate("DROP SCHEMA IF EXISTS " + BranchSchema.schemaName(BRANCH, null)
+                    + " CASCADE");
         }
     }
 
     /**
-     * Skip when Postgres is unreachable, drop the tables under test, and open a fresh
+     * Skip when Postgres is unreachable, drop the branch schema, and open a fresh
      * Postgres-backed store through the production factory.
      *
      * @throws Exception if the connection guard, table cleanup, or store construction fails

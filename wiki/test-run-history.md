@@ -107,8 +107,6 @@ Note which distributed shape can reach the sealer at all: the completion guard r
 
 A build tool that retries failed tests persists once per attempt, so one test-task execution can leave several rows: the real run, then a row per Surefire rerun (`rerunFailingTestsCount`) or per Gradle `test-retry` round. A retry runs only the failures, ignores everything else and finishes in seconds, so as an ordinary row it would be credited nearly the whole full-suite baseline as time saved - the same build's savings counted again. A retry row is therefore flagged `rerun = true` and credited **zero** serial and wall-clock savings, and `SummaryStats` leaves rerun rows out of every history-derived figure: a rerun's short wall clock would pull the average run time down and push the average savings up although the build took no less time. Totals are unaffected, since a rerun row contributes zero. `ReportUtils.lastAllTestsRunGroupCount` skips rerun rows too - a rerun of an all-tests run keeps its zero ignored count but ran only the failures. How a retry is detected, and what else it persists differently, is in [Failed-suite tracking](failed-suite-tracking.md).
 
-The flag was added by migration (`BOOLEAN DEFAULT FALSE`). Rows written before it read as not reruns - nothing told retries apart then - so an older Maven retry row keeps the savings it was credited.
-
 Where it shows:
 
 - **Run detail page and `history-details` task output** - a `Rerun: yes/no` line.
@@ -118,8 +116,7 @@ Where it shows:
 ### Selection mode
 
 `selection_mode` records how the run's selection was decided: `SELECTIVE`, `SEED`, `SELECT_ALL`
-(`tiaSelectAllTests`) or `RESEED` (`tiaReseed`). It was added by migration with no default, so rows
-written before it read back null. Reports name the mode only for a seed or forced run: in the Savings
+(`tiaSelectAllTests`) or `RESEED` (`tiaReseed`). Reports name the mode only for a seed or forced run: in the Savings
 cell of the history table and `history` output (where a full run, which saves nothing, would
 otherwise dash), and as a `Selection:` line on the run detail page, which also replaces the all-zero
 selection counters with a line saying why every test ran. See

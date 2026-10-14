@@ -11,9 +11,6 @@ import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.TiaData;
 
 import java.io.File;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -21,9 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * Tests persistence of the Tia-level all-tests-run stats ({@code all_tests_run_time} /
  * {@code num_all_tests_runs}) on the {@code tia_core} table in {@link JdbcDataStore}: a round-trip
- * through {@code persistCoreData} / {@code getTiaCore}, and the migration that adds the columns to
- * a DB created without them (old rows read back as 0). Uses a temp-directory embedded H2 database
- * per test.
+ * through {@code persistCoreData} / {@code getTiaCore}. Uses a temp-directory embedded H2
+ * database per test.
  */
 class JdbcDataStoreAllTestsRunTimeTest {
 
@@ -81,38 +77,5 @@ class JdbcDataStoreAllTestsRunTimeTest {
         // then
         assertEquals(1234L, loaded.getTestStats().getAllTestsRunTime());
         assertEquals(2L, loaded.getTestStats().getNumAllTestsRuns());
-    }
-
-    /**
-     * A {@code tia_core} table predating the all-tests columns gains them via migration on next
-     * contact, and the pre-existing row reads back with both values 0.
-     */
-    @Test
-    void migration_addsAllTestsColumns_oldRowReadsZero() throws Exception {
-        // given - seed a core row, then drop the columns to simulate a pre-migration DB. The
-        // engine stays alive for the JVM (DB_CLOSE_DELAY=-1), so the drop is visible to a fresh
-        // datastore against the same file.
-        dataStore.getTiaData();
-        dataStore.persistCoreData(coreData(999L, 5L));
-
-        try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
-                settings.getUsername(), settings.getPassword());
-             Statement statement = connection.createStatement()) {
-            // a raw JDBC connection defaults to the vendor's default schema, not the branch schema
-            // JdbcDataStore selects on its own connections - select it explicitly before altering
-            // the unqualified table name.
-            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test", null)));
-            statement.executeUpdate("ALTER TABLE tia_core DROP COLUMN all_tests_run_time");
-            statement.executeUpdate("ALTER TABLE tia_core DROP COLUMN num_all_tests_runs");
-        }
-
-        // when - a fresh datastore re-runs ensureSchema (via getTiaCore), which must re-add them
-        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
-        TiaData loaded = migrated.getTiaCore();
-        migrated.close();
-
-        // then
-        assertEquals(0L, loaded.getTestStats().getAllTestsRunTime());
-        assertEquals(0L, loaded.getTestStats().getNumAllTestsRuns());
     }
 }

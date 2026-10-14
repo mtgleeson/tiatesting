@@ -366,50 +366,6 @@ class JdbcDataStoreDistributedPlanTest {
     }
 
     /**
-     * Verify that the {@code seed_run} column is backfilled onto a run table created before the
-     * column existed. {@code CREATE TABLE IF NOT EXISTS} never alters an existing table, so without
-     * the {@code ADD COLUMN IF NOT EXISTS} migration every plan write against a database an earlier
-     * build wrote would fail with "column not found" - the whole distributed feature would stop
-     * working on exactly the databases already using it.
-     *
-     * <p>The pre-migration shape is recreated literally rather than by disabling the migration,
-     * and the plan is written through a second datastore instance because schema bootstrap is
-     * memoized per instance: the store this test's {@code setUp} built has already ensured the
-     * schema and would not re-run the DDL.
-     *
-     * @throws Exception if the pre-migration table cannot be recreated
-     */
-    @Test
-    void shouldBackfillTheSeedRunColumnOntoARunTableThatPredatesIt() throws Exception {
-        // given - the run table exactly as an earlier build of the branch created it
-        try (Connection connection = dataStore.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate("DROP TABLE tia_distributed_run");
-            statement.executeUpdate("CREATE TABLE tia_distributed_run ("
-                    + "run_id VARCHAR(255) NOT NULL PRIMARY KEY, branch VARCHAR(255) NOT NULL, "
-                    + "commit_value VARCHAR(255) NOT NULL, status VARCHAR(16) NOT NULL, "
-                    + "group_count INT NOT NULL, target_run_time_ms BIGINT, "
-                    + "estimated_total_ms BIGINT NOT NULL, created_at BIGINT NOT NULL, "
-                    + "sealed_by VARCHAR(255), sealed_at BIGINT, drain_result BLOB)");
-        }
-        JdbcDataStore migratedStore = new JdbcDataStore(new H2Dialect(),
-                new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test", null));
-
-        try {
-            // when
-            migratedStore.persistDistributedRunPlan(seedRunPlan("run-migrated"));
-
-            // then
-            assertTrue(migratedStore.readDistributedRun("run-migrated").isFullRun(),
-                    "the migration must add seed_run to a table that predates it, and the plan "
-                            + "write must then store the flag as usual");
-        } finally {
-            migratedStore.close();
-        }
-    }
-
-    /**
      * Verify that the groups available round-trip independently of the groups used, so a build
      * that planned one group out of six available reads back as exactly that.
      */
@@ -482,46 +438,6 @@ class JdbcDataStoreDistributedPlanTest {
 
         // then
         assertNull(read.getRunSource());
-    }
-
-    /**
-     * Verify that the {@code run_source} column is backfilled onto a run table created before the
-     * column existed, since the plan write names it and would otherwise fail with "column not
-     * found" on every database an earlier build created. Recreates the pre-migration table
-     * literally and writes through a second datastore instance, for the same reasons as {@link
-     * #shouldBackfillTheSeedRunColumnOntoARunTableThatPredatesIt}.
-     *
-     * @throws Exception if the pre-migration table cannot be recreated
-     */
-    @Test
-    void shouldBackfillTheRunSourceColumnOntoARunTableThatPredatesIt() throws Exception {
-        // given - the run table as it was before run_source was recorded
-        try (Connection connection = dataStore.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate("DROP TABLE tia_distributed_run");
-            statement.executeUpdate("CREATE TABLE tia_distributed_run ("
-                    + "run_id VARCHAR(255) NOT NULL PRIMARY KEY, branch VARCHAR(255) NOT NULL, "
-                    + "commit_value VARCHAR(255) NOT NULL, status VARCHAR(16) NOT NULL, "
-                    + "group_count INT NOT NULL, target_run_time_ms BIGINT, "
-                    + "estimated_total_ms BIGINT NOT NULL, created_at BIGINT NOT NULL, "
-                    + "sealed_by VARCHAR(255), sealed_at BIGINT, drain_result BLOB, "
-                    + "seed_run BOOLEAN DEFAULT FALSE, groups_available INT)");
-        }
-        JdbcDataStore migratedStore = new JdbcDataStore(new H2Dialect(),
-                new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test", null));
-
-        try {
-            // when
-            migratedStore.persistDistributedRunPlan(planWithRunSource("run-migrated", "CI"));
-
-            // then
-            assertEquals("CI", migratedStore.readDistributedRun("run-migrated").getRunSource(),
-                    "the migration must add run_source to a table that predates it, and the plan "
-                            + "write must then store the source as usual");
-        } finally {
-            migratedStore.close();
-        }
     }
 
     /**

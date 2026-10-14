@@ -28,7 +28,7 @@ import java.util.*;
  * selected on every connection, and {@link #close()}) and delegates each area of the schema to a
  * package-private repository sharing that connection source:
  * <ul>
- *   <li>{@link SchemaManager} - table creation and migrations</li>
+ *   <li>{@link SchemaManager} - table creation</li>
  *   <li>{@link MappingReader} / {@link MappingWriter} - the suite-to-method mapping and core row
  *       reads, and the mapping writes</li>
  *   <li>{@link SealRepository} - the core row write and the seal transaction</li>
@@ -104,8 +104,8 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            // Bootstrap the schema (create on first contact, idempotent migrations on
-            // existing DBs). A freshly created DB has no mapping - return the empty TiaData.
+            // Bootstrap the schema (create on first contact). A freshly created DB has no
+            // mapping - return the empty TiaData.
             if (!schemaManager.ensureSchema(connection)){
                 return tiaData;
             } else {

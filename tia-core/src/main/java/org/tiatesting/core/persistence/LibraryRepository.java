@@ -26,7 +26,7 @@ class LibraryRepository extends JdbcRepository {
      *
      * @param dialect the SQL dialect rendering vendor-specific statements
      * @param connections opens a connection with the per-branch schema selected
-     * @param schemaManager bootstraps and migrates the schema before first use
+     * @param schemaManager bootstraps the schema before first use
      */
     LibraryRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager) {
         super(dialect, connections, schemaManager);
@@ -35,16 +35,14 @@ class LibraryRepository extends JdbcRepository {
     /**
      * Read every tracked library. Implements {@link DataStore#readTrackedLibraries}.
      *
-     * @return the tracked libraries keyed by group:artifact; empty if the library table does not exist yet
+     * @return the tracked libraries keyed by group:artifact; empty if none are tracked
      */
     Map<String, TrackedLibrary> readTrackedLibraries() {
         Map<String, TrackedLibrary> libraries = new HashMap<>();
         Connection connection = getConnection();
 
         try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY)) {
-                return libraries;
-            }
+            schemaManager.ensureSchema(connection);
             String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY;
             Statement statement = connection.createStatement();
             ResultSet resultSet = statement.executeQuery(sql);
@@ -81,6 +79,7 @@ class LibraryRepository extends JdbcRepository {
         Connection connection = getConnection();
 
         try {
+            schemaManager.ensureSchema(connection);
             persistTrackedLibrary(connection, trackedLibrary);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -102,7 +101,6 @@ class LibraryRepository extends JdbcRepository {
      * @throws SQLException if the upsert fails
      */
     void persistTrackedLibrary(Connection connection, TrackedLibrary trackedLibrary) throws SQLException {
-        schemaManager.ensureLibraryTableExists(connection);
         String sql = dialect.upsert(TABLE_TIA_LIBRARY,
                 Arrays.asList(COL_GROUP_ARTIFACT, COL_PROJECT_DIR, COL_SOURCE_DIRS_CSV,
                         COL_MAPPING_BASELINE_COMMIT, COL_LAST_APPLIED_SEQ),
@@ -132,9 +130,7 @@ class LibraryRepository extends JdbcRepository {
         Connection connection = getConnection();
 
         try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY)) {
-                return;
-            }
+            schemaManager.ensureSchema(connection);
             String sql = "DELETE FROM " + TABLE_TIA_LIBRARY + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
             PreparedStatement ps = connection.prepareStatement(sql);
             ps.setString(1, groupArtifact);
@@ -155,16 +151,14 @@ class LibraryRepository extends JdbcRepository {
      * Read one library's pending impacted-method stamps. Implements {@link DataStore#readPendingLibraryImpactedMethods}.
      *
      * @param groupArtifact the library's group:artifact key
-     * @return the library's pending batches; empty if none or the table does not exist yet
+     * @return the library's pending batches; empty if none
      */
     List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(final String groupArtifact) {
         List<PendingLibraryImpactedMethod> result = new ArrayList<>();
         Connection connection = getConnection();
 
         try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
-                return result;
-            }
+            schemaManager.ensureSchema(connection);
             String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
                     + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -186,16 +180,14 @@ class LibraryRepository extends JdbcRepository {
     /**
      * Read every library's pending impacted-method stamps. Implements {@link DataStore#readAllPendingLibraryImpactedMethods}.
      *
-     * @return all pending batches; empty if none or the table does not exist yet
+     * @return all pending batches; empty if none
      */
     List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods() {
         List<PendingLibraryImpactedMethod> result = new ArrayList<>();
         Connection connection = getConnection();
 
         try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
-                return result;
-            }
+            schemaManager.ensureSchema(connection);
             String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD;
             Statement statement = connection.createStatement();
             result = buildPendingBatchesFromResultSet(statement.executeQuery(sql));
@@ -221,7 +213,7 @@ class LibraryRepository extends JdbcRepository {
         Connection connection = getConnection();
 
         try {
-            schemaManager.ensurePendingLibraryImpactedMethodTableExists(connection);
+            schemaManager.ensureSchema(connection);
 
             if (!pending.getSourceMethodIds().isEmpty()) {
                 String insertSql = dialect.upsert(TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD,
@@ -263,6 +255,7 @@ class LibraryRepository extends JdbcRepository {
         Connection connection = getConnection();
 
         try {
+            schemaManager.ensureSchema(connection);
             deletePendingLibraryImpactedMethods(connection, groupArtifact, publishSeq);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -286,9 +279,6 @@ class LibraryRepository extends JdbcRepository {
      */
     void deletePendingLibraryImpactedMethods(Connection connection, String groupArtifact,
                                                      long publishSeq) throws SQLException {
-        if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
-            return;
-        }
         String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
                 + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_PUBLISH_SEQ + " = ?";
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -307,9 +297,7 @@ class LibraryRepository extends JdbcRepository {
     List<PendingLibraryForcedSelection> readAllPendingLibraryForcedSelections() {
         Connection connection = getConnection();
         try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
-                return new ArrayList<>();
-            }
+            schemaManager.ensureSchema(connection);
             String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION;
             Statement statement = connection.createStatement();
             return buildForcedBatchesFromResultSet(statement.executeQuery(sql));
@@ -333,9 +321,7 @@ class LibraryRepository extends JdbcRepository {
     List<PendingLibraryForcedSelection> readPendingLibraryForcedSelections(final String groupArtifact) {
         Connection connection = getConnection();
         try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
-                return new ArrayList<>();
-            }
+            schemaManager.ensureSchema(connection);
             String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION
                     + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -361,6 +347,7 @@ class LibraryRepository extends JdbcRepository {
     void deletePendingLibraryForcedSelections(final String groupArtifact, final long publishSeq) {
         Connection connection = getConnection();
         try {
+            schemaManager.ensureSchema(connection);
             deletePendingLibraryForcedSelections(connection, groupArtifact, publishSeq);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -384,9 +371,6 @@ class LibraryRepository extends JdbcRepository {
      */
     void deletePendingLibraryForcedSelections(Connection connection, String groupArtifact,
                                                        long publishSeq) throws SQLException {
-        if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
-            return;
-        }
         String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION
                 + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_PUBLISH_SEQ + " = ?";
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -401,16 +385,14 @@ class LibraryRepository extends JdbcRepository {
      * Read one library's publish ledger. Implements {@link DataStore#readLibraryPublishes}.
      *
      * @param groupArtifact the library's group:artifact key
-     * @return the library's publishes; empty if none or the ledger table does not exist yet
+     * @return the library's publishes; empty if none
      */
     List<LibraryPublish> readLibraryPublishes(final String groupArtifact) {
         List<LibraryPublish> result = new ArrayList<>();
         Connection connection = getConnection();
 
         try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
-                return result;
-            }
+            schemaManager.ensureSchema(connection);
             String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
                     + " WHERE " + COL_GROUP_ARTIFACT + " = ? ORDER BY " + COL_PUBLISH_SEQ + " ASC";
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -449,7 +431,7 @@ class LibraryRepository extends JdbcRepository {
         Connection connection = getConnection();
 
         try {
-            schemaManager.ensureLibraryPublishTableExists(connection);
+            schemaManager.ensureSchema(connection);
             connection.setAutoCommit(false);
 
             // Assign the next per-library sequence inside the insert transaction. Under a
@@ -501,7 +483,6 @@ class LibraryRepository extends JdbcRepository {
             // exist without the forced selections its own static rules produced.
             int forcedRowCount = 0;
             if (forcedSelections != null && !forcedSelections.isEmpty()) {
-                schemaManager.ensurePendingLibraryForcedSelectionTableExists(connection);
                 String forcedSql = "INSERT INTO " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION + " ("
                         + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_PUBLISH_SEQ + ", "
                         + COL_RULE_NAME + ", " + COL_MODE + ", " + COL_SUITE_NAME_PATTERN + ") "
@@ -556,16 +537,14 @@ class LibraryRepository extends JdbcRepository {
     /**
      * Read every library's publish ledger. Implements {@link DataStore#readAllLibraryPublishes}.
      *
-     * @return all publishes; empty if none or the ledger table does not exist yet
+     * @return all publishes; empty if none
      */
     List<LibraryPublish> readAllLibraryPublishes() {
         List<LibraryPublish> result = new ArrayList<>();
         Connection connection = getConnection();
 
         try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
-                return result;
-            }
+            schemaManager.ensureSchema(connection);
             String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
                     + " ORDER BY " + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + " ASC";
             Statement statement = connection.createStatement();
@@ -598,9 +577,7 @@ class LibraryRepository extends JdbcRepository {
         Connection connection = getConnection();
 
         try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
-                return null;
-            }
+            schemaManager.ensureSchema(connection);
 
             LibraryPublish byHash = findHighestSeqPublish(connection, groupArtifact, COL_JAR_HASH, jarHash);
             if (byHash != null) {

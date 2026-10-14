@@ -31,7 +31,7 @@ class SealRepository extends JdbcRepository {
      *
      * @param dialect the SQL dialect rendering vendor-specific statements
      * @param connections opens a connection with the per-branch schema selected
-     * @param schemaManager bootstraps and migrates the schema before first use
+     * @param schemaManager bootstraps the schema before first use
      * @param mappingReader reads the existing core row the core write accumulates onto
      * @param mappingWriter writes the method catalogue, re-seed clear-out and unsealed-flag clear
      * @param libraryRepository writes the library drain cleanup and tracked-library baselines
@@ -88,7 +88,7 @@ class SealRepository extends JdbcRepository {
         try {
             // H2 implicitly commits on DDL, so this must run before setAutoCommit(false) - running
             // it inside the transaction would silently break atomicity.
-            schemaManager.ensureLibraryTableExists(connection);
+            schemaManager.ensureSchema(connection);
             connection.setAutoCommit(false);
 
             try {

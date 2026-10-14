@@ -10,9 +10,6 @@ import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 
 import java.io.File;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -20,14 +17,12 @@ import java.util.Map;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * Tests the persistence of a method's exact line ranges (the nullable {@code line_ranges} column)
  * in {@link JdbcDataStore}: round trips through the method catalogue and the distributed-run
- * staging table, and the migration that adds the column to a DB created without it. Uses a
- * temp-directory embedded H2 database per test.
+ * staging table. Uses a temp-directory embedded H2 database per test.
  */
 class JdbcDataStoreLineRangesTest {
 
@@ -120,42 +115,6 @@ class JdbcDataStoreLineRangesTest {
         // then
         assertArrayEquals(CONSTRUCTOR_RANGES, read.get(CONSTRUCTOR_ID).getLineRanges());
         assertNull(read.get(PLAIN_METHOD_ID).getLineRanges());
-    }
-
-    /**
-     * A DB whose catalogue and staging tables predate the {@code line_ranges} column gains it on
-     * next contact: the pre-existing row reads back with no ranges, and new ranges can be written.
-     *
-     * @throws Exception if the raw JDBC column drop fails
-     */
-    @Test
-    void migrationAddsLineRangesColumns() throws Exception {
-        // given - seed a method, then drop the columns to simulate a pre-migration DB. The engine
-        // is kept alive for the JVM (DB_CLOSE_DELAY=-1), so the drop is visible to a fresh
-        // datastore opened against the same file.
-        Map<Integer, MethodImpactTracker> legacy = new HashMap<>();
-        legacy.put(PLAIN_METHOD_ID, new MethodImpactTracker("com/example/Car.drive.()V", 30, 32));
-        dataStore.persistSourceMethods(legacy);
-        try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
-                settings.getUsername(), settings.getPassword());
-             Statement statement = connection.createStatement()) {
-            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test", null)));
-            statement.executeUpdate("ALTER TABLE tia_source_method DROP COLUMN line_ranges");
-            statement.executeUpdate("ALTER TABLE tia_distributed_run_method_stage DROP COLUMN line_ranges");
-        }
-
-        // when - a fresh datastore re-runs ensureSchema, which must re-add both columns
-        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
-                BranchSchema.schemaName("test", null));
-        Map<Integer, MethodImpactTracker> legacyRead = migrated.getTiaData().getMethodsTracked();
-        migrated.persistStagedMethodTrackers("run-1", catalogue(), Collections.emptySet());
-        Map<Integer, MethodImpactTracker> stagedRead = migrated.readStagedMethodTrackers("run-1");
-        migrated.close();
-
-        // then
-        assertEquals(30, legacyRead.get(PLAIN_METHOD_ID).getLineNumberStart());
-        assertNull(legacyRead.get(PLAIN_METHOD_ID).getLineRanges());
-        assertArrayEquals(CONSTRUCTOR_RANGES, stagedRead.get(CONSTRUCTOR_ID).getLineRanges());
     }
 
     /**
