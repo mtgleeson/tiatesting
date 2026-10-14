@@ -41,7 +41,7 @@ You never declare a VCS library. The plugin works out which VCS the project uses
 - **Maven**: 3.8.1 or newer is required for `tia-maven-plugin`. The floor is enforced automatically via `<prerequisites>` in the plugin's POM - invoking the plugin under an older Maven fails with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the design decision behind picking 3.8.1 specifically.
 - **Java**: 8 or newer. Tia itself runs on Java 8; JUnit 6 needs Java 17 or newer, so a JUnit 6 project is on 17+ anyway.
 - **JUnit 6**: supported through the same `tia-junit5` module as JUnit 5. On Maven, JUnit 6 needs Surefire/Failsafe 3.0.0 or newer.
-- **Gradle**: no version floor is enforced beyond what your test framework's Gradle support requires.
+- **Gradle**: 6.1 through 9.x. Applying the plugin under a Gradle older than 6.1 fails with a clear "Tia requires Gradle 6.1 or newer" error; 6.1 added the shared build services API the plugin uses. Tested end to end on 6.1, 8.4, 8.14 and 9.8.1. On Gradle 9, a JUnit project must declare `junit-platform-launcher` on its test runtime classpath (see [Gradle and JUnit 5 or 6](#gradle-and-junit-5-or-6)). Gradle 10 is not yet supported. See the [Wiki](WIKI.md) for the reasoning behind the floor.
 - **SLF4J on the test classpath** (only needed if you want to see Tia's logging from inside the test run): Tia logs via SLF4J but deliberately does not bring `slf4j-api` or a binding along transitively, so on Maven your test project must already provide them; most projects do. The Gradle plugin adds `slf4j-api` itself, so there only the binding is up to you. See [Seeing Tia's log output](#seeing-tias-log-output).
 
 ### Maven and JUnit 5 or 6
@@ -1428,7 +1428,9 @@ Maven 3.8.1 or newer is required — see [Requirements](#requirements) and the [
 |Junit 6|✔|✔|
 |Spock 2|x|x|
 
-### Gradle
+### Gradle 6.1 - 9.x
+
+Gradle 6.1 through 9.x is supported - see [Requirements](#requirements).
 
 | |Git|Perforce|
 |-|---|--------|
