@@ -1,10 +1,9 @@
 package org.tiatesting.gradle.plugin;
 
+import org.gradle.util.GradleVersion;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -15,13 +14,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies the warning for a test task whose JUnit Platform launcher is too old to call Tia's
- * listeners.
+ * Verifies the warning for a test task whose JUnit Platform launcher Tia cannot work with.
  */
 class JunitPlatformLauncherCheckTest {
 
-    @TempDir
-    File gradleHome;
+    private static final List<File> NO_LAUNCHER = Collections.singletonList(new File("junit-jupiter-api-5.7.0.jar"));
 
     @Test
     void declaredLauncherOlderThan18IsWarned() {
@@ -30,7 +27,7 @@ class JunitPlatformLauncherCheckTest {
                 new File("junit-platform-launcher-1.7.2.jar"));
 
         // when
-        String warning = JunitPlatformLauncherCheck.warningFor(":test", classpath, null, "8.4");
+        String warning = JunitPlatformLauncherCheck.warningFor(":test", classpath, GradleVersion.version("8.4"));
 
         // then
         assertTrue(warning.contains("':test' declares junit-platform-launcher 1.7.2"), warning);
@@ -38,52 +35,60 @@ class JunitPlatformLauncherCheckTest {
     }
 
     @Test
-    void declaredLauncherWinsOverAnOldBundledOne() throws IOException {
+    void declaredLauncher18OrNewerIsNotWarnedOnOldGradle() {
         // given
-        bundle("junit-platform-launcher-1.3.1.jar");
         List<File> classpath = Collections.singletonList(new File("junit-platform-launcher-1.11.3.jar"));
 
         // when
-        String warning = JunitPlatformLauncherCheck.warningFor(":test", classpath, gradleHome, "6.1");
+        String warning = JunitPlatformLauncherCheck.warningFor(":test", classpath, GradleVersion.version("6.1"));
 
         // then
         assertNull(warning);
     }
 
     @Test
-    void oldBundledLauncherIsWarnedWhenNoneIsDeclared() throws IOException {
-        // given
-        bundle("junit-platform-engine-1.3.1.jar", "junit-platform-launcher-1.3.1.jar");
-        List<File> classpath = Collections.singletonList(new File("junit-jupiter-api-5.7.0.jar"));
+    void noDeclaredLauncherIsWarnedOnGradle6() {
+        // given - Gradle 6.x bundles a launcher older than 1.8
 
         // when
-        String warning = JunitPlatformLauncherCheck.warningFor(":test", classpath, gradleHome, "6.1");
+        String warning = JunitPlatformLauncherCheck.warningFor(":test", NO_LAUNCHER, GradleVersion.version("6.5.1"));
 
         // then
-        assertTrue(warning.contains("1.3.1 launcher bundled with Gradle 6.1"), warning);
+        assertTrue(warning.contains("declares no junit-platform-launcher, so Gradle 6.5.1"), warning);
         assertTrue(warning.contains("testRuntimeOnly 'org.junit.platform:junit-platform-launcher'"), warning);
     }
 
     @Test
-    void bundled18LauncherIsNotWarned() throws IOException {
-        // given
-        bundle("junit-platform-launcher-1.8.2.jar");
+    void noDeclaredLauncherIsWarnedOnGradle7() {
+        // given - Gradle 7.x bundles 1.8.2 from 7.5, but loads it where Tia's listener cannot see it
 
         // when
-        String warning = JunitPlatformLauncherCheck.warningFor(":test", Collections.<File>emptyList(),
-                gradleHome, "8.14");
+        String warning = JunitPlatformLauncherCheck.warningFor(":test", NO_LAUNCHER, GradleVersion.version("7.6.4"));
 
         // then
-        assertNull(warning);
+        assertTrue(warning.contains("NoClassDefFoundError"), warning);
     }
 
     @Test
-    void noLauncherAnywhereIsNotWarned() {
-        // given - Gradle 9 bundles none and fails the task itself
+    void noDeclaredLauncherIsNotWarnedOnGradle8OrNewer() {
+        // given - Gradle 8 bundles a usable launcher; Gradle 9 bundles none and fails the task itself
 
         // when
-        String warning = JunitPlatformLauncherCheck.warningFor(":test", Collections.<File>emptyList(),
-                gradleHome, "9.8.1");
+        String onGradle8 = JunitPlatformLauncherCheck.warningFor(":test", NO_LAUNCHER, GradleVersion.version("8.3"));
+        String onGradle9 = JunitPlatformLauncherCheck.warningFor(":test", NO_LAUNCHER, GradleVersion.version("9.8.1"));
+
+        // then
+        assertNull(onGradle8);
+        assertNull(onGradle9);
+    }
+
+    @Test
+    void releaseCandidateOfGradle8IsTreatedAsGradle8() {
+        // given
+        GradleVersion gradle = GradleVersion.version("8.0-rc-1");
+
+        // when
+        String warning = JunitPlatformLauncherCheck.warningFor(":test", NO_LAUNCHER, gradle);
 
         // then
         assertNull(warning);
@@ -122,19 +127,5 @@ class JunitPlatformLauncherCheckTest {
 
         // then
         assertTrue(supported);
-    }
-
-    /**
-     * Put empty jars in the fake Gradle home's bundled-jars directory.
-     *
-     * @param names the jar file names
-     * @throws IOException if a file cannot be created
-     */
-    private void bundle(final String... names) throws IOException {
-        File dir = new File(gradleHome, JunitPlatformLauncherCheck.GRADLE_BUNDLED_DIR);
-        assertTrue(dir.mkdirs());
-        for (String name : names) {
-            assertTrue(new File(dir, name).createNewFile());
-        }
     }
 }

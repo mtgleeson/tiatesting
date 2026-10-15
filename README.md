@@ -41,7 +41,7 @@ You never declare a VCS library. The plugin works out which VCS the project uses
 - **Maven**: 3.8.1 or newer is required for `tia-maven-plugin`. The floor is enforced automatically via `<prerequisites>` in the plugin's POM - invoking the plugin under an older Maven fails with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the design decision behind picking 3.8.1 specifically.
 - **Java**: 8 or newer. Tia itself runs on Java 8; JUnit 6 needs Java 17 or newer, so a JUnit 6 project is on 17+ anyway.
 - **JUnit 6**: supported through the same `tia-junit5` module as JUnit 5. On Maven, JUnit 6 needs Surefire/Failsafe 3.0.0 or newer.
-- **Gradle**: 6.1 and newer. Applying the plugin under a Gradle older than 6.1 fails with a clear "Tia requires Gradle 6.1 or newer" error; 6.1 added the shared build services API the plugin uses. Tested end to end on 6.1, 8.4, 8.14 and 9.8.1. The plugin uses nothing Gradle 9 reports as deprecated, which is what Gradle 10 removes, but Gradle 10 itself has not been tested yet. A JUnit or Spock project should declare `junit-platform-launcher` on its test runtime classpath: Gradle 9 requires it, and Gradle versions that bundle a launcher older than 1.8 (such as 6.x) otherwise run your tests without Tia recording anything. The plugin warns when that happens (see [Gradle and JUnit 5 or 6](#gradle-and-junit-5-or-6)). See the [Wiki](WIKI.md) for the reasoning behind the floor.
+- **Gradle**: 6.1 - 6.5.x, 7.6.4 - 7.6.x, and 8.3 or newer. Applying the plugin under a Gradle older than 6.1 fails with a clear "Tia requires Gradle 6.1 or newer" error; 6.1 added the shared build services API the plugin uses. Gradle 6.6 - 7.6.3 and 8.0 - 8.2.1 cannot load the plugin's H2 jar and fail with "Unsupported class file major version 65"; upgrade to 7.6.4 or 8.3. Tested end to end on 6.1, 6.5.1, 7.6.4, 7.6.6, 8.3, 8.4, 8.14 and 9.8.1. The plugin uses nothing Gradle 9 reports as deprecated, which is what Gradle 10 removes, but Gradle 10 itself has not been tested yet. A JUnit or Spock project should declare `junit-platform-launcher` on its test runtime classpath: Gradle 9 requires it, and without it Tia records nothing on Gradle 6 and fails the test JVM on Gradle 7. The plugin warns when that happens (see [Gradle and JUnit 5 or 6](#gradle-and-junit-5-or-6)). See the [Wiki](WIKI.md) for the reasons behind these limits.
 - **SLF4J on the test classpath** (only needed if you want to see Tia's logging from inside the test run): Tia logs via SLF4J but deliberately does not bring `slf4j-api` or a binding along transitively, so on Maven your test project must already provide them; most projects do. The Gradle plugin adds `slf4j-api` itself, so there only the binding is up to you. See [Seeing Tia's log output](#seeing-tias-log-output).
 
 ### Maven and JUnit 5 or 6
@@ -282,7 +282,7 @@ dependencies {
 }
 ```
 
-Declare it on older Gradle too. Tia's listener needs launcher 1.8 or newer, and with none declared, Gradle before 9 uses the launcher it bundles: 1.3.1 on Gradle 6.x, too old for Tia. The tests still run, but Tia records nothing. When a test task would run on a launcher older than 1.8, declared or bundled, the plugin logs a warning naming the launcher version and the fix.
+Declare it on older Gradle too. Tia's listener needs launcher 1.8 or newer, and with none declared, Gradle before 9 uses the launcher it bundles. On Gradle 6.x that launcher is older than 1.8: the tests still run, but Tia records nothing. On Gradle 7.x Tia's listener cannot see it, and the test JVM fails with `NoClassDefFoundError`. When a test task declares a launcher older than 1.8, or declares none on Gradle before 8, the plugin logs a warning naming the cause and the fix.
 
 If a project declares both Spock and JUnit Jupiter but its Tia tests are JUnit 5 or 6, set the framework explicitly - detection picks Spock when both are declared. `junit6` is accepted as another name for `junit5`; both select the same JUnit support:
 
@@ -1430,9 +1430,9 @@ Maven 3.8.1 or newer is required — see [Requirements](#requirements) and the [
 |Junit 6|✔|✔|
 |Spock 2|x|x|
 
-### Gradle 6.1+
+### Gradle 6.1 - 6.5, 7.6.4+, 8.3+
 
-Gradle 6.1 and newer is supported - see [Requirements](#requirements).
+Gradle 6.1 - 6.5.x, 7.6.4 - 7.6.x and 8.3 or newer are supported - see [Requirements](#requirements).
 
 | |Git|Perforce|
 |-|---|--------|

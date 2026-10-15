@@ -25,8 +25,9 @@ wiki can also be read front to back.
 - [Why Tia requires Maven 3.8.1+](wiki/maven-version-requirement.md) - the CVE-driven floor and
   how the `<prerequisites>` check surfaces it to users.
 - [Supported Gradle versions](wiki/gradle-version-support.md) - why the plugin needs Gradle 6.1+,
-  how the floor is checked before a missing API can fail the build, what has been tested, why a
-  JUnit Platform launcher older than 1.8 makes Tia record nothing, and Gradle 10 readiness.
+  how the floor is checked before a missing API can fail the build, why 6.6 - 7.6.3 and 8.0 - 8.2.1
+  cannot load the plugin's H2 jar, what has been tested, what Gradle's bundled JUnit Platform launcher
+  does to Tia, and Gradle 10 readiness.
 - [Profiling select-tests against a synthetic large DB](wiki/profiling-select-tests.md) - the
   `generateLargeTiaDb` / `profileSelectTests` harness for measuring the hot read path.
 - [Test-run history log](wiki/test-run-history.md) - the `tia_test_run_history` audit table, the
