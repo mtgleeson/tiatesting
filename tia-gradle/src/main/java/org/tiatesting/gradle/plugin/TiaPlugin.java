@@ -481,7 +481,7 @@ public class TiaPlugin implements Plugin<Project> {
                  DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), selectSuffix)) {
                 List<String> sourceFilesDirs = StringUtil.splitCsv(getSourceFilesDirs());
                 List<String> testFilesDirs = StringUtil.splitCsv(getTestFilesDirs());
-                TestSelector testSelector = new TestSelector(dataStore, ProjectDirs.resolve(project.getProjectDir(), getProjectDir()));
+                TestSelector testSelector = new TestSelector(dataStore, resolveProjectDir());
                 LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
                 StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
                 // Read-only preview: no mapping writes (updateDBMapping=false).
@@ -823,7 +823,6 @@ public class TiaPlugin implements Plugin<Project> {
     private void createVcsConfiguration() {
         Configuration configuration = project.getConfigurations().create(VCS_CONFIGURATION_NAME);
         configuration.setCanBeConsumed(false);
-        configuration.setVisible(false);
         configuration.setDescription("The Tia VCS provider module, resolved when a Tia task reads the VCS.");
         Map<String, String> tiaCore = new HashMap<>();
         tiaCore.put("group", VCSReaderFactory.PROVIDER_GROUP_ID);
@@ -875,7 +874,30 @@ public class TiaPlugin implements Plugin<Project> {
      * @return the absolute project directory the VCS is detected and read from
      */
     private String resolveVcsProjectDir() {
-        return ProjectDirs.resolve(project.getProjectDir(), getProjectDir()).getPath();
+        return resolveProjectDir().getPath();
+    }
+
+    /**
+     * The configured project directory, resolved against the Gradle project's directory when
+     * relative and the Gradle project's directory when unset. Tia's task classes call this rather
+     * than their own {@code getProject()}: a task reading its own project while it executes is
+     * deprecated in Gradle 9 and refused by Gradle 10.
+     *
+     * @return the absolute project directory test selection reads source and test files under
+     */
+    File resolveProjectDir() {
+        return ProjectDirs.resolve(project.getProjectDir(), getProjectDir());
+    }
+
+    /**
+     * This build's distributed-run claim registry. Reached through the plugin, which holds the
+     * project, so {@link TiaDistCompleteTask} need not read its own project while it executes - which
+     * Gradle 10 refuses.
+     *
+     * @return the claim registry of the build this plugin's project belongs to
+     */
+    DistributedClaimRegistry distributedClaimRegistry() {
+        return DistributedClaimRegistry.forBuild(project.getGradle());
     }
 
     /**

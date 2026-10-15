@@ -17,7 +17,6 @@ import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.TestClassScanner;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
@@ -118,8 +117,7 @@ public class TiaDistPlanTask extends DefaultTask {
             List<String> sourceFilesDirs = StringUtil.splitCsv(plugin.getSourceFilesDirs());
             List<String> testFilesDirs = StringUtil.splitCsv(plugin.getTestFilesDirs());
 
-            TestSelector testSelector = new TestSelector(dataStore,
-                    ProjectDirs.resolve(getProject().getProjectDir(), plugin.getProjectDir()));
+            TestSelector testSelector = new TestSelector(dataStore, plugin.resolveProjectDir());
             LibraryImpactAnalysisConfig libraryConfig = plugin.buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = plugin.buildStaticTestSelectionConfig();
             // The resolved checkLocalChanges drives selection here. It can legitimately be true:

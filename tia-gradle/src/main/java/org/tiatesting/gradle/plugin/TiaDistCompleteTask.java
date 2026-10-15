@@ -96,8 +96,7 @@ public class TiaDistCompleteTask extends DefaultTask {
      */
     @TaskAction
     public void run() {
-        DistributedClaimRegistry.Claim claim =
-                DistributedClaimRegistry.forBuild(getProject().getGradle()).claimFor(testTaskPath);
+        DistributedClaimRegistry.Claim claim = plugin.distributedClaimRegistry().claimFor(testTaskPath);
 
         if (claim == null) {
             LOGGER.info("No distributed run claim was recorded for test task '" + testTaskPath
