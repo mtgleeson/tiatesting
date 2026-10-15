@@ -68,4 +68,29 @@ class AbstractTiaMojoProjectDirTest {
         // then
         assertEquals(elsewhere, resolved);
     }
+
+    @Test
+    void aRelativeSourceProjectDirIsTakenFromTheModulesDirectory(@TempDir File moduleDir) {
+        // given - Maven's working directory is the reactor root, not the module's
+        SelectTestsMojo mojo = mojo(moduleDir, null);
+        mojo.tiaSourceProjectDir = "../app";
+
+        // when
+        String resolved = mojo.getTiaSourceProjectDir();
+
+        // then
+        assertEquals(new File(moduleDir, "../app").getPath(), resolved);
+    }
+
+    @Test
+    void anUnsetSourceProjectDirIsTheResolvedProjectDir(@TempDir File moduleDir) {
+        // given
+        SelectTestsMojo mojo = mojo(moduleDir, "..");
+
+        // when
+        String resolved = mojo.getTiaSourceProjectDir();
+
+        // then
+        assertEquals(new File(moduleDir, "..").getPath(), resolved);
+    }
 }

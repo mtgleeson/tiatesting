@@ -33,4 +33,25 @@ public final class ProjectDirs {
         File dir = new File(configured);
         return dir.isAbsolute() ? dir : new File(buildProjectDir.getAbsoluteFile(), configured);
     }
+
+    /**
+     * Resolve the configured root of the source project - the build whose resolved dependencies turn
+     * the tracked library coordinates into jars - the same way as {@link #resolve}: a relative path is
+     * taken from the build tool's project directory, never the JVM's working directory (for a Gradle
+     * daemon, the daemon's own directory). Unset means the project being analysed, itself resolved by
+     * {@link #resolve}.
+     *
+     * @param buildProjectDir the build tool's project directory
+     * @param configuredProjectDir the configured {@code tiaProjectDir} / {@code projectDir}, or null
+     * @param configuredSourceProjectDir the configured {@code tiaSourceProjectDir} /
+     *                                   {@code sourceProjectDir}, or null
+     * @return the source project root, absolute
+     */
+    public static File resolveSourceProject(final File buildProjectDir, final String configuredProjectDir,
+                                            final String configuredSourceProjectDir) {
+        if (configuredSourceProjectDir == null || configuredSourceProjectDir.trim().isEmpty()) {
+            return resolve(buildProjectDir, configuredProjectDir);
+        }
+        return resolve(buildProjectDir, configuredSourceProjectDir);
+    }
 }
