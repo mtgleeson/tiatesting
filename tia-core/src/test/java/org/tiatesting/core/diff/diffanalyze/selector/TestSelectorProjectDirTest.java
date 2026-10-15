@@ -10,6 +10,8 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -57,5 +59,29 @@ class TestSelectorProjectDirTest {
 
         // then - skipped with a warning, never the working directory's "src"
         assertTrue(resolved.isEmpty(), resolved.toString());
+    }
+
+    @Test
+    void unconfiguredSourceDirsFailWithTheSettingNames() {
+        // given
+        List<String> dirNames = null;
+
+        // when
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> TestSelector.requireConfigured(dirNames, "source", "tiaSourceFilesDirs", "sourceFilesDirs"));
+
+        // then
+        assertTrue(e.getMessage().contains("no source files directories are configured"), e.getMessage());
+        assertTrue(e.getMessage().contains("tiaSourceFilesDirs (Maven) or sourceFilesDirs (Gradle)"), e.getMessage());
+        assertTrue(e.getMessage().contains("/src/main/java"), e.getMessage());
+    }
+
+    @Test
+    void configuredDirsPassEvenWhenEmpty() {
+        // given - an empty list is a configured (if blank) setting, not a missing one
+        List<String> dirNames = Collections.emptyList();
+
+        // when / then
+        assertDoesNotThrow(() -> TestSelector.requireConfigured(dirNames, "test", "tiaTestFilesDirs", "testFilesDirs"));
     }
 }
