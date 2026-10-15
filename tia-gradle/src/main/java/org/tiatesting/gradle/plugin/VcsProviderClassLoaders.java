@@ -1,5 +1,6 @@
 package org.tiatesting.gradle.plugin;
 
+import org.gradle.api.invocation.Gradle;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.services.BuildService;
 import org.gradle.api.services.BuildServiceParameters;
@@ -33,6 +34,20 @@ public abstract class VcsProviderClassLoaders implements BuildService<BuildServi
     private static final Logger LOGGER = Logging.getLogger(VcsProviderClassLoaders.class);
 
     private final Map<List<Object>, URLClassLoader> loaders = new ConcurrentHashMap<>();
+
+    /**
+     * Get the build's shared instance of this service, registering it on first use. Kept here
+     * rather than in {@link TiaPlugin} so the plugin class names no build service type, which lets
+     * it load on a Gradle older than 6.1 and report the version floor clearly.
+     *
+     * @param gradle the build the service belongs to
+     * @return the build's shared instance
+     */
+    static VcsProviderClassLoaders forBuild(final Gradle gradle) {
+        return gradle.getSharedServices()
+                .registerIfAbsent(NAME, VcsProviderClassLoaders.class, spec -> { })
+                .get();
+    }
 
     /**
      * Get the class loader over the given jars, creating it on first use.
