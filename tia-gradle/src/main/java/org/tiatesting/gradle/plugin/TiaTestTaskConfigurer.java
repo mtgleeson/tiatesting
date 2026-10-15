@@ -68,16 +68,16 @@ public class TiaTestTaskConfigurer {
     }
 
     /**
-     * Warn when the test task will run on a JUnit Platform launcher older than 1.8, which never calls
-     * Tia's listeners, so the run would otherwise record nothing without saying why. Runs in the task
-     * action, where the task resolves its classpath to run anyway.
+     * Warn when the test task will run on a JUnit Platform launcher Tia cannot work with - a declared
+     * one older than 1.8, or Gradle's own bundled one before Gradle 8 - so the run does not record
+     * nothing, or fail with a bare NoClassDefFoundError, without saying why. Runs in the task action,
+     * where the task resolves its classpath to run anyway.
      *
      * @param testTask the test task about to run
-     * @param gradleHomeDir the Gradle distribution's home directory, or {@code null} if unknown
      */
-    static void warnIfLauncherTooOld(final Test testTask, final File gradleHomeDir) {
+    static void warnIfLauncherUnusable(final Test testTask) {
         String warning = JunitPlatformLauncherCheck.warningFor(testTask.getPath(), testTask.getClasspath(),
-                gradleHomeDir, GradleVersion.current().getVersion());
+                GradleVersion.current());
         if (warning != null) {
             LOGGER.warn(warning);
         }
@@ -99,7 +99,6 @@ public class TiaTestTaskConfigurer {
         ExtensionContainer taskExtensions = task.getExtensions();
         TiaBaseTaskExtension tiaProjectExtension = project.getExtensions().findByType(TiaBaseTaskExtension.class);
         TiaBaseTaskExtension tiaTaskExtension = taskExtensions.create("tia", TiaBaseTaskExtension.class);
-        File gradleHomeDir = project.getGradle().getGradleHomeDir();
 
         // The tia-dist-complete finalizer is not wired here: this method runs as a configureEach
         // action, where Gradle disallows Project#afterEvaluate. It is wired once per project by
@@ -118,7 +117,7 @@ public class TiaTestTaskConfigurer {
                     testTask.systemProperty("tiaEnabled", false);
                     return;
                 }
-                warnIfLauncherTooOld(testTask, gradleHomeDir);
+                warnIfLauncherUnusable(testTask);
 
                 // One identity for the whole action. When tia.branch and tia.commitValue are both
                 // configured nothing below constructs a VCS reader at all, which is what lets a
