@@ -529,6 +529,8 @@ public class TestSelector {
                                          final String storedCommitValue,
                                          final Map<String, TestSuiteTracker> testSuitesTracked,
                                          final LibraryImpactAnalysisConfig libraryConfig){
+        requireConfigured(sourceFilesDirNames, "source", "tiaSourceFilesDirs", "sourceFilesDirs");
+        requireConfigured(testFilesDirNames, "test", "tiaTestFilesDirs", "testFilesDirs");
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
@@ -724,6 +726,28 @@ public class TestSelector {
             }
         }
         return tracked;
+    }
+
+    /**
+     * Fail with a clear error when a required directory list is not configured. Selection filters
+     * the diff by the source and test directories, so without them it cannot work out what changed;
+     * treating the list as empty would instead select nothing for every change. Only a selective run
+     * reads them - a seed or forced run runs every test - so the check sits here rather than at the
+     * start of {@link #selectTestsToIgnore}.
+     *
+     * @param dirNames the configured directories, {@code null} when the setting is absent
+     * @param kind which directories they are, {@code source} or {@code test}, named in the error
+     * @param mavenName the setting's name in the Maven plugin
+     * @param gradleName the setting's name in the Gradle plugin
+     * @throws IllegalStateException if {@code dirNames} is {@code null}
+     */
+    static void requireConfigured(final List<String> dirNames, final String kind, final String mavenName,
+                                  final String gradleName) {
+        if (dirNames == null) {
+            throw new IllegalStateException("Tia cannot select tests: no " + kind + " files directories are "
+                    + "configured. Set " + mavenName + " (Maven) or " + gradleName + " (Gradle), e.g. "
+                    + "/src/" + (kind.equals("source") ? "main" : "test") + "/java.");
+        }
     }
 
     /**
