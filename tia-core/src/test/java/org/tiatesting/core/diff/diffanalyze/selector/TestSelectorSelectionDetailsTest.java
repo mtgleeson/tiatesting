@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -72,6 +73,26 @@ class TestSelectorSelectionDetailsTest {
             }
             tempDir.delete();
         }
+    }
+
+    /**
+     * A selective run with no test files directories configured must fail with an error naming the
+     * setting, not a NullPointerException from deep inside the directory resolution.
+     */
+    @Test
+    void selectiveRunWithoutTestDirsFailsWithAClearError() {
+        // given
+        seedMapping();
+        CombinedVCSReader vcsReader = new CombinedVCSReader(modifiedDiff(TRACKED_FILE_KEY), Collections.emptySet());
+        TestSelector selector = new TestSelector(dataStore, new File("."));
+
+        // when
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> selector.selectTestsToIgnore(vcsReader, Collections.emptyList(), null, false, null, null,
+                        false, SelectionMode.SELECTIVE));
+
+        // then
+        assertTrue(e.getMessage().contains("tiaTestFilesDirs (Maven) or testFilesDirs (Gradle)"), e.getMessage());
     }
 
     /**
