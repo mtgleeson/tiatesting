@@ -39,6 +39,19 @@ class VcsProviderClassLoadersTest {
     }
 
     @Test
+    void forBuildReturnsTheSameInstanceForTheSameBuild() {
+        // given
+        Project project = ProjectBuilder.builder().withProjectDir(tempDir).build();
+
+        // when
+        VcsProviderClassLoaders first = VcsProviderClassLoaders.forBuild(project.getGradle());
+        VcsProviderClassLoaders second = VcsProviderClassLoaders.forBuild(project.getGradle());
+
+        // then
+        assertSame(first, second);
+    }
+
+    @Test
     void closingTheServiceDropsItsLoaders() {
         // given
         VcsProviderClassLoaders loaders = service();
@@ -57,8 +70,6 @@ class VcsProviderClassLoadersTest {
      */
     private VcsProviderClassLoaders service() {
         Project project = ProjectBuilder.builder().withProjectDir(tempDir).build();
-        return project.getGradle().getSharedServices()
-                .registerIfAbsent(VcsProviderClassLoaders.NAME, VcsProviderClassLoaders.class, spec -> { })
-                .get();
+        return VcsProviderClassLoaders.forBuild(project.getGradle());
     }
 }

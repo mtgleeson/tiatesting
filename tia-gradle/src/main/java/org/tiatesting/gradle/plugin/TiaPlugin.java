@@ -13,6 +13,7 @@ import org.gradle.api.logging.Logging;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.bundling.AbstractArchiveTask;
 import org.gradle.api.tasks.testing.Test;
+import org.gradle.util.GradleVersion;
 import org.tiatesting.core.library.LibraryPublishStamper;
 import org.tiatesting.core.testrunner.TestClassScanner;
 import org.slf4j.Logger;
@@ -87,6 +88,15 @@ public class TiaPlugin implements Plugin<Project> {
     /** The SLF4J API module added to the test runtime classpath alongside Tia's test-JVM module. */
     static final String SLF4J_API_MODULE = "org.slf4j:slf4j-api";
 
+    /**
+     * The oldest Gradle version the plugin runs on. The plugin shares the VCS provider class loaders
+     * between projects through a shared build service, an API Gradle added in 6.1. No method of
+     * this class may name a type newer than this version in its signature (lambdas included):
+     * Gradle inspects the plugin class before {@link #apply} runs, so such a type would fail the
+     * build on an older Gradle before the version check could report it.
+     */
+    static final GradleVersion MINIMUM_GRADLE_VERSION = GradleVersion.version("6.1");
+
     private TiaBaseTaskExtension tiaTaskExtension;
     private Project project;
 
@@ -96,8 +106,17 @@ public class TiaPlugin implements Plugin<Project> {
     /** Set once detection has found no supported test framework, so it warns only once. */
     private boolean testFrameworkUnsupported;
 
+    /**
+     * Apply the plugin to a project: check the running Gradle version meets Tia's floor, then create
+     * the {@code tia} extension and Tia's tasks and wire Tia into the project's test tasks.
+     *
+     * @param project the project the plugin is applied to
+     * @throws GradleException if the build runs on a Gradle version older than
+     *         {@link #MINIMUM_GRADLE_VERSION}
+     */
     @Override
     public void apply(Project project) {
+        checkMinimumGradleVersion(GradleVersion.current());
         this.project = project;
         this.tiaTaskExtension = project.getExtensions().create("tia", TiaBaseTaskExtension.class);
         createVcsConfiguration();
@@ -115,6 +134,22 @@ public class TiaPlugin implements Plugin<Project> {
         hookPublishStampTasks();
         markTiaTasksNotConfigurationCacheCompatible();
         applyToTestTasks();
+    }
+
+    /**
+     * Fail the build with a clear message when it runs on a Gradle version older than
+     * {@link #MINIMUM_GRADLE_VERSION}, rather than letting a missing Gradle API surface later as a
+     * raw {@code NoSuchMethodError}. Compares base versions, so a release candidate or snapshot of
+     * the minimum version is accepted.
+     *
+     * @param current the Gradle version running the build
+     * @throws GradleException if {@code current} is older than {@link #MINIMUM_GRADLE_VERSION}
+     */
+    static void checkMinimumGradleVersion(final GradleVersion current) {
+        if (current.getBaseVersion().compareTo(MINIMUM_GRADLE_VERSION) < 0) {
+            throw new GradleException("Tia requires Gradle " + MINIMUM_GRADLE_VERSION.getVersion()
+                    + " or newer, but this build is running on Gradle " + current.getVersion() + ".");
+        }
     }
 
     /**
@@ -828,9 +863,7 @@ public class TiaPlugin implements Plugin<Project> {
      */
     ClassLoader vcsProviderClassLoader() {
         List<File> files = new ArrayList<>(project.getConfigurations().getByName(VCS_CONFIGURATION_NAME).getFiles());
-        VcsProviderClassLoaders loaders = project.getGradle().getSharedServices()
-                .registerIfAbsent(VcsProviderClassLoaders.NAME, VcsProviderClassLoaders.class, spec -> { })
-                .get();
+        VcsProviderClassLoaders loaders = VcsProviderClassLoaders.forBuild(project.getGradle());
         return loaders.get(files, TiaPlugin.class.getClassLoader());
     }
 
