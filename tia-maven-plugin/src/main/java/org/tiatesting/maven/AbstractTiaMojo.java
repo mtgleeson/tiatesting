@@ -746,13 +746,16 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     }
 
     /**
-     * @return the configured source-project root, or {@link #getTiaProjectDir()} when blank.
+     * The source project's root - the Maven build whose resolved dependencies turn
+     * {@code tiaSourceLibs} into jars - resolved by {@link ProjectDirs#resolveSourceProject} against
+     * the module's base directory, never Maven's working directory (the reactor root in a multi-module
+     * build). Blank means {@code tiaProjectDir}, resolved the same way.
+     *
+     * @return the absolute path of the source project root
      */
     public String getTiaSourceProjectDir() {
-        if (tiaSourceProjectDir == null || tiaSourceProjectDir.trim().isEmpty()){
-            return getTiaProjectDir();
-        }
-        return tiaSourceProjectDir;
+        return ProjectDirs.resolveSourceProject(getProject().getBasedir(), tiaProjectDir, tiaSourceProjectDir)
+                .getPath();
     }
 
     public String getTiaTestFilesDirs() {
