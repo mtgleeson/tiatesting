@@ -219,7 +219,8 @@ public class TiaTestTaskConfigurer {
                     }
 
                     LibraryJarResolver resolver = new LibraryJarResolver(project, LOGGER);
-                    String libraryJarsCsv = resolveLibraryJarsCsv(tiaTaskExtension, resolver, LOGGER);
+                    String libraryJarsCsv = resolveLibraryJarsCsv(tiaTaskExtension,
+                            resolveSourceProjectDir(project, tiaTaskExtension), resolver, LOGGER);
                     if (libraryJarsCsv != null && !libraryJarsCsv.isEmpty()){
                         testTask.systemProperty("tiaLibraryJars", libraryJarsCsv);
                     }
@@ -575,13 +576,14 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * dependency-graph resolution via {@link LibraryJarResolver} otherwise. Both feed the same
      * {@code tiaLibraryJars} system property.
      *
-     * @param tiaTaskExtension the resolved task extension carrying {@code sourceLibs},
-     *                         {@code libraryJarsDirs} and {@code sourceProjectDir}
+     * @param tiaTaskExtension the resolved task extension carrying {@code sourceLibs} and
+     *                         {@code libraryJarsDirs}
+     * @param sourceProjectDir the absolute source project root, from {@link #resolveSourceProjectDir}
      * @param resolver the dependency-graph resolver used when directory mode is not selected
      * @param logger the plugin logger, used as the directory matcher's warn/debug sinks
      * @return the CSV of resolved absolute jar paths, or null when nothing resolved
      */
-    static String resolveLibraryJarsCsv(TiaBaseTaskExtension tiaTaskExtension,
+    static String resolveLibraryJarsCsv(TiaBaseTaskExtension tiaTaskExtension, String sourceProjectDir,
                                         LibraryJarResolver resolver, Logger logger) {
         String jarsDirsCsv = tiaTaskExtension.getLibraryJarsDirs();
         if (jarsDirsCsv != null && !jarsDirsCsv.trim().isEmpty()) {
@@ -596,8 +598,23 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
             return jars.isEmpty() ? null : String.join(",", jars);
         }
 
-        return resolver.resolveLibraryJarsCsv(
-                tiaTaskExtension.getSourceLibs(), tiaTaskExtension.getSourceProjectDir());
+        return resolver.resolveLibraryJarsCsv(tiaTaskExtension.getSourceLibs(), sourceProjectDir);
+    }
+
+    /**
+     * The test task's source project root - the Gradle build whose resolved dependencies turn
+     * {@code sourceLibs} into jars - resolved against the Gradle project's directory by
+     * {@link ProjectDirs#resolveSourceProject}, as {@link TiaPlugin#getSourceProjectDir} does for the
+     * plugin's own tasks. The daemon's working directory is not the project's, so a relative
+     * {@code sourceProjectDir} must never reach {@link LibraryJarResolver} unresolved.
+     *
+     * @param project the test task's project, captured when the task was configured
+     * @param tiaTaskExtension that task's merged Tia extension
+     * @return the absolute path of the source project root
+     */
+    static String resolveSourceProjectDir(final Project project, final TiaBaseTaskExtension tiaTaskExtension) {
+        return ProjectDirs.resolveSourceProject(project.getProjectDir(), tiaTaskExtension.getProjectDir(),
+                tiaTaskExtension.getSourceProjectDir()).getPath();
     }
 
     /**
@@ -641,7 +658,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         }
 
         LibraryImpactAnalysisConfig libraryConfig = TiaPlugin.buildLibraryImpactAnalysisConfig(
-                tiaTaskExtension.getSourceLibs(), tiaTaskExtension.getSourceProjectDir(), resolver);
+                tiaTaskExtension.getSourceLibs(), resolveSourceProjectDir(project, tiaTaskExtension), resolver);
         StaticTestSelectionConfig staticConfig = TiaPlugin.buildStaticTestSelectionConfig(
                 tiaTaskExtension.getStaticTestSelectionRules());
 
