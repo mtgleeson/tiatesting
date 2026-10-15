@@ -103,18 +103,28 @@ public final class TiaSchemaResolver {
      * {@code updateDBMapping} off writes no mapping and deletes no suites, so it cannot corrupt
      * anything it shares a schema with; counting it would refuse configurations that are safe.
      *
+     * <p>Runs inside a test task's action, and a task reading its own extensions while it executes
+     * is refused by Gradle 10. So the running task's extension is passed in, captured when the task
+     * was configured, and only the other test tasks, which are not executing, are looked up.
+     *
      * @param project the project whose test tasks to inspect
+     * @param currentTask the test task whose action is running
+     * @param currentTaskExtension that task's own Tia extension
      * @param projectExtension the project-level Tia extension each task's settings fall back to
      * @param branch the VCS branch, the base of every schema name
      * @return task paths grouped by a store-and-schema identity, in declaration order
      */
     public static Map<String, List<String>> taskPathsBySchema(final Project project,
+                                                              final Test currentTask,
+                                                              final TiaBaseTaskExtension currentTaskExtension,
                                                               final TiaBaseTaskExtension projectExtension,
                                                               final String branch) {
         Map<String, List<String>> taskPathsBySchema = new LinkedHashMap<>();
 
         for (Test task : project.getTasks().withType(Test.class)) {
-            TiaBaseTaskExtension taskExtension = task.getExtensions().findByType(TiaBaseTaskExtension.class);
+            TiaBaseTaskExtension taskExtension = task == currentTask
+                    ? currentTaskExtension
+                    : task.getExtensions().findByType(TiaBaseTaskExtension.class);
             if (taskExtension == null) {
                 continue;
             }
