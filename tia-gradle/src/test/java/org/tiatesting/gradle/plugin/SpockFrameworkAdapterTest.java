@@ -33,7 +33,7 @@ class SpockFrameworkAdapterTest {
                 new LibraryImpactDrainResult(), TestRunSelectionDetails.empty());
 
         // when
-        new SpockFrameworkAdapter().handOffSelection(testTask, handoff);
+        new SpockFrameworkAdapter().handOffSelection(project, testTask, handoff);
 
         // then
         Map<String, Object> properties = testTask.getSystemProperties();

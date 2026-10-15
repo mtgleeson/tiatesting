@@ -6,10 +6,12 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter;
 import org.gradle.api.logging.Logging;
+import org.gradle.api.plugins.ExtensionContainer;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.testing.Test;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
+import org.gradle.util.GradleVersion;
 import org.slf4j.Logger;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.agent.SelectionHandoff;
@@ -66,6 +68,22 @@ public class TiaTestTaskConfigurer {
     }
 
     /**
+     * Warn when the test task will run on a JUnit Platform launcher older than 1.8, which never calls
+     * Tia's listeners, so the run would otherwise record nothing without saying why. Runs in the task
+     * action, where the task resolves its classpath to run anyway.
+     *
+     * @param testTask the test task about to run
+     * @param gradleHomeDir the Gradle distribution's home directory, or {@code null} if unknown
+     */
+    static void warnIfLauncherTooOld(final Test testTask, final File gradleHomeDir) {
+        String warning = JunitPlatformLauncherCheck.warningFor(testTask.getPath(), testTask.getClasspath(),
+                gradleHomeDir, GradleVersion.current().getVersion());
+        if (warning != null) {
+            LOGGER.warn(warning);
+        }
+    }
+
+    /**
      * Attach the task-level {@code tia { }} extension and Tia's task action to a test task.
      *
      * @param task the test task
@@ -74,8 +92,14 @@ public class TiaTestTaskConfigurer {
     public <T extends Test & JavaForkOptions> void applyTo(final T task) {
         String taskName = task.getName();
         LOGGER.debug("Applying Tia to " + taskName);
-        TiaBaseTaskExtension tiaProjectExtension = task.getProject().getExtensions().findByType(TiaBaseTaskExtension.class);
-        TiaBaseTaskExtension tiaTaskExtension = task.getExtensions().create("tia", TiaBaseTaskExtension.class);
+        // Captured now, while the task is configured: Gradle 9 deprecates a task reading its own
+        // project or extensions while it executes, and Gradle 10 refuses it. See the "Supported
+        // Gradle versions" chapter in WIKI.md.
+        Project project = task.getProject();
+        ExtensionContainer taskExtensions = task.getExtensions();
+        TiaBaseTaskExtension tiaProjectExtension = project.getExtensions().findByType(TiaBaseTaskExtension.class);
+        TiaBaseTaskExtension tiaTaskExtension = taskExtensions.create("tia", TiaBaseTaskExtension.class);
+        File gradleHomeDir = project.getGradle().getGradleHomeDir();
 
         // The tia-dist-complete finalizer is not wired here: this method runs as a configureEach
         // action, where Gradle disallows Project#afterEvaluate. It is wired once per project by
@@ -94,15 +118,17 @@ public class TiaTestTaskConfigurer {
                     testTask.systemProperty("tiaEnabled", false);
                     return;
                 }
+                warnIfLauncherTooOld(testTask, gradleHomeDir);
 
                 // One identity for the whole action. When tia.branch and tia.commitValue are both
                 // configured nothing below constructs a VCS reader at all, which is what lets a
                 // distributed runner hold nothing but a checked-out tree; when they are not, the
                 // fallback opens one repository handle rather than one per step - and closes it,
                 // which the inline getVCSReader() calls this replaces never did.
-                try (WorkspaceIdentity workspaceIdentity = workspaceIdentity(testTask, tiaTaskExtension)) {
+                try (WorkspaceIdentity workspaceIdentity = workspaceIdentity(project, tiaTaskExtension)) {
                     if (Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping())){
-                        refuseCollidingSchemas(testTask, tiaProjectExtension, workspaceIdentity);
+                        refuseCollidingSchemas(project, testTask, tiaTaskExtension, tiaProjectExtension,
+                                workspaceIdentity);
                     }
 
                     // set the system properties needed by Tia passed in as configuration from the Gradle plugin
@@ -151,7 +177,7 @@ public class TiaTestTaskConfigurer {
                     }
                     // The runtime flags, resolved here (a -P property wins over the extension) and
                     // refused up front when a re-seed has no mapping to rebuild.
-                    SelectionMode selectionMode = TiaRuntimeFlags.selectionMode(testTask.getProject(),
+                    SelectionMode selectionMode = TiaRuntimeFlags.selectionMode(project,
                             tiaTaskExtension);
                     try {
                         selectionMode.requireMappingOwner(
@@ -192,7 +218,7 @@ public class TiaTestTaskConfigurer {
                                 tiaTaskExtension.getSchemaSuffix());
                     }
 
-                    LibraryJarResolver resolver = new LibraryJarResolver(testTask.getProject(), LOGGER);
+                    LibraryJarResolver resolver = new LibraryJarResolver(project, LOGGER);
                     String libraryJarsCsv = resolveLibraryJarsCsv(tiaTaskExtension, resolver, LOGGER);
                     if (libraryJarsCsv != null && !libraryJarsCsv.isEmpty()){
                         testTask.systemProperty("tiaLibraryJars", libraryJarsCsv);
@@ -209,12 +235,12 @@ public class TiaTestTaskConfigurer {
                         // build's DistributedClaimRegistry as a side effect; the tia-dist-complete
                         // finalizer reads it back from there after the test task's forked JVM(s)
                         // finish - see the "Distributed test runs" chapter in WIKI.md.
-                        claimDistributedRun(testTask, tiaTaskExtension, workspaceIdentity);
+                        claimDistributedRun(project, testTask, tiaTaskExtension, workspaceIdentity);
                     } else {
                         warnWhenATiaTaskForksMoreThanOneJvm(testTask,
                                 Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
                                 !Boolean.FALSE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
-                        selectTestsAndHandOff(testTask, tiaTaskExtension, workspaceIdentity, resolver,
+                        selectTestsAndHandOff(project, testTask, tiaTaskExtension, workspaceIdentity, resolver,
                                 selectionMode);
                     }
 
@@ -223,7 +249,7 @@ public class TiaTestTaskConfigurer {
                         // Looked up here, not when the action was attached: the plugin applies the
                         // jacoco plugin after the project is evaluated, once it knows a test task
                         // updates the mapping.
-                        JacocoTaskExtension jacocoTaskExtension = testTask.getExtensions()
+                        JacocoTaskExtension jacocoTaskExtension = taskExtensions
                                 .findByType(JacocoTaskExtension.class);
                         if (jacocoTaskExtension == null) {
                             throw new GradleException("Tia updates the mapping for test task '"
@@ -588,20 +614,22 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * <p>The source and test directories are resolved against the project directory by
      * {@link TestSelector}: the daemon's working directory is not the project's.
      *
+     * @param project the test task's project, captured when the task was configured
      * @param testTask the test task whose forks receive the selection
      * @param tiaTaskExtension that task's merged Tia extension
      * @param workspaceIdentity this build's branch and commit, and the reader the diff is read through
      * @param resolver the library metadata resolver for {@code sourceLibs}
      * @param selectionMode the selection mode resolved from the runtime flags
      */
-    private void selectTestsAndHandOff(final Test testTask, final TiaBaseTaskExtension tiaTaskExtension,
+    private void selectTestsAndHandOff(final Project project, final Test testTask,
+                                       final TiaBaseTaskExtension tiaTaskExtension,
                                        final WorkspaceIdentity workspaceIdentity,
                                        final LibraryJarResolver resolver, final SelectionMode selectionMode) {
-        TiaPlugin plugin = findTiaPlugin(testTask);
+        TiaPlugin plugin = findTiaPlugin(project);
         if (plugin == null) {
             throw new IllegalStateException("Tia test selection requires the Tia Gradle plugin (a "
                     + TiaPlugin.class.getName() + ") to be applied to project '"
-                    + testTask.getProject().getPath() + "'.");
+                    + project.getPath() + "'.");
         }
 
         boolean updateDBMapping = Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping());
@@ -622,7 +650,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch(),
                 tiaTaskExtension.getSchemaSuffix())) {
             result = new TestSelector(dataStore,
-                    ProjectDirs.resolve(testTask.getProject().getProjectDir(), tiaTaskExtension.getProjectDir()))
+                    ProjectDirs.resolve(project.getProjectDir(), tiaTaskExtension.getProjectDir()))
                     .selectTestsToIgnore(workspaceIdentity.openVCSReader(),
                     StringUtil.splitCsv(tiaTaskExtension.getSourceFilesDirs()),
                     StringUtil.splitCsv(tiaTaskExtension.getTestFilesDirs()),
@@ -631,7 +659,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
 
         SelectionHandoff handoff = SelectionHandoff.write(testTask.getTemporaryDir(), result.getTestsToIgnore(),
                 result.getTestsToRun(), result.getLibraryImpactDrainResult(), result.getSelectionDetails());
-        frameworkAdapter.get().handOffSelection(testTask, handoff);
+        frameworkAdapter.get().handOffSelection(project, testTask, handoff);
         if (result.isRunAllTests()) {
             // A seed or forced run carries an empty run list meaning "run everything".
             LOGGER.info("Tia runs every test suite for test task '{}' (selection mode {}).",
@@ -650,30 +678,33 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * since {@link #populateTestTaskExtension} has already merged the project's values into it and a
      * task-level override must win here as it does everywhere else.
      *
-     * @param testTask the test task whose action is running
+     * @param project the test task's project, captured when the task was configured
      * @param tiaTaskExtension that task's merged Tia extension
      * @return an identity resolving each value on demand; the caller must close it
      */
-    private WorkspaceIdentity workspaceIdentity(final Test testTask,
+    private WorkspaceIdentity workspaceIdentity(final Project project,
                                                 final TiaBaseTaskExtension tiaTaskExtension) {
-        TiaPlugin plugin = findTiaPlugin(testTask);
+        TiaPlugin plugin = findTiaPlugin(project);
         return WorkspaceIdentity.resolving(tiaTaskExtension.getBranch(),
                 tiaTaskExtension.getCommitValue(),
                 plugin == null ? () -> null : plugin::getVCSReader);
     }
 
     /**
-     * Find the Tia plugin applied to this test task's project.
+     * Find the Tia plugin applied to a test task's project.
      *
      * <p>{@code withType}, not {@code findPlugin}: {@code findPlugin(Class)} only matches a plugin's
      * exact registered class, so it would miss a {@link TiaPlugin} subclass (as the tests apply).
      * {@code withType} does assignability-based matching and finds either.
      *
-     * @param testTask the test task whose project to search
+     * <p>Takes the project captured when the task was configured, not the task: the task action
+     * runs this, and a task reading its own project while it executes is refused by Gradle 10.
+     *
+     * @param project the test task's project
      * @return the applied Tia plugin, or null when the project has none
      */
-    private TiaPlugin findTiaPlugin(final Test testTask) {
-        return testTask.getProject().getPlugins().withType(TiaPlugin.class)
+    private TiaPlugin findTiaPlugin(final Project project) {
+        return project.getPlugins().withType(TiaPlugin.class)
                 .stream().findFirst().orElse(null);
     }
 
@@ -742,7 +773,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * a literal {@code 1} for the fourth (the reactor-size rule), because it had no {@code Project}
      * reference at all to count projects with - planning already refused any multi-project Gradle
      * build, so that literal was never reachable as a gap, just unable to add a second layer of
-     * defence. This action runs in the daemon with {@code task.getProject()} available, so it can
+     * defence. This action runs in the daemon with the task's {@code Project} available, so it can
      * and does pass the real count, catching a multi-project reactor at claim time as well as at
      * plan time.
      *
@@ -776,6 +807,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * claims silently colliding, one group being claimed twice and another left {@code PENDING}
      * forever with the run never sealing and nothing telling the user why.
      *
+     * @param project the test task's project, captured when the task was configured
      * @param testTask the test task whose forked JVM receives the claimed run id, runner key, group
      *                 number and the claimed share's selection files
      * @param tiaTaskExtension the test task's own resolved Tia extension - already merged with the
@@ -800,17 +832,17 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      *                                claim to run against, or with a claim that collides with
      *                                another test task's
      */
-    private DistributedClaimRegistry.Claim claimDistributedRun(Test testTask,
+    private DistributedClaimRegistry.Claim claimDistributedRun(Project project, Test testTask,
             TiaBaseTaskExtension tiaTaskExtension, WorkspaceIdentity workspaceIdentity) {
         if (!Boolean.TRUE.equals(tiaTaskExtension.getDistributed())) {
             return null;
         }
 
-        TiaPlugin plugin = findTiaPlugin(testTask);
+        TiaPlugin plugin = findTiaPlugin(project);
         if (plugin == null) {
             throw new IllegalStateException("Tia distributed test runs require the Tia Gradle "
                     + "plugin (a " + TiaPlugin.class.getName() + ") to be applied to project '"
-                    + testTask.getProject().getPath() + "' - the claim needs its datastore and VCS "
+                    + project.getPath() + "' - the claim needs its datastore and VCS "
                     + "reader, and none was found.");
         }
 
@@ -847,7 +879,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
             // share below reads the plan and the tracked suites, and the hand-off after it can fail
             // too (the JUnit 5 agent jar not resolvable offline, say); either failing first would
             // leave the group claimed forever and the run unable to seal.
-            claim = DistributedClaimRegistry.forBuild(testTask.getProject().getGradle())
+            claim = DistributedClaimRegistry.forBuild(project.getGradle())
                     .recordClaim(testTask.getPath(), config.getRunId(), outcome.getRunnerKey(),
                             groupNumber, workspaceIdentity.getBranch(),
                             Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
@@ -878,7 +910,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         SelectionHandoff handoff = SelectionHandoff.write(testTask.getTemporaryDir(),
                 assignment.getTestsToIgnore(), assignment.getTestsToRun(), null,
                 TestRunSelectionDetails.empty());
-        frameworkAdapter.get().handOffSelection(testTask, handoff);
+        frameworkAdapter.get().handOffSelection(project, testTask, handoff);
 
         return claim;
     }
@@ -909,16 +941,20 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * in its extension yet - so the check resolves each task's effective values itself rather than
      * reading a merge that may not have happened.
      *
-     * @param currentTask the test task whose action is running, used to reach the project
+     * @param project the running test task's project, captured when the task was configured
+     * @param currentTask the test task whose action is running
+     * @param currentTaskExtension that task's own Tia extension, which it may not look up itself
+     *                             while it runs
      * @param tiaProjectExtension the project-level Tia extension each task's settings fall back to
      * @param workspaceIdentity this build's workspace identity, supplying the branch the schema
      *                          names are built from
      * @throws IllegalStateException if two or more mapping-owning test tasks resolve to one schema
      */
-    private void refuseCollidingSchemas(final Test currentTask,
+    private void refuseCollidingSchemas(final Project project, final Test currentTask,
+                                        final TiaBaseTaskExtension currentTaskExtension,
                                         final TiaBaseTaskExtension tiaProjectExtension,
                                         final WorkspaceIdentity workspaceIdentity) {
-        TiaPlugin plugin = findTiaPlugin(currentTask);
+        TiaPlugin plugin = findTiaPlugin(project);
         if (plugin == null) {
             // Nothing to check against without a VCS reader to resolve the branch. A project with
             // no Tia plugin applied cannot be writing to a Tia datastore either.
@@ -926,7 +962,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         }
 
         Map<String, List<String>> taskPathsBySchema = TiaSchemaResolver.taskPathsBySchema(
-                currentTask.getProject(), tiaProjectExtension, workspaceIdentity.getBranch());
+                project, currentTask, currentTaskExtension, tiaProjectExtension, workspaceIdentity.getBranch());
 
         for (Map.Entry<String, List<String>> entry : taskPathsBySchema.entrySet()) {
             if (entry.getValue().size() > 1) {

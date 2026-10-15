@@ -1,5 +1,6 @@
 package org.tiatesting.gradle.plugin;
 
+import org.gradle.api.Project;
 import org.gradle.api.tasks.testing.Test;
 import org.tiatesting.core.agent.SelectionHandoff;
 
@@ -46,8 +47,12 @@ public interface TestFrameworkAdapter {
      * Hand the selection the daemon made to the forked test JVM(s), in the form this framework's Tia
      * module reads it.
      *
+     * <p>Called from the test task's action, so the task's project is passed in, captured when the
+     * task was configured: a task reading its own project while it executes is refused by Gradle 10.
+     *
+     * @param project the test task's project
      * @param testTask the test task whose forks receive the selection
      * @param handoff the written hand-off files
      */
-    void handOffSelection(Test testTask, SelectionHandoff handoff);
+    void handOffSelection(Project project, Test testTask, SelectionHandoff handoff);
 }

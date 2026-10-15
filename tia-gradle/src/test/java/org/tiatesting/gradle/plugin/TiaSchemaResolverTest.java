@@ -93,12 +93,12 @@ class TiaSchemaResolverTest {
     @org.junit.jupiter.api.Test
     void theGuardIgnoresANonMappingTaskSharingASchema() {
         // given - both resolve to the same schema, but only one owns the mapping
-        testTask("test", null, true);
+        Test current = testTask("test", null, true);
         testTask("smokeTest", null, false);
 
         // when
-        Map<String, List<String>> bySchema =
-                TiaSchemaResolver.taskPathsBySchema(project, projectExtension, "main");
+        Map<String, List<String>> bySchema = TiaSchemaResolver.taskPathsBySchema(project, current,
+                extensionOf(current), projectExtension, "main");
 
         // then
         assertEquals(1, bySchema.size());
@@ -109,12 +109,12 @@ class TiaSchemaResolverTest {
     @org.junit.jupiter.api.Test
     void theGuardGroupsTwoMappingTasksSharingASchema() {
         // given
-        testTask("test", null, true);
+        Test current = testTask("test", null, true);
         testTask("integrationTest", null, true);
 
         // when
-        Map<String, List<String>> bySchema =
-                TiaSchemaResolver.taskPathsBySchema(project, projectExtension, "main");
+        Map<String, List<String>> bySchema = TiaSchemaResolver.taskPathsBySchema(project, current,
+                extensionOf(current), projectExtension, "main");
 
         // then
         assertEquals(1, bySchema.size(), "both tasks resolve to one schema");
@@ -124,12 +124,37 @@ class TiaSchemaResolverTest {
     @org.junit.jupiter.api.Test
     void theGuardSeparatesTwoMappingTasksWithDistinctSuffixes() {
         // given
-        testTask("test", "unit", true);
+        Test current = testTask("test", "unit", true);
         testTask("integrationTest", "integration", true);
 
         // when
-        Map<String, List<String>> bySchema =
-                TiaSchemaResolver.taskPathsBySchema(project, projectExtension, "main");
+        Map<String, List<String>> bySchema = TiaSchemaResolver.taskPathsBySchema(project, current,
+                extensionOf(current), projectExtension, "main");
+
+        // then
+        assertEquals(2, bySchema.size());
+        for (List<String> paths : bySchema.values()) {
+            assertEquals(1, paths.size());
+        }
+    }
+
+    /**
+     * The running task may not look up its own extensions (Gradle 10 refuses it), so the guard
+     * must take the running task's settings from the extension passed in.
+     */
+    @org.junit.jupiter.api.Test
+    void theGuardReadsTheRunningTasksSettingsFromThePassedExtension() {
+        // given - registered, the two tasks collide; the running task's passed-in extension
+        // gives it its own suffix
+        Test current = testTask("test", null, true);
+        testTask("integrationTest", null, true);
+        TiaBaseTaskExtension passed = new TiaBaseTaskExtension();
+        passed.setSchemaSuffix("unit");
+        passed.setUpdateDBMapping(Boolean.TRUE);
+
+        // when
+        Map<String, List<String>> bySchema = TiaSchemaResolver.taskPathsBySchema(project, current,
+                passed, projectExtension, "main");
 
         // then
         assertEquals(2, bySchema.size());
@@ -184,6 +209,14 @@ class TiaSchemaResolverTest {
      * @param ownsMapping whether the task updates the mapping DB
      * @return the registered task
      */
+    /**
+     * @param task a test task created by {@link #testTask}
+     * @return the task's Tia extension
+     */
+    private TiaBaseTaskExtension extensionOf(final Test task) {
+        return task.getExtensions().getByType(TiaBaseTaskExtension.class);
+    }
+
     private Test testTask(final String name, final String schemaSuffix, final boolean ownsMapping) {
         Test task = project.getTasks().create(name, Test.class);
         TiaBaseTaskExtension extension = task.getExtensions().create("tia", TiaBaseTaskExtension.class);
