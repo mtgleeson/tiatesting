@@ -33,6 +33,7 @@ class TiaTestTaskConfigurerLibraryJarsTest {
      */
     private static final class StubResolver extends LibraryJarResolver {
         private boolean called;
+        private String sourceProjectDir;
 
         StubResolver(Project project) {
             super(project, LOGGER);
@@ -40,12 +41,13 @@ class TiaTestTaskConfigurerLibraryJarsTest {
 
         /**
          * @param sourceLibsCsv ignored
-         * @param sourceProjectDir ignored
+         * @param sourceProjectDir recorded, so a test can check which source project was asked
          * @return a fixed marker path, recording that the graph resolver was consulted
          */
         @Override
         public String resolveLibraryJarsCsv(String sourceLibsCsv, String sourceProjectDir) {
             called = true;
+            this.sourceProjectDir = sourceProjectDir;
             return "/from/graph/widgets-1.0.jar";
         }
     }
@@ -75,7 +77,7 @@ class TiaTestTaskConfigurerLibraryJarsTest {
         ext.setLibraryJarsDirs(libDir.toString());
 
         // when
-        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, resolver, LOGGER);
+        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, null, resolver, LOGGER);
 
         // then - resolved from the directory, graph resolver never consulted
         assertEquals(jar.getAbsolutePath(), csv);
@@ -92,10 +94,11 @@ class TiaTestTaskConfigurerLibraryJarsTest {
         ext.setLibraryJarsDirs("  ");
 
         // when
-        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, resolver, LOGGER);
+        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, "/src-project", resolver, LOGGER);
 
-        // then - the graph resolver supplied the result
+        // then - the graph resolver supplied the result, for the source project it was given
         assertTrue(resolver.called);
+        assertEquals("/src-project", resolver.sourceProjectDir);
         assertEquals("/from/graph/widgets-1.0.jar", csv);
     }
 
@@ -110,7 +113,7 @@ class TiaTestTaskConfigurerLibraryJarsTest {
         ext.setLibraryJarsDirs(libDir.toString());
 
         // when
-        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, resolver, LOGGER);
+        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, null, resolver, LOGGER);
 
         // then - nothing matched, and the graph resolver was still not used
         assertNull(csv);
@@ -130,10 +133,39 @@ class TiaTestTaskConfigurerLibraryJarsTest {
         ext.setLibraryJarsDirs(dirA + "," + dirB);
 
         // when
-        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, resolver, LOGGER);
+        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, null, resolver, LOGGER);
 
         // then - both jars resolve, comma separated, in coordinate order
         assertEquals(widgets.getAbsolutePath() + "," + gadgets.getAbsolutePath(), csv);
         assertFalse(resolver.called);
+    }
+
+    @Test
+    void relativeSourceProjectDirResolvesAgainstTheGradleProject(@TempDir File projectDir) {
+        // given - the daemon's working directory is not the project's, so this must not be
+        // resolved against it
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        TiaBaseTaskExtension ext = new TiaBaseTaskExtension();
+        ext.setSourceProjectDir("../app");
+
+        // when
+        String resolved = TiaTestTaskConfigurer.resolveSourceProjectDir(project, ext);
+
+        // then
+        assertEquals(new File(project.getProjectDir().getAbsoluteFile(), "../app").getPath(), resolved);
+    }
+
+    @Test
+    void unsetSourceProjectDirIsTheResolvedProjectDir(@TempDir File projectDir) {
+        // given
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        TiaBaseTaskExtension ext = new TiaBaseTaskExtension();
+        ext.setProjectDir(".");
+
+        // when
+        String resolved = TiaTestTaskConfigurer.resolveSourceProjectDir(project, ext);
+
+        // then
+        assertEquals(new File(project.getProjectDir().getAbsoluteFile(), ".").getPath(), resolved);
     }
 }

@@ -58,4 +58,32 @@ class TiaPluginProjectAccessTest {
         // then
         assertSame(DistributedClaimRegistry.forBuild(project.getGradle()), registry);
     }
+
+    @Test
+    void sourceProjectDirResolvesARelativeDirAgainstTheGradleProject() {
+        // given - a Gradle daemon's working directory is the daemon's own, not the project's
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        TiaPlugin plugin = project.getPlugins().apply(TiaPlugin.class);
+        project.getExtensions().getByType(TiaBaseTaskExtension.class).setSourceProjectDir("../app");
+
+        // when
+        String resolved = plugin.getSourceProjectDir();
+
+        // then
+        assertEquals(new File(project.getProjectDir().getAbsoluteFile(), "../app").getPath(), resolved);
+    }
+
+    @Test
+    void sourceProjectDirIsTheResolvedProjectDirWhenUnset() {
+        // given
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        TiaPlugin plugin = project.getPlugins().apply(TiaPlugin.class);
+        project.getExtensions().getByType(TiaBaseTaskExtension.class).setProjectDir(".");
+
+        // when
+        String resolved = plugin.getSourceProjectDir();
+
+        // then
+        assertEquals(new File(project.getProjectDir().getAbsoluteFile(), ".").getPath(), resolved);
+    }
 }

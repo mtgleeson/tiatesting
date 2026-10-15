@@ -1250,12 +1250,17 @@ public class TiaPlugin implements Plugin<Project> {
                 + File.separator + "tia";
     }
 
+    /**
+     * The source project's root - the Gradle build whose resolved dependencies turn {@code sourceLibs}
+     * into jars - resolved by {@link ProjectDirs#resolveSourceProject} against the Gradle project's
+     * directory, never the JVM's working directory, which for a Gradle daemon is the daemon's own.
+     * Unset means {@code projectDir}, resolved the same way.
+     *
+     * @return the absolute path of the source project root
+     */
     public String getSourceProjectDir() {
-        String dir = tiaTaskExtension.getSourceProjectDir();
-        if (dir == null || dir.trim().isEmpty()) {
-            return getProjectDir();
-        }
-        return dir;
+        return ProjectDirs.resolveSourceProject(project.getProjectDir(), tiaTaskExtension.getProjectDir(),
+                tiaTaskExtension.getSourceProjectDir()).getPath();
     }
 
     public File getReportOutputDir() {
