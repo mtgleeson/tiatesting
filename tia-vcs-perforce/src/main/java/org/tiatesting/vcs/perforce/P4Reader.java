@@ -66,8 +66,9 @@ public class P4Reader implements VCSReader {
      *
      * <p>Walks the P4 file specs returned by either the submit-range query
      * ({@code getDepotFiles(...@from,to)} with {@code allRevs=true}) or the local-changes query
-     * ({@code getExtendedFiles(//...)} with opened-files=true) and returns each depot path with
-     * the client's stream prefix stripped (so the result is repo-relative and forward-slash).
+     * ({@code getExtendedFiles(//...)} with opened-files=true) and returns each path resolved
+     * through the client view ({@code p4 where}) and relativized against the client root, so
+     * the result is workspace-root-relative and forward-slash.
      */
     @Override
     public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
@@ -106,20 +107,34 @@ public class P4Reader implements VCSReader {
         return streamName;
     }
 
-    private String readHeadCL(final P4Connection p4Connection) {
+    /**
+     * Find the most recent changelist the workspace is synced to ({@code p4 changes -m1 //<client>/...#have}).
+     *
+     * <p>The query uses client syntax rather than stream syntax so the server expands the client
+     * view to the real depot paths in the have list. A stream-scoped query matches nothing for
+     * virtual streams (which own no files and map the parent stream's paths), for streams whose
+     * files come in via {@code import} paths, and for classic clients that have no stream.
+     *
+     * @param p4Connection the Perforce connection whose current client is queried.
+     * @return the id of the workspace head changelist.
+     * @throws VCSAnalyzerException if no changelist is found or the Perforce query fails.
+     */
+    static String readHeadCL(final P4Connection p4Connection) {
         GetChangelistsOptions options = new GetChangelistsOptions();
         options.setMaxMostRecent(1);
-        String workspaceHeadCL = null;
-        String workspacePath = p4Connection.getClient().getStream() + "/...#have";
+        String workspaceHeadCL;
+        String clientName = p4Connection.getClient().getName();
+        String workspacePath = "//" + clientName + "/...#have";
 
         try {
             List<IChangelistSummary> changeLists = p4Connection.getServer().getChangelists(
                     FileSpecBuilder.makeFileSpecList(workspacePath), options);
             if (changeLists.isEmpty()){
-                throw new VCSAnalyzerException("Couldn't find the head changelist for the workspace");
+                throw new VCSAnalyzerException("Couldn't find the head changelist for the workspace of client "
+                        + clientName + " using " + workspacePath);
             }
             workspaceHeadCL = String.valueOf(changeLists.get(0).getId());
-            log.debug("Head changelist id for the workspace is : {}", workspaceHeadCL);
+            log.debug("Head changelist id for the workspace of client {} is : {}", clientName, workspaceHeadCL);
         } catch (P4JavaException e) {
             throw new VCSAnalyzerException(e);
         }
