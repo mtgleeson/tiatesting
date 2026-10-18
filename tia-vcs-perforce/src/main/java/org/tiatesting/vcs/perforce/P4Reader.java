@@ -100,8 +100,24 @@ public class P4Reader implements VCSReader {
         return p4Context.getBranchName();
     }
 
-    private String readBranchName(final P4Connection p4Connection) {
+    /**
+     * Derive the branch name Tia stores its data under from the workspace's client.
+     *
+     * <p>For a stream client the stream path is used, with the leading {@code //} removed and the
+     * remaining {@code /} separators replaced by {@code -} (e.g. {@code //apps/main} becomes
+     * {@code apps-main}). A classic (non-stream) client has no stream, so the client name is used
+     * instead.
+     *
+     * @param p4Connection the Perforce connection whose current client is read.
+     * @return the branch name for the workspace.
+     */
+    static String readBranchName(final P4Connection p4Connection) {
         String streamName = p4Connection.getClient().getStream();
+        if (streamName == null || streamName.isEmpty()) {
+            String clientName = p4Connection.getClient().getName();
+            log.debug("Client {} has no stream, using the client name as the branch name", clientName);
+            return clientName;
+        }
         streamName = streamName.replace("//", "");
         streamName = streamName.replace("/", "-");
         return streamName;
