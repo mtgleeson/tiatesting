@@ -613,7 +613,7 @@ public class P4DiffAnalyzer {
      * Find every file changed in the changelist range {@code clFrom..clTo} and build the
      * corresponding {@link SourceFileDiffContext} entries.
      *
-     * <p>Resolves the file changes in a single {@code p4 files -a //stream/...@clFrom,clTo}
+     * <p>Resolves the file changes in a single {@code p4 files -a //<client>/...@clFrom,clTo}
      * round-trip via {@link com.perforce.p4java.server.IOptionsServer#getDepotFiles} with
      * {@code allRevs=true}. The {@code allRevs} flag tells Perforce to return <em>every</em>
      * revision of each file <strong>within the CL range</strong> (not every revision ever) -
