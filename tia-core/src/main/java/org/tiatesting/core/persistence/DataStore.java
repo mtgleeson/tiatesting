@@ -224,9 +224,12 @@ public interface DataStore extends AutoCloseable {
     void persistTestSuites(final Map<String, TestSuiteTracker> testSuites);
 
     /**
-     * Delete the given test suites from disk, together with any failed-suite entry each one has, in
-     * one transaction. A deleted suite never executes again, so nothing else would ever clear its
-     * failed entry - left behind, it would be force-selected on every later build.
+     * Delete the given test suites from disk, together with their coverage (class rows and
+     * suite-to-method edges) and any failed-suite entry each one has, in one transaction. A deleted
+     * suite never executes again, so nothing else would ever clear these: a failed entry left behind
+     * would be force-selected on every later build, and coverage left behind would keep the methods
+     * only that suite covered in the catalogue until a re-seed. With the edges gone, the next seal's
+     * catalogue rebuild drops those methods.
      *
      * @param testSuites the test suites that should be deleted from disk.
      */

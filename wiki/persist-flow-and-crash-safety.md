@@ -97,8 +97,9 @@ take the run's observed tracker, else the stored one, and carry its run counts f
 run's execution and trigger when the run counts. When the run observed nothing and moved no counter
 (no covered or triggered method, or a retry, which counts nothing), every rebuilt row is the stored
 row for its id, and an edge id with no catalogue row is absent from both. The one remaining
-difference is a stored row no edge references, which the rebuild drops - left behind, for example,
-by an earlier run that rewrote a suite's edges and stopped before its seal.
+difference is a stored row no edge references, which the rebuild drops - left behind when a suite
+is deleted (see below), or by an earlier run that rewrote a suite's edges and stopped before its
+seal.
 
 So the assembler checks for that row with `DataStore.hasUnreferencedSourceMethods`, an anti-join
 served by `idx_source_class_method_method_id` that stops at the first hit, and only once the
@@ -109,6 +110,26 @@ clear, the commit value and the stats - is written as before. Measured on a 5.7M
 database, the check takes ~0.15-0.25s against ~1.4s warm (5.9s cold) for the two reads it replaces,
 before counting the write it saves. The usual case is a build with nothing selected: a zero-group
 distributed plan, or a single-host run that ignored every suite.
+
+### A deleted suite takes its coverage with it
+
+`deleteTestSuites` removes a suite's edges (`tia_source_class_method`), its class rows
+(`tia_source_class`), its failed row and its suite row, in one transaction, edges first since the
+suite's id is found by name. The mapping tables have no foreign keys, so nothing else would: until
+this was fixed the delete removed only the suite row. The coverage left behind was unreachable -
+every read that turns coverage into suites joins back to `tia_test_suite` - but it kept the methods
+only that suite covered in the catalogue, with line ranges nothing refreshed, and in every
+changed-file lookup, until a re-seed's orphan sweep removed it. Databases written before the fix
+still carry such rows; the next re-seed clears them.
+
+With the edges gone, those methods are unreferenced, so the next seal takes the full catalogue
+rebuild (see above) and drops them, along with their run stats. The deletion runs before the seal,
+outside its transaction, like the rest of the suite mapping writes: the rows it removes carry no
+line coordinates, so the mapping being ahead of the stored commit is safe. On a distributed build
+every runner discovers the same suite set (see "`removeDeletedTestSuites` on a runner" in
+[Distributed test runs](distributed-test-runs.md)), so each one deletes the same suites; the
+deletes run in suite-name order so that two runners deleting at once lock rows in the same order,
+and the later one finds nothing left to remove.
 
 **The clear-out inside a rewrite is dialect-specific, and the obvious choice was wrong on H2.**
 `writeSourceMethods` (tia_source_method) needs to clear a table and then repopulate it, with the

@@ -97,7 +97,8 @@ is a syntax error.
 executing, which a deleted suite never does. `deleteTestSuites` therefore deletes the suite's
 `tia_test_suites_failed` row in the same transaction as its `tia_test_suite` row, so a crash
 cannot leave the failed row behind without the suite row that the next run's deletion check would
-find and retry.
+find and retry. Its coverage rows go in the same transaction - see ["A deleted suite takes its
+coverage with it"](persist-flow-and-crash-safety.md#a-deleted-suite-takes-its-coverage-with-it).
 
 ### Two failed counts, for two readers
 
