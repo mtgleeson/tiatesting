@@ -2,9 +2,17 @@ package org.tiatesting.core.util;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 public class StringUtil {
+
+    /**
+     * How many names a log line lists when it would otherwise list one per suite or class in the
+     * project - see {@link #sampleSorted}.
+     */
+    public static final int LOG_SAMPLE_SIZE = 10;
 
     /**
      * Remove all trailing spaces and new lines for each element.
@@ -31,5 +39,26 @@ public class StringUtil {
         List<String> values = new ArrayList<>(Arrays.asList(csv.split(",")));
         sanitizeInputArray(values);
         return values;
+    }
+
+    /**
+     * Render a bounded, deterministic sample of names for a log line: the first {@code limit}
+     * names in sorted order, followed by how many were left out. Keeps a line that would otherwise
+     * list every suite or class in the project - tens of kilobytes on a large one - to a fixed
+     * size, while still naming a few for a spot check. It sorts the whole collection, so callers
+     * build it only when the line will actually be logged.
+     *
+     * @param names the names to sample
+     * @param limit the most names to list
+     * @return the names as {@code [a, b, ...]}, with {@code " and N more"} appended when some were
+     *         left out
+     */
+    public static String sampleSorted(Collection<String> names, int limit) {
+        List<String> sorted = new ArrayList<>(names);
+        Collections.sort(sorted);
+        if (sorted.size() <= limit) {
+            return sorted.toString();
+        }
+        return sorted.subList(0, limit) + " and " + (sorted.size() - limit) + " more";
     }
 }

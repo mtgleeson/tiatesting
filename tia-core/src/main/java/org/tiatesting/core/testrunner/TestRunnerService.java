@@ -15,6 +15,7 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.SealedRunDataAssembler;
 import org.tiatesting.core.sourcefile.FileExtensions;
+import org.tiatesting.core.util.StringUtil;
 
 import java.io.File;
 import java.io.IOException;
@@ -1074,6 +1075,9 @@ public class TestRunnerService {
      * misconfiguration rather than evidence of deletion, and is rejected: returning an empty set
      * would delete the project's entire stored mapping.
      *
+     * <p>The DEBUG line reports how many classes were found and a sorted sample of their names,
+     * not the whole set, which grows with the project and runs on every persist.
+     *
      * @param testClassesDirsCsv comma-separated directories holding the compiled test classes
      * @return the suite names found across those directories
      * @throws IllegalArgumentException if none of the listed directories exists
@@ -1123,7 +1127,10 @@ public class TestRunnerService {
                     + "project's whole stored mapping.");
         }
 
-        log.debug("Test classes found: " + testClasses);
+        if (log.isDebugEnabled()) {
+            log.debug("Test classes found: {} - {}", testClasses.size(),
+                    StringUtil.sampleSorted(testClasses, StringUtil.LOG_SAMPLE_SIZE));
+        }
         return testClasses;
     }
 }

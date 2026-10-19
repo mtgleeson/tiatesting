@@ -18,6 +18,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.sourcefile.SourceFilenameUtil;
+import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionResolver;
 import org.tiatesting.core.staticselection.StaticTestSelectionResult;
@@ -39,12 +40,6 @@ import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;
 public class TestSelector {
 
     private static final Logger log = LoggerFactory.getLogger(TestSelector.class);
-
-    /**
-     * How many ignored suite names the DEBUG "Ignoring" line lists. The ignored set is every
-     * tracked suite not selected, so listing it whole put tens of kilobytes on one line.
-     */
-    private static final int IGNORED_SUITES_LOGGED = 10;
 
     private final DataStore dataStore;
 
@@ -160,7 +155,7 @@ public class TestSelector {
 
         if (log.isDebugEnabled()) {
             log.debug("Ignoring {} test suite(s): {}", testsToIgnore.size(),
-                    sampleSuiteNames(testsToIgnore, IGNORED_SUITES_LOGGED));
+                    StringUtil.sampleSorted(testsToIgnore, StringUtil.LOG_SAMPLE_SIZE));
         }
 
         RunTimeEstimate estimate = estimateRunTime(testsToRun, testSuitesTracked,
@@ -1271,25 +1266,5 @@ public class TestSelector {
 
         /** @return the number of suites selected from pending library changes */
         int getNumPendingLibrary() { return numPendingLibrary; }
-    }
-
-    /**
-     * Render a bounded, deterministic sample of suite names for a log line: the first
-     * {@code limit} names in sorted order, followed by how many were left out. Keeps a log line
-     * that would otherwise list every tracked suite to a fixed size, while still naming a few for a
-     * spot check. Only called with DEBUG enabled, since it sorts the whole set.
-     *
-     * @param suiteNames the suite names to sample
-     * @param limit the most names to list
-     * @return the names as {@code [a, b, ...]}, with {@code " and N more"} appended when some were
-     *         left out
-     */
-    static String sampleSuiteNames(final Set<String> suiteNames, final int limit) {
-        List<String> sorted = new ArrayList<>(suiteNames);
-        Collections.sort(sorted);
-        if (sorted.size() <= limit) {
-            return sorted.toString();
-        }
-        return sorted.subList(0, limit) + " and " + (sorted.size() - limit) + " more";
     }
 }
