@@ -814,6 +814,10 @@ class MappingWriter extends JdbcRepository {
      * {@code TRUNCATE TABLE} would silently escape the transaction on H2, unable to be undone if
      * the insert (or a later step in the same seal) failed.
      *
+     * <p>The {@code INSERT} is logged as a method count, not as the statement: the statement inlines
+     * every row, so it grows with the catalogue - several megabytes in one DEBUG line at tens of
+     * thousands of methods. See the "Logging conventions" chapter in {@code WIKI.md}.
+     *
      * @param connection the connection to write on; its auto-commit state is not changed
      * @param sourceMethods the full method catalogue to write, keyed by method id; a null map is
      *                      a no-op
@@ -856,7 +860,8 @@ class MappingWriter extends JdbcRepository {
             String insertSql = insertSqlBuilder.toString();
             insertSql = insertSql.substring(0, insertSql.length()-1);
 
-            log.debug("Persisting indexed source methods: {}", insertSql);
+            log.debug("Persisting {} indexed source method(s) to {}", sourceMethods.size(),
+                    TABLE_TIA_SOURCE_METHOD);
             statement.executeUpdate(insertSql);
         }
     }

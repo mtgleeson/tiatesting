@@ -199,6 +199,34 @@ class MappingReader extends JdbcRepository {
     }
 
     /**
+     * Check for a catalogue row that no edge references, over its own connection. The anti-join is
+     * served by {@code idx_source_class_method_method_id} and stops at the first hit, so it costs
+     * far less than the full catalogue and edge-id reads a catalogue rebuild makes. Implements
+     * {@link DataStore#hasUnreferencedSourceMethods}.
+     *
+     * @return true when at least one catalogue row is unreferenced
+     */
+    boolean hasUnreferencedSourceMethods() {
+        String sql = "SELECT 1 FROM " + TABLE_TIA_SOURCE_METHOD + " m WHERE NOT EXISTS (SELECT 1 FROM "
+                + TABLE_TIA_SOURCE_CLASS_METHOD + " e WHERE e." + COL_TIA_SOURCE_METHOD_ID
+                + " = m." + COL_ID + ") LIMIT 1";
+        Connection connection = getConnection();
+
+        try (Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(sql)) {
+            return resultSet.next();
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
+    /**
      * Targeted changed-files-to-tracked-methods read: resolve a set of stored source-file keys to their tracked
      * methods with one indexed query per {@value JdbcRepository#IN_CLAUSE_CHUNK_SIZE}-key chunk, instead
      * of loading the full suite-to-method mapping. {@code SELECT DISTINCT} collapses the

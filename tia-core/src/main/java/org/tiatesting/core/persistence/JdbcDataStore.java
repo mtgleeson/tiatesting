@@ -195,6 +195,15 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * {@inheritDoc}
+     * <p>Delegates to {@link MappingReader#hasUnreferencedSourceMethods}.
+     */
+    @Override
+    public boolean hasUnreferencedSourceMethods() {
+        return mappingReader.hasUnreferencedSourceMethods();
+    }
+
+    /**
+     * {@inheritDoc}
      * <p>Delegates to {@link MappingReader#getMethodsTrackedForFiles}.
      */
     @Override
