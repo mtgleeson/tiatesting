@@ -14,6 +14,7 @@ import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.SealedRunData;
 import org.tiatesting.core.persistence.SealedRunDataAssembler;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.report.ReportUtils;
@@ -292,6 +293,10 @@ public final class DistributedRunSealer {
      *               data no group rewrote - the suites any runner wrote are the ones flagged
      *               unsealed. The sealer seals once per build, so there is no retry to guard against.
      *               See the "Forced runs and re-seed" chapter in {@code WIKI.md}
+     * <p>A build that observed and counted nothing - a plan with no groups, typically - leaves the
+     * method catalogue as stored, and the closing log line says so rather than printing a count;
+     * see {@link SealedRunDataAssembler#assemble}.
+     *
      * @param triggeredMethodIds the ids of the changed methods whose covering suites the plan's
      *                           selection pulled in, each counted as a triggered run of the method
      */
@@ -324,12 +329,18 @@ public final class DistributedRunSealer {
         // The build seals once, so it counts as exactly one run in each method's run stats: one
         // executed run for each method any runner's suites covered, from the union they staged.
         Set<Integer> coveredMethodIds = dataStore.readStagedCoveredMethodIds(context.getRunId());
-        dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
+        SealedRunData sealedRunData = new SealedRunDataAssembler(dataStore).assemble(tiaData,
                 stagedMethodTrackers, drainResult, commitValue, allTestsRun, statsIncrement, reseed,
-                true, coveredMethodIds, triggeredMethodIds));
+                true, coveredMethodIds, triggeredMethodIds);
+        dataStore.persistSealedRunData(sealedRunData);
 
-        log.info("Distributed run '{}': sealed at commit '{}' with {} method(s) in the catalogue.",
-                context.getRunId(), commitValue, tiaData.getMethodsTracked().size());
+        if (sealedRunData.isMethodCatalogueRewritten()) {
+            log.info("Distributed run '{}': sealed at commit '{}' with {} method(s) in the catalogue.",
+                    context.getRunId(), commitValue, sealedRunData.getMethodsTracked().size());
+        } else {
+            log.info("Distributed run '{}': sealed at commit '{}', method catalogue unchanged.",
+                    context.getRunId(), commitValue);
+        }
     }
 
     /**

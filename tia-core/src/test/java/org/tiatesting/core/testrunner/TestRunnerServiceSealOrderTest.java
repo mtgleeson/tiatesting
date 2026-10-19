@@ -362,6 +362,8 @@ class TestRunnerServiceSealOrderTest {
         @Override
         public Set<Integer> getUniqueMethodIdsTracked() { return delegate.getUniqueMethodIdsTracked(); }
         @Override
+        public boolean hasUnreferencedSourceMethods() { return delegate.hasUnreferencedSourceMethods(); }
+        @Override
         public Map<String, Map<Integer, MethodImpactTracker>> getMethodsTrackedForFiles(Set<String> sourceFilenames) { return delegate.getMethodsTrackedForFiles(sourceFilenames); }
         @Override
         public Map<Integer, Set<String>> getTestSuitesForMethods(Set<Integer> methodIds) { return delegate.getTestSuitesForMethods(methodIds); }

@@ -39,7 +39,9 @@ public class SealedRunData {
      * Construct a seal payload.
      *
      * @param tiaData the core data to write, carrying the commit value being sealed
-     * @param methodsTracked the full method catalogue to write, keyed by method id
+     * @param methodsTracked the full method catalogue to write, keyed by method id, or null to
+     *                       leave {@code tia_source_method} as it is because the seal would not
+     *                       change it
      * @param drainedMethodBatchKeys pending impacted-method batches to delete; may be empty
      * @param drainedForcedBatchKeys pending forced-selection batches to delete; may be empty
      * @param librariesToPersist tracked libraries whose baseline or applied sequence changed;
@@ -73,8 +75,21 @@ public class SealedRunData {
     /** @return the core data to write, carrying the commit value being sealed */
     public TiaData getTiaData() { return tiaData; }
 
-    /** @return the full method catalogue to write, keyed by method id */
+    /**
+     * @return the full method catalogue to write, keyed by method id, or null when the seal leaves
+     *         {@code tia_source_method} as it is - see {@link #isMethodCatalogueRewritten()}
+     */
     public Map<Integer, MethodImpactTracker> getMethodsTracked() { return methodsTracked; }
+
+    /**
+     * Whether this seal rewrites the method catalogue. False when the assembler found the rewrite
+     * would produce the stored table unchanged (nothing observed, no run counted, no unreferenced
+     * row), so the seal writes everything else but leaves {@code tia_source_method} alone. See the
+     * "Persist flow and crash safety" chapter in {@code WIKI.md}.
+     *
+     * @return true when {@link #getMethodsTracked()} carries a catalogue to write
+     */
+    public boolean isMethodCatalogueRewritten() { return methodsTracked != null; }
 
     /** @return the pending impacted-method batches to delete */
     public List<LibraryImpactDrainResult.DrainedBatchKey> getDrainedMethodBatchKeys() { return drainedMethodBatchKeys; }

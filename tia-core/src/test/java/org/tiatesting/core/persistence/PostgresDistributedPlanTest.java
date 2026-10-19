@@ -8,6 +8,12 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
+import org.tiatesting.core.distributed.DistributedRunSealer;
+import org.tiatesting.core.distributed.DistributedRunnerContext;
+import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestSuiteTracker;
+import org.tiatesting.core.model.TiaData;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -16,13 +22,17 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Instant;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -232,5 +242,50 @@ class PostgresDistributedPlanTest {
         assertNull(postgresStore.readDistributedRun("pg-run-3"));
         assertEquals("pg-run-4", postgresStore.readDistributedRun("pg-run-4").getRunId());
         assertEquals(1, postgresStore.readAllDistributedRuns().size());
+    }
+
+    /**
+     * A plan with no groups is sealed by the plan step itself. On Postgres that seal must advance
+     * the commit and write the build's history row while leaving {@code tia_source_method}
+     * untouched - same rows, same line numbers, same run counts - so it takes no
+     * {@code TRUNCATE} lock that would block every other reader of the schema.
+     */
+    @Test
+    void shouldSealAZeroGroupPlanWithoutRewritingTheCatalogueOnPostgres() {
+        // given - a sealed prior commit, a catalogue every row of which an edge references, and a
+        // plan with no groups
+        TiaData core = postgresStore.getTiaCore();
+        core.setCommitValue("prior-commit");
+        core.setLastUpdated(Instant.now());
+        postgresStore.persistCoreData(core);
+
+        TestSuiteTracker suite = new TestSuiteTracker("com.example.ATest");
+        suite.setClassesImpacted(Collections.singletonList(
+                new ClassImpactTracker("com/example/A.java", new HashSet<>(Collections.singleton(101)))));
+        postgresStore.persistTestSuites(Collections.singletonMap(suite.getName(), suite));
+        MethodImpactTracker stored = new MethodImpactTracker("com/example/A.a.()V", 3, 9);
+        stored.setExecutedRunCount(4);
+        stored.setTriggeredRunCount(2);
+        postgresStore.persistSourceMethods(Collections.singletonMap(101, stored));
+
+        postgresStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open("pg-run-empty", BRANCH, "commit-2", 0, 1, null, 0L, 1234L,
+                        SelectionMode.SELECTIVE, "CI"),
+                Collections.emptyList(), Collections.emptyMap(), null));
+
+        // when
+        boolean sealed = new DistributedRunSealer(postgresStore,
+                DistributedRunnerContext.forPlanner("pg-run-empty")).sealIfElected(true, true, 9000L);
+
+        // then
+        assertTrue(sealed);
+        assertEquals("commit-2", postgresStore.getTiaCore().getCommitValue());
+        assertEquals(1, postgresStore.readTestRunHistory().size());
+        Map<Integer, MethodImpactTracker> catalogue = postgresStore.getMethodsTracked();
+        assertEquals(Collections.singleton(101), catalogue.keySet());
+        assertEquals(3, catalogue.get(101).getLineNumberStart());
+        assertEquals(9, catalogue.get(101).getLineNumberEnd());
+        assertEquals(4L, catalogue.get(101).getExecutedRunCount());
+        assertEquals(2L, catalogue.get(101).getTriggeredRunCount());
     }
 }

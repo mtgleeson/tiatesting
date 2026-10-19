@@ -156,6 +156,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         @Override public Map<String, List<ClassImpactTracker>> readTestSuiteCoverage(Set<String> suiteNames) { return delegate.readTestSuiteCoverage(suiteNames); }
         @Override public Map<Integer, MethodImpactTracker> getMethodsTracked() { return delegate.getMethodsTracked(); }
         @Override public Set<Integer> getUniqueMethodIdsTracked() { return delegate.getUniqueMethodIdsTracked(); }
+        @Override public boolean hasUnreferencedSourceMethods() { return delegate.hasUnreferencedSourceMethods(); }
         @Override public Map<String, Map<Integer, MethodImpactTracker>> getMethodsTrackedForFiles(Set<String> sourceFilenames) { return delegate.getMethodsTrackedForFiles(sourceFilenames); }
         @Override public Map<Integer, Set<String>> getTestSuitesForMethods(Set<Integer> methodIds) { return delegate.getTestSuitesForMethods(methodIds); }
         @Override public int getNumTestSuites() { return delegate.getNumTestSuites(); }

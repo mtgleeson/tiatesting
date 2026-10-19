@@ -300,6 +300,39 @@ class DistributedRunSealerTest {
     }
 
     /**
+     * A plan with no groups ran nothing, so its seal - made by the plan step itself - still advances
+     * the commit, writes the build's history row and counts the run, but leaves the method
+     * catalogue exactly as stored: rewriting it would only write back the same rows, under a lock
+     * that blocks every other reader on Postgres.
+     */
+    @Test
+    void aZeroGroupSealAdvancesTheCommitAndHistoryButLeavesTheCatalogueUntouched() {
+        // given - a stored catalogue every row of which an edge references, and a plan with no groups
+        Map<Integer, MethodImpactTracker> stored = trackers(101, "com/example/A.a.()V", 1, 5);
+        seedStoredCatalogue(stored);
+        seedSuiteEdges("com.example.ATest", "com/example/A.java", 101);
+        persistEmptyPlan(RUN_ID);
+        long numRunsBefore = dataStore.getTiaCore().getTestStats().getNumRuns();
+
+        // when
+        boolean sealed = new DistributedRunSealer(dataStore, DistributedRunnerContext.forPlanner(RUN_ID))
+                .sealIfElected(true, true, 9000L);
+
+        // then
+        assertTrue(sealed);
+        assertFalse(dataStore.lastSealedRunData.isMethodCatalogueRewritten(),
+                "a seal that observed and counted nothing must not rewrite the catalogue");
+        TiaData reloaded = dataStore.getTiaCore();
+        assertEquals(PLAN_COMMIT, reloaded.getCommitValue());
+        assertEquals(numRunsBefore + 1, reloaded.getTestStats().getNumRuns());
+        assertEquals(1, dataStore.readTestRunHistory().size());
+        Map<Integer, MethodImpactTracker> catalogue = dataStore.getMethodsTracked();
+        assertEquals(stored.keySet(), catalogue.keySet());
+        assertEquals(1, catalogue.get(101).getLineNumberStart());
+        assertEquals(5, catalogue.get(101).getLineNumberEnd());
+    }
+
+    /**
      * The library drain cleanup the plan's own selection still owes is applied by the sealer, from
      * the drain result recorded when the run was planned. The planning process deleted pending rows
      * and advanced sequences before any runner started and then exited, so this stored result is the
@@ -621,6 +654,19 @@ class DistributedRunSealerTest {
     }
 
     /**
+     * Persist a plan with no groups, as the plan step writes one when nothing was selected: no
+     * groups and no suites, with the groups available floored at one as the planner records it.
+     *
+     * @param runId the run identifier to plan under
+     */
+    private void persistEmptyPlan(final String runId) {
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open(runId, "main", PLAN_COMMIT, 0, 1, null, 0L, 1234L,
+                        SelectionMode.SELECTIVE, null),
+                Collections.emptyList(), Collections.emptyMap(), null));
+    }
+
+    /**
      * Build and persist a plan recorded with the given selection mode.
      *
      * @param runId the run identifier to plan under
@@ -823,6 +869,9 @@ class DistributedRunSealerTest {
 
         private final List<String> callOrder = new ArrayList<>();
 
+        /** The last seal bundle handed to {@link #persistSealedRunData}, or null before any seal. */
+        private SealedRunData lastSealedRunData;
+
         /**
          * Optional action to run immediately after a staging write lands, so a test can make a
          * supersession arrive in the window between the runner's claim re-verification and its
@@ -855,12 +904,14 @@ class DistributedRunSealerTest {
 
         /**
          * Record and delegate the seal bundle, which only the run's elected sealer may write.
+         * Keeps the bundle so a test can assert what the seal carried.
          *
          * @param sealedRunData the bundle to write
          */
         @Override
         public void persistSealedRunData(final SealedRunData sealedRunData) {
             callOrder.add("persistSealedRunData");
+            lastSealedRunData = sealedRunData;
             super.persistSealedRunData(sealedRunData);
         }
 

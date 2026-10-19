@@ -53,8 +53,13 @@ public final class SealedRunDataAssembler {
      * rebuilt from the method ids the edge table currently references - an id the edge table does
      * not yet carry is not in the catalogue this produces.
      *
+     * <p>When the rebuild would write back exactly the stored catalogue, the payload carries no
+     * catalogue at all and the seal leaves {@code tia_source_method} untouched - see
+     * {@link #isCatalogueUnchanged}.
+     *
      * @param tiaData the core data read at the start of the persist, already carrying the commit
-     *                being sealed; updated in place with the rebuilt catalogue
+     *                being sealed; updated in place with the rebuilt catalogue, unless the seal
+     *                leaves the catalogue unchanged
      * @param observedMethodTrackers the trackers observed for the commit being sealed, keyed by
      *                               method id; they take precedence over the stored catalogue,
      *                               since the stored line numbers may pre-date the changes this
@@ -77,7 +82,8 @@ public final class SealedRunDataAssembler {
      * @param triggeredMethodIds the ids of the changed methods whose covering suites the run's
      *                           selection pulled in; each catalogued one gains a triggered run
      *                           when {@code countRun} is set
-     * @return the payload to hand to {@link DataStore#persistSealedRunData(SealedRunData)}
+     * @return the payload to hand to {@link DataStore#persistSealedRunData(SealedRunData)}; its
+     *         catalogue is null when the seal leaves the stored one unchanged
      */
     public SealedRunData assemble(final TiaData tiaData,
                                   final Map<Integer, MethodImpactTracker> observedMethodTrackers,
@@ -109,24 +115,68 @@ public final class SealedRunDataAssembler {
      * mapping has been persisted - it queries the data store for the updated set of source class
      * method ids.
      *
-     * @param tiaData the Tia DB, updated in place with the resulting catalogue
+     * <p>Returns null without reading the catalogue or the edge table's id set when the rebuild
+     * would change nothing - see {@link #isCatalogueUnchanged}.
+     *
+     * @param tiaData the Tia DB, updated in place with the resulting catalogue when one is built
      * @param observedMethodTrackers all source code methods covered by any test suite executed for
      *                               the commit being sealed
      * @param countRun whether this seal adds to the run stats of the covered and triggering methods
      * @param coveredMethodIds the ids of the methods the run's suites executed
      * @param triggeredMethodIds the ids of the changed methods that triggered the run
-     * @return the catalogue to persist, keyed by method id
+     * @return the catalogue to persist, keyed by method id, or null when the rewrite is skipped
      */
     private Map<Integer, MethodImpactTracker> buildMethodsTracked(final TiaData tiaData,
                                                                   final Map<Integer, MethodImpactTracker> observedMethodTrackers,
                                                                   final boolean countRun,
                                                                   final Set<Integer> coveredMethodIds,
                                                                   final Set<Integer> triggeredMethodIds) {
+        if (isCatalogueUnchanged(observedMethodTrackers, countRun, coveredMethodIds, triggeredMethodIds)) {
+            log.debug("Method catalogue unchanged by this seal (no suite observed, no run counted, "
+                    + "no unreferenced rows) - skipping the rewrite.");
+            return null;
+        }
+
         Map<Integer, MethodImpactTracker> methodTrackersOnDisk = dataStore.getMethodsTracked();
         Map<Integer, MethodImpactTracker> updatedMethodTrackers = updateMethodTracker(methodTrackersOnDisk,
                 observedMethodTrackers, countRun, coveredMethodIds, triggeredMethodIds);
         tiaData.setMethodsTracked(updatedMethodTrackers);
         return updatedMethodTrackers;
+    }
+
+    /**
+     * Decide whether rebuilding the catalogue would write back exactly the stored table. With no
+     * observed tracker every rebuilt row is the stored row for its id; with no counted execution or
+     * trigger no run counter moves; and an edge id with no catalogue row is absent from both the
+     * rebuild and the stored table. The one remaining difference is a stored row no edge
+     * references, which a rebuild drops - for example after a deleted suite's edges were removed -
+     * so that is checked last, against the data store, and only once the in-memory conditions
+     * hold. Null maps and sets count as empty. See the "Persist flow and crash safety" chapter in
+     * {@code WIKI.md}.
+     *
+     * @param observedMethodTrackers the trackers observed for the commit being sealed
+     * @param countRun whether this seal adds to the run stats of the covered and triggering methods
+     * @param coveredMethodIds the ids of the methods the run's suites executed
+     * @param triggeredMethodIds the ids of the changed methods that triggered the run
+     * @return true when the rewrite can be skipped
+     */
+    private boolean isCatalogueUnchanged(final Map<Integer, MethodImpactTracker> observedMethodTrackers,
+                                         final boolean countRun,
+                                         final Set<Integer> coveredMethodIds,
+                                         final Set<Integer> triggeredMethodIds) {
+        boolean nothingObserved = observedMethodTrackers == null || observedMethodTrackers.isEmpty();
+        boolean noRunCounted = !countRun || (isEmpty(coveredMethodIds) && isEmpty(triggeredMethodIds));
+        return nothingObserved && noRunCounted && !dataStore.hasUnreferencedSourceMethods();
+    }
+
+    /**
+     * Null-safe emptiness check for a set of method ids.
+     *
+     * @param ids a set of method ids, possibly null
+     * @return true when the set is null or empty
+     */
+    private static boolean isEmpty(final Set<Integer> ids) {
+        return ids == null || ids.isEmpty();
     }
 
     /**

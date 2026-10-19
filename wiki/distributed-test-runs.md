@@ -332,6 +332,13 @@ The seal records exactly what a runner's seal of an empty group would have:
   `tiaDistributedMaxGroups` has no pool, and falls back to the single group an empty plan used to
   have.
 
+The seal leaves the method catalogue (`tia_source_method`) exactly as stored. No runner observed a
+method, covered one or was triggered by one, so the catalogue rebuild would only write the same rows
+back - and on Postgres its `TRUNCATE` holds an `ACCESS EXCLUSIVE` lock on the table until the seal
+commits, blocking every other build's reads of the schema for nothing. The sealer logs
+`method catalogue unchanged` in place of a method count. See ["A seal that would not change the
+catalogue skips the rewrite"](persist-flow-and-crash-safety.md#a-seal-that-would-not-change-the-catalogue-skips-the-rewrite).
+
 A zero-group row never counts as an all-tests run - that needs `suitesRan > 0` - so it cannot move
 the all-tests baseline. A seed run is never planned with zero groups: with nothing found on disk it
 still collapses to one group that runs everything.

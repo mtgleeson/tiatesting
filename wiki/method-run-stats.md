@@ -34,7 +34,9 @@ the counters. Within that:
 ### How the counts accumulate
 
 The counts are written at the seal, as part of the catalogue rewrite the seal already does (see
-[Persist flow and crash safety](persist-flow-and-crash-safety.md)). `SealedRunDataAssembler`
+[Persist flow and crash safety](persist-flow-and-crash-safety.md)). A seal that counts nothing and
+observed nothing skips that rewrite, leaving every stored count as it is - see ["A seal that would
+not change the catalogue skips the rewrite"](persist-flow-and-crash-safety.md#a-seal-that-would-not-change-the-catalogue-skips-the-rewrite). `SealedRunDataAssembler`
 rebuilds the catalogue from the on-disk trackers and the trackers the run observed. An observed
 tracker is built fresh from JaCoCo coverage and starts at zero, so the assembler first copies each
 method's stored counts onto whichever tracker it keeps, then:

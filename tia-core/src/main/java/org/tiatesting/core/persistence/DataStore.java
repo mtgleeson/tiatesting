@@ -88,6 +88,17 @@ public interface DataStore extends AutoCloseable {
     Set<Integer> getUniqueMethodIdsTracked();
 
     /**
+     * Whether the method catalogue holds any row that no suite-to-method edge references. A
+     * catalogue rebuild drops such a row, so a seal that otherwise changes nothing must still
+     * rewrite the catalogue when this is true. Stops at the first hit. See the "Persist flow and
+     * crash safety" chapter in {@code WIKI.md}.
+     *
+     * @return true when at least one {@code tia_source_method} row is unreferenced by
+     *         {@code tia_source_class_method}
+     */
+    boolean hasUnreferencedSourceMethods();
+
+    /**
      * Targeted read (the changed-files-to-tracked-methods step of the select-tests flow): retrieve the tracked methods for a
      * specific set of source files, keyed by file then by method id. Used to resolve the
      * files changed in a VCS diff to their candidate methods without loading the full
