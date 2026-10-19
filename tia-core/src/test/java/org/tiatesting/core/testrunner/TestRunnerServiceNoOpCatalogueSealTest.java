@@ -31,8 +31,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests the single-host seal of a run that selected nothing: it still advances the commit and
- * writes the history row, but leaves the method catalogue as stored - unless an earlier unsealed
- * edge write left a catalogue row no edge references, which still needs the rewrite to prune it. Uses a temp-directory embedded H2 database.
+ * writes the history row, but leaves the method catalogue as stored - unless a suite deletion or
+ * an earlier unsealed edge write left a catalogue row no edge references, which still needs the
+ * rewrite to prune it. Uses a temp-directory embedded H2 database.
  */
 class TestRunnerServiceNoOpCatalogueSealTest {
 
@@ -137,6 +138,30 @@ class TestRunnerServiceNoOpCatalogueSealTest {
     }
 
     /**
+     * A run that selected nothing and no longer discovers OTHER_SUITE deletes that suite with its
+     * coverage, leaving OTHER_METHOD_ID referenced by no edge, so the seal rewrites the catalogue
+     * and prunes it.
+     */
+    @Test
+    void runThatSelectedNothingButDeletedASuitePrunesTheMethodOnlyThatSuiteCovered() {
+        // given - a seed run in which SUITE covers METHOD_ID and OTHER_SUITE covers OTHER_METHOD_ID
+        Set<String> bothSuites = new HashSet<>(Arrays.asList(SUITE, OTHER_SUITE));
+        service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(),
+                seedResult(bothSuites), null);
+        TestRunResult nothingSelected = nothingSelectedResult(Collections.singleton(SUITE));
+
+        // when
+        service.persistTestRunData(true, false, "commit-2", "main", System.currentTimeMillis(),
+                nothingSelected, null);
+
+        // then
+        assertTrue(dataStore.lastSealedRunData.isMethodCatalogueRewritten());
+        Map<Integer, MethodImpactTracker> after = dataStore.getMethodsTracked();
+        assertTrue(after.containsKey(METHOD_ID));
+        assertFalse(after.containsKey(OTHER_METHOD_ID));
+    }
+
+    /**
      * Build the result of a seed run that executed both suites, SUITE covering METHOD_ID and
      * OTHER_SUITE covering OTHER_METHOD_ID.
      *
@@ -161,7 +186,7 @@ class TestRunnerServiceNoOpCatalogueSealTest {
      * Build the result of a run whose selection was empty: Tia ignored every suite the runner
      * knows of, so nothing ran, nothing was observed and nothing was covered or triggered.
      *
-     * @param runnerSuites every suite the runner knows of
+     * @param runnerSuites every suite the runner knows of; a tracked suite missing here is deleted
      * @return the run result
      */
     private TestRunResult nothingSelectedResult(Set<String> runnerSuites) {

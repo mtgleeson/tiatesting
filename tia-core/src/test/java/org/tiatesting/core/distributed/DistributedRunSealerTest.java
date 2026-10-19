@@ -581,6 +581,45 @@ class DistributedRunSealerTest {
     }
 
     /**
+     * A suite an earlier build tracked is no longer on disk. Every runner discovers the same suite
+     * set, so each one deletes it - the second delete finds nothing left to remove - and with its
+     * edges gone the build's seal drops the method only that suite covered, while both groups'
+     * methods survive.
+     */
+    @Test
+    void aSuiteDeletedFromTheSourceTreeLosesItsCoverageAndItsOnlyMethodAtTheSeal() {
+        // given - a stored suite covering a method nothing else reaches, absent from both runners'
+        // discovered suites, and a two-group plan for the suites that do exist
+        seedSuiteEdges("com.example.CTest", "com/example/C.java", 303);
+        seedStoredCatalogue(trackers(303, "com/example/C.c.()V", 1, 5));
+        persistPlanWithSuitesPerGroup(RUN_ID, "com.example.ATest", "com.example.BTest");
+        TestRunnerService service = new TestRunnerService(dataStore);
+        DistributedRunnerContext firstRunner = claim(RUN_ID, RUNNER_A);
+        DistributedRunnerContext lastRunner = claim(RUN_ID, RUNNER_B);
+
+        // when - both runners persist and complete, each deleting the vanished suite
+        service.persistTestRunData(true, false, PLAN_COMMIT, "main",
+                System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
+                        101, "com/example/A.a.()V"), firstRunner);
+        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner, true, false,
+                System.currentTimeMillis());
+        service.persistTestRunData(true, false, PLAN_COMMIT, "main",
+                System.currentTimeMillis(), runResultFor("com.example.BTest", "com/example/B.java",
+                        202, "com/example/B.b.()V"), lastRunner);
+        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner, true, false,
+                System.currentTimeMillis());
+
+        // then
+        assertEquals(PLAN_COMMIT, dataStore.getTiaCore().getCommitValue());
+        assertFalse(dataStore.getTestSuitesTracked().containsKey("com.example.CTest"));
+        assertFalse(dataStore.getUniqueMethodIdsTracked().contains(303),
+                "the deleted suite's edges must be gone");
+        Map<Integer, MethodImpactTracker> catalogue = dataStore.getMethodsTracked();
+        assertEquals(new HashSet<>(Arrays.asList(101, 202)), catalogue.keySet(),
+                "only the deleted suite's method may be pruned. Catalogue: " + catalogue);
+    }
+
+    /**
      * A runner whose completion is rejected does not go on to attempt the seal. Supersession here
      * lands <em>after</em> the claim re-verification passed - a newer build's plan write arrives
      * while the runner is staging - so the completion's own guard is what catches it. Its group is

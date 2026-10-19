@@ -96,10 +96,10 @@ class MappingWriter extends JdbcRepository {
      * flag set by persistTestSuiteClasses, so the flag is the "observed by this run" marker.
      * Unobserved suites are deleted with their classes and edges, except developer-disabled ones,
      * which keep their row, flag and stats and lose only their edges. Orphan class, edge and method
-     * rows - from earlier crashes, or suite deletions that never cascaded - are swept across the
-     * whole mapping, and failed-suite entries naming a suite that no longer exists are pruned. Core
-     * stats, history, library tables and id blocks are untouched. See the "Forced runs and
-     * re-seed" chapter in {@code WIKI.md}.
+     * rows - from earlier crashes, or suite deletions made before deleteTestSuites removed the
+     * suite's coverage too - are swept across the whole mapping, and failed-suite entries naming a
+     * suite that no longer exists are pruned. Core stats, history, library tables and id blocks are
+     * untouched. See the "Forced runs and re-seed" chapter in {@code WIKI.md}.
      *
      * @param connection the seal's connection, already inside its transaction
      * @throws SQLException if any delete fails; the caller rolls the whole seal back
@@ -209,8 +209,8 @@ class MappingWriter extends JdbcRepository {
     }
 
     /**
-     * Delete the named suites' rows and their failed-suite entries, over its own connection.
-     * Implements {@link DataStore#deleteTestSuites}.
+     * Delete the named suites' rows, their coverage and their failed-suite entries, over its own
+     * connection. Implements {@link DataStore#deleteTestSuites}.
      *
      * @param testSuites the names of the suites to delete
      */
@@ -234,28 +234,57 @@ class MappingWriter extends JdbcRepository {
     }
 
     /**
-     * Delete the given suites' {@code tia_test_suite} rows and their {@code tia_test_suites_failed}
-     * rows on a caller-supplied connection, in one transaction. The failed rows have to go too:
-     * the failed set only ever loses a suite when that suite executes, which a deleted suite never
-     * will, so a failed row left behind would force-select the suite on every later build. Doing
-     * both in one transaction means a crash cannot leave the failed row without the suite row that
-     * the next run's deletion check would find and retry.
+     * Delete the given suites on a caller-supplied connection, in one transaction: each suite's
+     * coverage (its {@code tia_source_class_method} edges, then its {@code tia_source_class} rows),
+     * its {@code tia_test_suites_failed} row, and its {@code tia_test_suite} row.
+     *
+     * <p>The coverage goes because nothing else would remove it: the mapping tables have no foreign
+     * keys, and every read that turns coverage into suites joins back to {@code tia_test_suite}, so
+     * a deleted suite's edges are unreachable but would otherwise keep its methods in the catalogue
+     * - and in every changed-file lookup - until a re-seed swept them. Removing the edges leaves the
+     * methods only the deleted suite covered unreferenced, so the next seal's catalogue rebuild
+     * drops them. The failed row goes too: the failed set only ever loses a suite when that suite
+     * executes, which a deleted suite never will, so a failed row left behind would force-select
+     * the suite on every later build. Doing it all in one transaction means a crash cannot leave
+     * coverage or a failed row behind without the suite row that the next run's deletion check would
+     * find and retry. The coverage is deleted before the suite row, since its id is found by name.
+     *
+     * <p>Suites are processed in name order so that two distributed runners deleting the same
+     * suites take their row locks in the same order rather than deadlocking each other.
      *
      * @param connection the connection to delete on; owns and commits/rolls back its own transaction
      * @param testSuites the suites to delete
-     * @throws SQLException if either delete fails, after rolling back both
+     * @throws SQLException if any delete fails, after rolling back all of them
      */
     private void deleteTestSuites(Connection connection, final Set<String> testSuites) throws SQLException {
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
 
-        try (PreparedStatement deleteSuite = connection.prepareStatement(
-                "DELETE FROM " + TABLE_TIA_TEST_SUITE + " WHERE " + COL_NAME + " = ?")) {
-            for (String testSuite : testSuites){
+        List<String> names = new ArrayList<>(testSuites);
+        Collections.sort(names);
+        String suiteIdByName = "(SELECT " + COL_ID + " FROM " + TABLE_TIA_TEST_SUITE
+                + " WHERE " + COL_NAME + " = ?)";
+
+        try (PreparedStatement deleteEdges = connection.prepareStatement(
+                     "DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " WHERE " + COL_TIA_SOURCE_CLASS_ID
+                             + " IN (SELECT " + COL_ID + " FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE "
+                             + COL_TIA_TEST_SUITE_ID + " = " + suiteIdByName + ")");
+             PreparedStatement deleteClasses = connection.prepareStatement(
+                     "DELETE FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID
+                             + " = " + suiteIdByName);
+             PreparedStatement deleteSuite = connection.prepareStatement(
+                     "DELETE FROM " + TABLE_TIA_TEST_SUITE + " WHERE " + COL_NAME + " = ?")) {
+            for (String testSuite : names){
                 log.debug("Deleting test suite: {}", testSuite);
+                deleteEdges.setString(1, testSuite);
+                deleteEdges.addBatch();
+                deleteClasses.setString(1, testSuite);
+                deleteClasses.addBatch();
                 deleteSuite.setString(1, testSuite);
                 deleteSuite.addBatch();
             }
+            deleteEdges.executeBatch();
+            deleteClasses.executeBatch();
             deleteSuite.executeBatch();
             deleteTestSuitesFailed(connection, testSuites);
             connection.commit();
