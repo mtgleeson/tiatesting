@@ -244,7 +244,7 @@ public final class DistributedRunPlanSummary {
     /**
      * Render this summary as the short human-readable block the plan step prints to the console alongside writing {@link #toJson()}. Unlike the JSON document, this text has no consumer
      * other than a human reading build output, so most of its wording is free to evolve - except
-     * the two target-miss reason lines, which share their exact text with {@link
+     * the target-miss reason lines, which share their exact text with {@link
      * DistributedRunPreviewFormatter#formatPreview} via {@link DistributedRunMissReasons}, so a
      * developer who saw a miss explained in the {@code select-tests} preview sees the identical
      * explanation once the real plan is persisted.
@@ -307,18 +307,9 @@ public final class DistributedRunPlanSummary {
                 summary.append("  Target: ").append(targetMs).append("ms - ")
                         .append(targetMet ? "met" : "not met").append("\n");
                 if (!targetMet) {
-                    if (clampedToMaxGroups) {
-                        summary.append("    reason: ").append(DistributedRunMissReasons.MAX_GROUPS_LIMITING)
-                                .append("\n");
-                    }
-                    if (fixedOverheadExceedsTarget) {
-                        summary.append("    reason: ")
-                                .append(DistributedRunMissReasons.FIXED_OVERHEAD_EXCEEDS_TARGET)
-                                .append("\n");
-                    }
-                    if (singleSuiteExceedsTarget) {
-                        summary.append("    reason: ").append(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET)
-                                .append("\n");
+                    for (String reason : DistributedRunMissReasons.applying(clampedToMaxGroups,
+                            fixedOverheadExceedsTarget, singleSuiteExceedsTarget)) {
+                        summary.append("    reason: ").append(reason).append("\n");
                     }
                 }
             }

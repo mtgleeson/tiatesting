@@ -27,6 +27,8 @@ public final class GroupingResult {
     private final boolean clampedToMaxGroups;
     private final boolean singleSuiteExceedsTarget;
     private final boolean fixedOverheadExceedsTarget;
+    private final int firstFitGroupCount;
+    private final long heaviestSuiteMs;
     private final long heaviestGroupMs;
     private final long totalEstimatedMs;
 
@@ -46,11 +48,18 @@ public final class GroupingResult {
      * @param fixedOverheadExceedsTarget whether the fixed per-JVM cost is on its own at or above the
      *                                   configured target, so no group count can meet it; always
      *                                   false for static groups, which have no target
+     * @param firstFitGroupCount the group count first-fit packing wanted against the target before
+     *                           any ceiling was applied, or 0 when the grouping was not packed
+     *                           against a target (static groups, seed runs, nothing selected)
+     * @param heaviestSuiteMs the weight in ms of the heaviest single suite (a test class counts
+     *                        with the {@code @Nested} classes that run inside it), or 0 when the
+     *                        grouping was not packed against a target
      * @throws IllegalArgumentException if any group's group number does not equal its index in
      *                                  {@code groups}
      */
     public GroupingResult(List<SuiteGroup> groups, boolean targetMet, boolean clampedToMaxGroups,
-                           boolean singleSuiteExceedsTarget, boolean fixedOverheadExceedsTarget) {
+                           boolean singleSuiteExceedsTarget, boolean fixedOverheadExceedsTarget,
+                           int firstFitGroupCount, long heaviestSuiteMs) {
         this.groups = Collections.unmodifiableList(new ArrayList<>(groups));
         for (int i = 0; i < this.groups.size(); i++) {
             int actualGroupNumber = this.groups.get(i).getGroupNumber();
@@ -63,6 +72,8 @@ public final class GroupingResult {
         this.clampedToMaxGroups = clampedToMaxGroups;
         this.singleSuiteExceedsTarget = singleSuiteExceedsTarget;
         this.fixedOverheadExceedsTarget = fixedOverheadExceedsTarget;
+        this.firstFitGroupCount = firstFitGroupCount;
+        this.heaviestSuiteMs = heaviestSuiteMs;
         long heaviest = 0L;
         long total = 0L;
         for (SuiteGroup group : this.groups) {
@@ -102,6 +113,20 @@ public final class GroupingResult {
     public boolean isFixedOverheadExceedsTarget() { return fixedOverheadExceedsTarget; }
 
     /**
+     * @return the group count first-fit packing wanted against the target before any ceiling was
+     *         applied - above {@link #getGroupCount()} when {@link #isClampedToMaxGroups()} - or 0
+     *         when the grouping was not packed against a target
+     */
+    public int getFirstFitGroupCount() { return firstFitGroupCount; }
+
+    /**
+     * @return the weight in ms of the heaviest single suite, a test class counting with the
+     *         {@code @Nested} classes that run inside it, or 0 when the grouping was not packed
+     *         against a target
+     */
+    public long getHeaviestSuiteMs() { return heaviestSuiteMs; }
+
+    /**
      * @return the weight of the heaviest group in ms, including its own copy of the fixed per-JVM
      *         cost, which is the run's expected wall-clock test time since the groups execute in
      *         parallel
@@ -128,6 +153,8 @@ public final class GroupingResult {
                 + ", totalMs=" + totalEstimatedMs + ", targetMet=" + targetMet
                 + ", clamped=" + clampedToMaxGroups
                 + ", singleSuiteExceedsTarget=" + singleSuiteExceedsTarget
-                + ", fixedOverheadExceedsTarget=" + fixedOverheadExceedsTarget + "}";
+                + ", fixedOverheadExceedsTarget=" + fixedOverheadExceedsTarget
+                + ", firstFitGroupCount=" + firstFitGroupCount
+                + ", heaviestSuiteMs=" + heaviestSuiteMs + "}";
     }
 }
