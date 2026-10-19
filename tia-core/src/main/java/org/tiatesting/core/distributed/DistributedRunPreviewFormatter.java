@@ -111,17 +111,9 @@ public final class DistributedRunPreviewFormatter {
                 preview.append(lineSep).append("  Target: ").append(targetRunTimeMs).append("ms - ")
                         .append(result.isTargetMet() ? "met" : "not met");
                 if (!result.isTargetMet()) {
-                    if (result.isClampedToMaxGroups()) {
-                        preview.append(lineSep).append("    lever: ")
-                                .append(DistributedRunMissReasons.MAX_GROUPS_LIMITING);
-                    }
-                    if (result.isFixedOverheadExceedsTarget()) {
-                        preview.append(lineSep).append("    lever: ")
-                                .append(DistributedRunMissReasons.FIXED_OVERHEAD_EXCEEDS_TARGET);
-                    }
-                    if (result.isSingleSuiteExceedsTarget()) {
-                        preview.append(lineSep).append("    lever: ")
-                                .append(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET);
+                    for (String reason : DistributedRunMissReasons.applying(result.isClampedToMaxGroups(),
+                            result.isFixedOverheadExceedsTarget(), result.isSingleSuiteExceedsTarget())) {
+                        preview.append(lineSep).append("    lever: ").append(reason);
                     }
                 }
             }

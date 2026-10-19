@@ -36,7 +36,7 @@ class DistributedRunPreviewFormatterTest {
         for (int i = 0; i < groupWeightsMs.length; i++) {
             groups.add(new SuiteGroup(i, Collections.singletonList("Suite" + i), groupWeightsMs[i]));
         }
-        return new GroupingResult(groups, targetMet, clampedToMaxGroups, singleSuiteExceedsTarget, false);
+        return new GroupingResult(groups, targetMet, clampedToMaxGroups, singleSuiteExceedsTarget, false, 0, 0L);
     }
 
     /**
@@ -53,7 +53,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = new GroupingResult(
                 Collections.singletonList(
                         new SuiteGroup(0, Collections.singletonList("Suite0"), 700L)),
-                false, false, false, true);
+                false, false, false, true, 0, 0L);
 
         // when
         String preview = DistributedRunPreviewFormatter.formatPreview(result, Long.valueOf(500L),
@@ -79,7 +79,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = new GroupingResult(
                 Collections.singletonList(
                         new SuiteGroup(0, Collections.singletonList("Suite0"), 900L)),
-                false, true, true, true);
+                false, true, true, true, 0, 0L);
 
         // when
         String preview = DistributedRunPreviewFormatter.formatPreview(result, Long.valueOf(500L),
@@ -163,7 +163,7 @@ class DistributedRunPreviewFormatterTest {
         List<SuiteGroup> groups = Arrays.asList(
                 new SuiteGroup(0, Collections.singletonList("com.example.ATest"), 1L),
                 new SuiteGroup(1, Collections.singletonList("com.example.BTest"), 1L));
-        GroupingResult result = new GroupingResult(groups, true, false, false, false);
+        GroupingResult result = new GroupingResult(groups, true, false, false, false, 0, 0L);
 
         // when
         String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SEED, "\n");
@@ -343,7 +343,7 @@ class DistributedRunPreviewFormatterTest {
     void fallbackSeedPreviewNamesTheFallbackWordingExactly() {
         // given - the single empty group a seed run collapses to when nothing was found on disk
         GroupingResult result = new GroupingResult(Collections.singletonList(
-                new SuiteGroup(0, Collections.<String>emptyList(), 0L)), true, false, false, false);
+                new SuiteGroup(0, Collections.<String>emptyList(), 0L)), true, false, false, false, 0, 0L);
 
         // when
         String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SEED, "\n");
@@ -365,7 +365,7 @@ class DistributedRunPreviewFormatterTest {
         List<SuiteGroup> groups = Arrays.asList(
                 new SuiteGroup(0, Collections.singletonList("com.example.ATest"), 0L),
                 new SuiteGroup(1, Collections.singletonList("com.example.BTest"), 0L));
-        GroupingResult result = new GroupingResult(groups, true, false, false, false);
+        GroupingResult result = new GroupingResult(groups, true, false, false, false, 0, 0L);
 
         // when
         String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SEED, "\n");

@@ -144,7 +144,7 @@ public final class DistributedRunPlanner {
 
         GroupingResult result = balance(selection, updateDBMapping, config.getGroupCount(),
                 config.getTargetRunTimeMs(), config.getMaxGroups(), diskTestSuiteProvider);
-        warnIfTargetMissed(result, config.getTargetRunTimeMs());
+        warnIfTargetMissed(result, config.getTargetRunTimeMs(), config.getMaxGroups());
 
         DistributedRunPlan runPlan = projectPlan(result, branch, commitValue, createdAtMs,
                 selection.getLibraryImpactDrainResult(), selectionMode);
@@ -425,7 +425,8 @@ public final class DistributedRunPlanner {
                     group.getEstimatedMs()));
         }
         return new GroupingResult(groups, balanced.isTargetMet(), balanced.isClampedToMaxGroups(),
-                balanced.isSingleSuiteExceedsTarget(), balanced.isFixedOverheadExceedsTarget());
+                balanced.isSingleSuiteExceedsTarget(), balanced.isFixedOverheadExceedsTarget(),
+                balanced.getFirstFitGroupCount(), balanced.getHeaviestSuiteMs());
     }
 
     /**
@@ -480,7 +481,7 @@ public final class DistributedRunPlanner {
         for (SuiteGroup group : split.getGroups()) {
             zeroed.add(new SuiteGroup(group.getGroupNumber(), group.getSuiteNames(), 0L));
         }
-        return new GroupingResult(zeroed, true, false, false, false);
+        return new GroupingResult(zeroed, true, false, false, false, 0, 0L);
     }
 
     /**
@@ -494,7 +495,7 @@ public final class DistributedRunPlanner {
     private static GroupingResult singleEmptySeedGroup() {
         List<SuiteGroup> groups = Collections.singletonList(
                 new SuiteGroup(0, Collections.<String>emptyList(), 0L));
-        return new GroupingResult(groups, true, false, false, false);
+        return new GroupingResult(groups, true, false, false, false, 0, 0L);
     }
 
     /**
@@ -563,32 +564,71 @@ public final class DistributedRunPlanner {
     }
 
     /**
-     * Log a WARN when the balancer could not meet the configured target run time, naming which
-     * configuration lever - or levers, since both can apply at once - would help close the gap.
-     * Static-groups mode always reports {@code targetMet == true} since it has no target to miss,
-     * so this is a no-op in that mode. Called only from {@link #plan}, never from {@link #balance}:
-     * a preview that logs this WARN would claim planning happened when nothing was persisted, which
-     * is exactly what the preview's "(not persisted)" header exists to make clear it did not.
+     * Log a WARN when the balancer could not meet the configured target run time, naming every
+     * reason that applies and the figures needed to act on them. Static-groups mode always reports
+     * {@code targetMet == true} since it has no target to miss, so this is a no-op in that mode.
+     * Called only from {@link #plan}, never from {@link #balance}: a preview that logs this WARN
+     * would claim planning happened when nothing was persisted, which is exactly what the preview's
+     * "(not persisted)" header exists to make clear it did not.
      *
      * @param result the balancer's outcome for this plan
      * @param targetRunTimeMs the configured target run time in ms; only read when {@code result}
      *                        reports the target was missed, so callers in static-groups mode (no
      *                        target) may pass the value that mode carries (null) safely
+     * @param maxGroups the configured group ceiling, or null for none
      */
-    private static void warnIfTargetMissed(GroupingResult result, Long targetRunTimeMs) {
-        if (result.isTargetMet()) {
-            return;
+    private static void warnIfTargetMissed(GroupingResult result, Long targetRunTimeMs,
+                                           Integer maxGroups) {
+        String warning = formatTargetMissWarning(result, targetRunTimeMs, maxGroups);
+        if (warning != null) {
+            log.warn(warning);
         }
-        StringBuilder reasons = new StringBuilder();
+    }
+
+    /**
+     * Build the target-miss WARN text, so an operator can size the fix from INFO-level output alone:
+     * the heaviest group and group count, the ceiling when one is configured, the group count
+     * first-fit packing wanted when the ceiling bound the plan, and the heaviest single suite when
+     * it alone is over the target. The reasons share their wording and order with the plan summary
+     * and the {@code select-tests} preview through {@link DistributedRunMissReasons}. See the
+     * distributed test runs chapter in {@code WIKI.md}.
+     *
+     * @param result the balancer's outcome for this plan
+     * @param targetRunTimeMs the configured target run time in ms; only read when the target was
+     *                        missed
+     * @param maxGroups the configured group ceiling, or null for none
+     * @return the WARN text, or null when the target was met and nothing should be logged
+     */
+    static String formatTargetMissWarning(GroupingResult result, Long targetRunTimeMs,
+                                          Integer maxGroups) {
+        if (result.isTargetMet()) {
+            return null;
+        }
+        List<String> figures = new ArrayList<>(3);
+        if (maxGroups != null) {
+            figures.add("ceiling " + maxGroups);
+        }
         if (result.isClampedToMaxGroups()) {
-            reasons.append("raising tiaDistributedMaxGroups would allow more groups; ");
+            figures.add("first-fit packing wanted " + result.getFirstFitGroupCount());
         }
         if (result.isSingleSuiteExceedsTarget()) {
-            reasons.append(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET).append("; ");
+            figures.add("heaviest single suite " + result.getHeaviestSuiteMs() + "ms");
         }
-        log.warn("Distributed run planning did not meet its target run time of {}ms - the "
-                        + "heaviest group is {}ms. {}",
-                targetRunTimeMs, result.getHeaviestGroupMs(), reasons.toString());
+        StringBuilder warning = new StringBuilder("Distributed run planning did not meet its target ")
+                .append("run time of ").append(targetRunTimeMs).append("ms: the heaviest group is ")
+                .append(result.getHeaviestGroupMs()).append("ms across ")
+                .append(result.getGroupCount()).append(" group(s)");
+        if (!figures.isEmpty()) {
+            warning.append(" (").append(String.join(", ", figures)).append(")");
+        }
+        warning.append(".");
+        List<String> reasons = DistributedRunMissReasons.applying(result.isClampedToMaxGroups(),
+                result.isFixedOverheadExceedsTarget(), result.isSingleSuiteExceedsTarget());
+        if (!reasons.isEmpty()) {
+            warning.append(reasons.size() == 1 ? " Reason: " : " Reasons: ")
+                    .append(String.join("; ", reasons)).append(".");
+        }
+        return warning.toString();
     }
 
     /**

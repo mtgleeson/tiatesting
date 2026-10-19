@@ -55,6 +55,42 @@ class TestGroupBalancerDynamicGroupsTest {
     }
 
     /**
+     * Verify a clamped plan reports the group count first-fit packing wanted before the ceiling
+     * applied, and the heaviest single suite, so the planner's target-miss WARN can state them.
+     */
+    @Test
+    void shouldReportTheFirstFitGroupCountAndHeaviestSuiteWhenClamped() {
+        // given - 40ms of suites against a 10ms target packs into 4 groups, above the ceiling of 3
+        Map<String, Long> suiteWeights = nineSuites();
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 3, 0L);
+
+        // then
+        assertTrue(result.isClampedToMaxGroups());
+        assertEquals(3, result.getGroupCount());
+        assertEquals(4, result.getFirstFitGroupCount());
+        assertEquals(9L, result.getHeaviestSuiteMs());
+    }
+
+    /**
+     * Verify the heaviest single suite is weighed with the {@code @Nested} classes that run inside
+     * it, matching the wording of the single-suite miss reason.
+     */
+    @Test
+    void shouldWeighTheHeaviestSuiteWithItsNestedClasses() {
+        // given - Outer and its nested class together weigh 11ms, neither alone exceeds the target
+        Map<String, Long> suiteWeights = weights("Outer", 5, "Outer$Inner", 6, "Other", 3);
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 8L, null, 0L);
+
+        // then
+        assertTrue(result.isSingleSuiteExceedsTarget());
+        assertEquals(11L, result.getHeaviestSuiteMs());
+    }
+
+    /**
      * Verify the balancer finds the optimal four groups for the nine-suite case rather than the
      * five that escalating LPT would produce. This is the single most important assertion in the
      * stage: it is what distinguishes bin packing from makespan scheduling.

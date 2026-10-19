@@ -116,6 +116,18 @@ the others, and more than one can apply at once, so all that apply are listed:
 | The fixed per-JVM cost alone meets or exceeds the target | `fixedOverheadExceedsTarget: true` | Nothing you can do to the tests. Every runner pays this before it executes a suite, so adding runners only adds copies of it. Raise the target. |
 | A single suite is longer than what is left of the target after that cost | `singleSuiteExceedsTarget: true` | Nothing about the group count - no amount of splitting divides one suite. Split the suite or raise the target. |
 
+The plan step also logs one WARN for a missed target, so the figures needed to act reach whatever log
+the CI system keeps without DEBUG logging. It names the heaviest group and group count, the ceiling,
+the group count first-fit packing wanted when the ceiling bound the plan, and the heaviest single
+suite when that alone is over the target, then every cause that applies in the table's order:
+
+```
+Distributed run planning did not meet its target run time of 1800000ms: the heaviest group is 3935801ms across 9 group(s) (ceiling 9, first-fit packing wanted 20). Reason: the configured max group count is limiting the group count - raising it may help.
+```
+
+Here `tiaDistributedMaxGroups=20` would let the plan reach its target. The reason wording is shared
+verbatim with the summary and the `select-tests` preview.
+
 **The target is a budget for the whole group, not just its suites.** A runner pays the fixed per-JVM
 cost - engine start-up, class loading, the final coverage dump - before it runs anything, so the
 budget available for suites is `target - fixed`, and a group meets the target only when its suites

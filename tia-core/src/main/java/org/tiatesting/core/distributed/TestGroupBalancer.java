@@ -202,7 +202,7 @@ public final class TestGroupBalancer {
         }
 
         return new GroupingResult(toSuiteGroups(groupSuites, groupWeights, fixedOverheadMs), true,
-                false, false, false);
+                false, false, false, 0, 0L);
     }
 
     /**
@@ -310,7 +310,8 @@ public final class TestGroupBalancer {
         if (groupCount == bins.size()) {
             packing = new GroupingResult(
                     toSuiteGroups(bins, weighGroups(bins, suiteWeightsMs), fixedOverheadMs),
-                    false, clampedToMaxGroups, singleSuiteExceedsTarget, fixedOverheadExceedsTarget);
+                    false, clampedToMaxGroups, singleSuiteExceedsTarget, fixedOverheadExceedsTarget,
+                    bins.size(), heaviestSuiteMs);
             // FFD fills groups to capacity; LPT spreads them. Same group count either way, so
             // take whichever finishes sooner. It is not always LPT - see the nine-suite case.
             // Both carry the same per-group fixed cost, so it cannot decide the comparison.
@@ -357,7 +358,7 @@ public final class TestGroupBalancer {
         logGroupAssignment(packing);
 
         return new GroupingResult(packing.getGroups(), targetMet, clampedToMaxGroups,
-                singleSuiteExceedsTarget, fixedOverheadExceedsTarget);
+                singleSuiteExceedsTarget, fixedOverheadExceedsTarget, bins.size(), heaviestSuiteMs);
     }
 
     /**
@@ -539,7 +540,8 @@ public final class TestGroupBalancer {
             groups.add(new SuiteGroup(group.getGroupNumber(), suites, group.getEstimatedMs()));
         }
         return new GroupingResult(groups, familyResult.isTargetMet(), familyResult.isClampedToMaxGroups(),
-                familyResult.isSingleSuiteExceedsTarget(), familyResult.isFixedOverheadExceedsTarget());
+                familyResult.isSingleSuiteExceedsTarget(), familyResult.isFixedOverheadExceedsTarget(),
+                familyResult.getFirstFitGroupCount(), familyResult.getHeaviestSuiteMs());
     }
 
     /**
@@ -552,7 +554,7 @@ public final class TestGroupBalancer {
      * @return a {@link GroupingResult} with no groups
      */
     private static GroupingResult noGroups() {
-        return new GroupingResult(Collections.<SuiteGroup>emptyList(), true, false, false, false);
+        return new GroupingResult(Collections.<SuiteGroup>emptyList(), true, false, false, false, 0, 0L);
     }
 
     /**

@@ -257,7 +257,7 @@ class DistributedRunPlanSummaryTest {
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1", "main", "abc123", 2, 6000L, false, true, false, false, 18000L, 9000L, 2, SelectionMode.SELECTIVE);
         GroupingResult preview = new GroupingResult(Collections.singletonList(
-                new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, true, false, false);
+                new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, true, false, false, 0, 0L);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -281,7 +281,7 @@ class DistributedRunPlanSummaryTest {
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1", "main", "abc123", 1, 6000L, false, false, true, false, 9000L, 9000L, 1, SelectionMode.SELECTIVE);
         GroupingResult preview = new GroupingResult(Collections.singletonList(
-                new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, false, true, false);
+                new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, false, true, false, 0, 0L);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -308,7 +308,7 @@ class DistributedRunPlanSummaryTest {
                 "gh-1", "main", "abc123", 1, 500L, false, false, false, true, 700L, 700L, 1, SelectionMode.SELECTIVE);
         GroupingResult preview = new GroupingResult(Collections.singletonList(
                 new SuiteGroup(0, Collections.singletonList("Suite0"), 700L)), false, false, false,
-                true);
+                true, 0, 0L);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
