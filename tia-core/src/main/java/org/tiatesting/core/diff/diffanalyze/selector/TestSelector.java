@@ -1055,7 +1055,7 @@ public class TestSelector {
         // POM content is fetched lazily by the analyzer, only if a POM-aware rule matches a changed path.
         List<String> trackedLibraries = libraryConfig != null && libraryConfig.isEnabled()
                 ? libraryConfig.getCoordinates() : Collections.<String>emptyList();
-        PomChangeAnalyzer pomAnalyzer = new PomChangeAnalyzer(vcsReader, storedCommitValue, checkLocalChanges,
+        PomChangeAnalyzer pomAnalyzer = new PomChangeAnalyzer(vcsReader, storedCommitValue, checkLocalChanges, changedPaths,
                 new PomChangeClassifier(trackedLibraries), staticMappingConfig.getExternalPomSource());
         StaticTestSelectionResult staticResult = resolver.resolve(changedPaths, testSuitesTracked, pomAnalyzer);
         Set<String> forced = staticResult.getForcedSuites();

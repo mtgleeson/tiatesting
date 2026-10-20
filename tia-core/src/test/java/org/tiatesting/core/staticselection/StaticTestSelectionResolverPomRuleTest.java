@@ -43,7 +43,7 @@ class StaticTestSelectionResolverPomRuleTest {
 
         // when
         StaticTestSelectionResult result = new StaticTestSelectionResolver(config)
-                .resolve(setOf(ROOT_POM), tracked("com.acme.AIT", "com.acme.BIT"), analyzer(reader));
+                .resolve(setOf(ROOT_POM), tracked("com.acme.AIT", "com.acme.BIT"), analyzer(reader, setOf(ROOT_POM)));
 
         // then
         assertEquals(setOf("com.acme.AIT", "com.acme.BIT"), result.getForcedSuites());
@@ -59,7 +59,7 @@ class StaticTestSelectionResolverPomRuleTest {
 
         // when
         StaticTestSelectionResult result = new StaticTestSelectionResolver(config)
-                .resolve(setOf(ROOT_POM), tracked("com.acme.AIT"), analyzer(reader));
+                .resolve(setOf(ROOT_POM), tracked("com.acme.AIT"), analyzer(reader, setOf(ROOT_POM)));
 
         // then
         assertTrue(result.getForcedSuites().isEmpty());
@@ -75,7 +75,7 @@ class StaticTestSelectionResolverPomRuleTest {
 
         // when
         StaticTestSelectionResult result = new StaticTestSelectionResolver(config)
-                .resolve(setOf(ROOT_POM), tracked("com.acme.AIT"), analyzer(reader));
+                .resolve(setOf(ROOT_POM), tracked("com.acme.AIT"), analyzer(reader, setOf(ROOT_POM)));
 
         // then
         assertTrue(result.getForcedSuites().isEmpty());
@@ -95,7 +95,7 @@ class StaticTestSelectionResolverPomRuleTest {
 
         // when
         List<FiredStaticRule> fired = new StaticTestSelectionResolver(config)
-                .evaluateRules(setOf(ROOT_POM, MODULE_POM, "db/V1.sql"), analyzer(reader));
+                .evaluateRules(setOf(ROOT_POM, MODULE_POM, "db/V1.sql"), analyzer(reader, setOf(ROOT_POM, MODULE_POM, "db/V1.sql")));
 
         // then - one fetch covering both POMs; the module POM is unchanged so its rule does not fire
         assertEquals(1, reader.loads);
@@ -114,7 +114,7 @@ class StaticTestSelectionResolverPomRuleTest {
 
         // when
         StaticTestSelectionResult result = new StaticTestSelectionResolver(configWith(rule))
-                .resolve(setOf(ROOT_POM), tracked("com.acme.OrderIT", "com.acme.OrderTest"), analyzer(reader));
+                .resolve(setOf(ROOT_POM), tracked("com.acme.OrderIT", "com.acme.OrderTest"), analyzer(reader, setOf(ROOT_POM)));
 
         // then
         assertEquals(setOf("com.acme.OrderIT"), result.getForcedSuites());
@@ -128,7 +128,7 @@ class StaticTestSelectionResolverPomRuleTest {
 
         // when
         List<FiredStaticRule> fired = new StaticTestSelectionResolver(config)
-                .evaluateRules(setOf("src/main/java/A.java"), analyzer(reader));
+                .evaluateRules(setOf("src/main/java/A.java"), analyzer(reader, setOf("src/main/java/A.java")));
 
         // then
         assertTrue(fired.isEmpty());
@@ -147,11 +147,48 @@ class StaticTestSelectionResolverPomRuleTest {
     }
 
     /**
+     * Verify a rule scoped to a new module's directory fires when the module is registered by an
+     * aggregator outside the rule's pattern, and does not fire for an unreferenced added POM.
+     */
+    @Test
+    void scopedRuleFiresForAnAddedModuleRegisteredOutsideItsPattern() {
+        // given
+        Map<String, FileContentPair> contents = new HashMap<>();
+        contents.put(ROOT_POM, new FileContentPair(
+                "<project><modelVersion>4.0.0</modelVersion><groupId>com.acme</groupId><artifactId>root</artifactId>"
+                        + "<version>1.0</version><packaging>pom</packaging><modules><module>module-a</module></modules></project>",
+                "<project><modelVersion>4.0.0</modelVersion><groupId>com.acme</groupId><artifactId>root</artifactId>"
+                        + "<version>1.0</version><packaging>pom</packaging><modules><module>module-a</module>"
+                        + "<module>services/new</module></modules></project>"));
+        contents.put("services/new/pom.xml", new FileContentPair(null,
+                "<project><modelVersion>4.0.0</modelVersion><groupId>com.acme</groupId><artifactId>new</artifactId>"
+                        + "<version>1.0</version></project>"));
+        contents.put("services/copy/pom.xml", new FileContentPair(null,
+                "<project><modelVersion>4.0.0</modelVersion><groupId>com.acme</groupId><artifactId>copy</artifactId>"
+                        + "<version>1.0</version></project>"));
+        ContentVCSReader reader = new ContentVCSReader(contents);
+        StaticTestSelectionConfig config = configWith(
+                pomRule("new-service", "^services/new/pom\\.xml$", PomChangeCategory.FUNCTIONAL),
+                pomRule("copy-service", "^services/copy/pom\\.xml$", PomChangeCategory.FUNCTIONAL));
+        Set<String> changedPaths = setOf(ROOT_POM, "services/new/pom.xml", "services/copy/pom.xml");
+
+        // when
+        List<FiredStaticRule> fired = new StaticTestSelectionResolver(config)
+                .evaluateRules(changedPaths, analyzer(reader, changedPaths));
+
+        // then
+        assertEquals(1, fired.size());
+        assertEquals("new-service", fired.get(0).getRule().getName());
+    }
+
+    /**
      * @param reader the reader serving POM content.
+     * @param changedPaths every changed path in the diff.
      * @return an analyzer over the reader with no tracked libraries.
      */
-    private static PomChangeAnalyzer analyzer(VCSReader reader) {
-        return new PomChangeAnalyzer(reader, "base", false, new PomChangeClassifier(Collections.<String>emptyList()), null);
+    private static PomChangeAnalyzer analyzer(VCSReader reader, Set<String> changedPaths) {
+        return new PomChangeAnalyzer(reader, "base", false, changedPaths,
+                new PomChangeClassifier(Collections.<String>emptyList()), null);
     }
 
     /**

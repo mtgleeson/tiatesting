@@ -56,6 +56,11 @@ interface PomEnvironment {
         }
 
         @Override
+        public Boolean referencedByChangedPoms(final boolean newSide) {
+            return null;
+        }
+
+        @Override
         public String externalPom(final String groupId, final String artifactId, final String version) {
             return null;
         }
@@ -112,6 +117,18 @@ interface PomEnvironment {
      * @return the changes, labelled with the child POM's path; empty when there are none.
      */
     List<PomChange> childChanges();
+
+    /**
+     * Whether another changed POM in the diff lists this POM as a {@code <module>} or points its
+     * parent's {@code <relativePath>} at it. Asked only for a POM that was added (new side) or
+     * deleted (old side): a build can only pick such a POM up through one of those references, so
+     * when none exists the POM is inert on its own. See {@link PomReferences}.
+     *
+     * @param newSide {@code true} for the "after" side (an added POM), {@code false} for the
+     *                "before" side (a deleted POM).
+     * @return whether it is referenced, or {@code null} when unknown.
+     */
+    Boolean referencedByChangedPoms(boolean newSide);
 
     /**
      * Read a POM that is not in the repository (an external parent or an imported BOM).

@@ -227,7 +227,7 @@ class PomChangeAnalyzerReactorTest {
      * @return its report.
      */
     private static PomChangeReport analyze(InMemoryPomRepository repository, String path) {
-        PomChangeAnalyzer analyzer = new PomChangeAnalyzer(repository, "base", false,
+        PomChangeAnalyzer analyzer = new PomChangeAnalyzer(repository, "base", false, Collections.<String>emptySet(),
                 new PomChangeClassifier(Collections.singletonList("com.example:widgets")), null);
         Set<String> paths = new HashSet<>(Arrays.asList(path));
         return analyzer.analyze(paths).get(path);

@@ -87,6 +87,17 @@ final class ExternalPomEnvironment implements PomEnvironment {
     }
 
     /**
+     * An external POM is not part of the diff, so it is never added or deleted there.
+     *
+     * @param newSide unused.
+     * @return {@code null}, unknown.
+     */
+    @Override
+    public Boolean referencedByChangedPoms(final boolean newSide) {
+        return null;
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override

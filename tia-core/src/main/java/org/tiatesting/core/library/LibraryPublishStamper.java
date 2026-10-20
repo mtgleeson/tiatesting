@@ -299,7 +299,7 @@ public class LibraryPublishStamper {
             return Collections.emptyList();
         }
 
-        PomChangeAnalyzer pomAnalyzer = new PomChangeAnalyzer(vcsReader, previousPublishCommit, false,
+        PomChangeAnalyzer pomAnalyzer = new PomChangeAnalyzer(vcsReader, previousPublishCommit, false, changedPaths,
                 new PomChangeClassifier(trackedLibraries), staticConfig.getExternalPomSource());
         List<PendingLibraryForcedSelection> forced = new ArrayList<>();
         for (FiredStaticRule fired : new StaticTestSelectionResolver(staticConfig).evaluateRules(changedPaths, pomAnalyzer)) {

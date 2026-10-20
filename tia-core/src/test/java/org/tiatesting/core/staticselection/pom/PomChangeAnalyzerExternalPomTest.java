@@ -271,7 +271,7 @@ class PomChangeAnalyzerExternalPomTest {
      * @return its report.
      */
     private static PomChangeReport analyze(InMemoryPomRepository repository, ExternalPomSource source, String path) {
-        PomChangeAnalyzer analyzer = new PomChangeAnalyzer(repository, "base", false,
+        PomChangeAnalyzer analyzer = new PomChangeAnalyzer(repository, "base", false, Collections.<String>emptySet(),
                 new PomChangeClassifier(Collections.singletonList("com.example:widgets")), source);
         return analyzer.analyze(Collections.singleton(path)).get(path);
     }
