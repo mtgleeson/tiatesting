@@ -79,13 +79,13 @@ class LibraryImpactEndToEndTest {
         LibraryPublishStamper stamper = new LibraryPublishStamper();
         File jar1 = jarFile("build-1");
         stamper.stampPublish(dataStore, new StubVCSReader("c0"), LIB, "1.0.0-SNAPSHOT", jar1.getAbsolutePath(),
-                StaticTestSelectionConfig.EMPTY);
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
 
         // PUBLISH: the second publish diffs baseline c0 -> HEAD and stamps the changed method
         File jar2 = jarFile("build-2");
         LibraryPublishStamper.PublishStampResult stamp = stamper.stampPublish(dataStore,
                 new StubVCSReader("c1", libraryDiff()), LIB, "1.0.0-SNAPSHOT", jar2.getAbsolutePath(),
-                StaticTestSelectionConfig.EMPTY);
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
         assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.STAMPED, stamp.getOutcome());
         assertEquals(2L, stamp.getPublishSeq());
         assertEquals(Collections.singleton(METHOD_ID), stamp.getStampedMethodIds());

@@ -161,6 +161,14 @@ and persists ledger + stamp atomically.
 
 Behaviours worth knowing:
 
+- **Diffs run over the publishing module's own source roots.** The `tia_library` row records the
+  library's source dirs as absolute paths from the *consumer's* workspace. A library released from
+  its own CI job (its own workspace / P4 client) would find those paths outside its workspace and
+  diff nothing, so the task diffs the module's own source roots instead (Maven: the compile source
+  roots; Gradle: the `main` source set's Java dirs; in both cases only those that exist on disk).
+  Mapping keys are package-relative, so they still match the consumer's tracked methods. The
+  `tia_library` row is left unchanged - the consumer still needs its own paths. When the module has
+  no source roots, the recorded dirs are used.
 - **First publish seeds.** A library with no mapping baseline gets a ledger row and its baseline
   set to HEAD, with nothing stamped - stamping the library's entire history would be wrong.
 - **Untracked coordinate skips.** The module must already be a tracked library (declared in the
