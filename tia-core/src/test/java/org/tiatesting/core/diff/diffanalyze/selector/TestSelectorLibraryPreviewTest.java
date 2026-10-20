@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -213,6 +214,81 @@ class TestSelectorLibraryPreviewTest {
     }
 
     /**
+     * Outside local-changes mode the app run does not diff the tracked library's source dirs:
+     * library changes reach it through the publish stamp + drain, and a diffed library file would
+     * only be partitioned out again, so its listing and content fetch would be wasted work.
+     */
+    @Test
+    void nonLocalRunDoesNotDiffTrackedLibraryDirs() {
+        // given a tracked library with a tracked method and a reader that reports a library diff
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR));
+        seedLibraryMethodMapping();
+        StubVCSReader reader = new StubVCSReader("head", libraryDiff());
+
+        // when a primary (non-local) run selects tests
+        TestSelector selector = new TestSelector(dataStore, new File("."));
+        TestSelectorResult result = selector.selectTestsToIgnore(reader, Collections.emptyList(),
+                Collections.emptyList(), false, configResolving("1.0.0"), null, true, SelectionMode.SELECTIVE);
+
+        // then the library dir was not diffed, no library content was loaded and nothing was selected
+        assertEquals(Collections.singletonList(Collections.<String>emptyList()), reader.getRequestedSourceDirs());
+        assertTrue(reader.getContentLoadedDiffs().isEmpty(),
+                "No library file content may be fetched outside local-changes mode.");
+        assertFalse(result.getTestsToRun().contains(LIB_TEST));
+    }
+
+    /**
+     * In local-changes mode the tracked library's source dirs are diffed, so local library edits
+     * reach direct selection.
+     */
+    @Test
+    void localChangesRunDiffsTrackedLibraryDirs() {
+        // given a tracked library with a recorded source dir
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR));
+        seedLibraryMethodMapping();
+        StubVCSReader reader = new StubVCSReader("head", libraryDiff());
+
+        // when a local-changes run selects tests
+        TestSelector selector = new TestSelector(dataStore, new File("."));
+        selector.selectTestsToIgnore(reader, Collections.emptyList(), Collections.emptyList(), true,
+                configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
+
+        // then the library's source dir was part of the diff
+        assertEquals(Collections.singletonList(Collections.singletonList(LIB_SRC_DIR)),
+                reader.getRequestedSourceDirs());
+    }
+
+    /**
+     * When the configured source dirs themselves cover a tracked library, its files are still in
+     * a non-local run's diff - the partition stays as the guard that keeps them out of direct
+     * selection.
+     */
+    @Test
+    void nonLocalRunStillPartitionsLibraryFilesUnderConfiguredSourceDirs() throws Exception {
+        // given a tracked library whose source dir is also listed in the app's configured source dirs
+        File libSrcDir = new File(tempDir, "lib-src");
+        assertTrue(libSrcDir.mkdirs());
+        String libSrcPath = libSrcDir.getCanonicalPath();
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, libSrcPath));
+        seedLibraryMethodMapping();
+        String diffPath = libSrcPath + "/" + LIB_FILE_KEY;
+        StubVCSReader reader = new StubVCSReader("head",
+                new SourceFileDiffContext(diffPath, diffPath, ChangeType.MODIFY));
+
+        // when a preview (non-local) run selects tests - preview, so the reconcile does not reset
+        // the tracked source dir to the stub metadata reader's
+        TestSelector selector = new TestSelector(dataStore, new File("."));
+        TestSelectorResult result = selector.selectTestsToIgnore(reader, Collections.singletonList(libSrcPath),
+                Collections.emptyList(), false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
+
+        // then the tracked library file reached the partition (its content was loaded) but
+        // selected no test
+        assertEquals(1, reader.getContentLoadedDiffs().size());
+        assertFalse(result.getTestsToRun().contains(LIB_TEST),
+                "A library file under a configured source dir must still be partitioned out.");
+    }
+
+    /**
      * Seed a mapping where the library file {@code com/example/Lib.java} has one tracked method
      * spanning lines 2-8, covered by {@code com.example.LibTest}. The unsealed flag
      * {@link JdbcDataStore#persistTestSuites} sets as a side effect of the edge write is
@@ -272,6 +348,8 @@ class TestSelectorLibraryPreviewTest {
     private static final class StubVCSReader implements VCSReader {
         private final String headCommit;
         private final Set<SourceFileDiffContext> diffs;
+        private final List<List<String>> requestedSourceDirs = new ArrayList<>();
+        private final List<SourceFileDiffContext> contentLoadedDiffs = new ArrayList<>();
 
         StubVCSReader(String headCommit, SourceFileDiffContext... diffs) {
             this.headCommit = headCommit;
@@ -281,15 +359,34 @@ class TestSelectorLibraryPreviewTest {
         @Override public String getBranchName() { return "test"; }
         @Override public String getHeadCommit() { return headCommit; }
 
+        /**
+         * Return the fixed diff set, recording the source dirs the diff was restricted to.
+         *
+         * @param baseChangeNum unused.
+         * @param sourceFilesDirs the source dirs requested, recorded.
+         * @param testFilesDirs unused.
+         * @param checkLocalChanges unused.
+         * @return the fixed diff set.
+         */
         @Override
         public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
                                                        List<String> testFilesDirs, boolean checkLocalChanges) {
+            requestedSourceDirs.add(new ArrayList<>(sourceFilesDirs));
             return diffs;
         }
 
+        /**
+         * Supply original/changed content differing on line 5 to each diff, recording which diffs
+         * had content loaded.
+         *
+         * @param diffsToLoad the diffs to populate, recorded.
+         * @param baseChangeNum unused.
+         * @param checkLocalChanges unused.
+         */
         @Override
         public void loadContentForDiffs(Collection<SourceFileDiffContext> diffsToLoad, String baseChangeNum,
                                         boolean checkLocalChanges) {
+            contentLoadedDiffs.addAll(diffsToLoad);
             String original = "l1\nl2\nl3\nl4\nl5-old\nl6\nl7\nl8\nl9\nl10\n";
             String changed = "l1\nl2\nl3\nl4\nl5-new\nl6\nl7\nl8\nl9\nl10\n";
             for (SourceFileDiffContext diff : diffsToLoad) {
@@ -318,6 +415,24 @@ class TestSelectorLibraryPreviewTest {
         }
 
         @Override public void close() { }
+
+        /**
+         * Return the source dirs passed to each {@link #getDiffFiles} call, in call order.
+         *
+         * @return the requested source dirs per diff call.
+         */
+        List<List<String>> getRequestedSourceDirs() {
+            return requestedSourceDirs;
+        }
+
+        /**
+         * Return every diff passed to {@link #loadContentForDiffs}.
+         *
+         * @return the diffs whose content was loaded.
+         */
+        List<SourceFileDiffContext> getContentLoadedDiffs() {
+            return contentLoadedDiffs;
+        }
     }
 
     /**

@@ -508,9 +508,11 @@ public class TestSelector {
      * enabled, modified source diffs are partitioned into source-project vs per-library buckets
      * and the library-owned diffs are excluded from source selection - under publish-time
      * stamping the library's own publish records their impacted methods, and the drain selects
-     * the covering tests once the app resolves a build that contains them. In
-     * {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely - all
-     * diffs are treated as source-project diffs so tests run immediately against local changes.
+     * the covering tests once the app resolves a build that contains them. The tracked library
+     * source dirs are only added to the diff in {@code checkLocalChanges} mode, where library
+     * diff partitioning is bypassed entirely - all diffs are treated as source-project diffs so
+     * tests run immediately against local changes. Outside that mode the partition remains as a
+     * guard for configured source dirs that cover a tracked library.
      *
      * <p>Mapping reads are targeted to the diff: one changed-files-to-tracked-methods query
      * ({@link DataStore#getMethodsTrackedForFiles}) resolves the changed files to their tracked
@@ -538,9 +540,12 @@ public class TestSelector {
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
-        // Include tracked library source dirs so library diffs pass the source/test dir filter
-        // in the VCS analyzers and have their prefixes stripped correctly by MethodImpactAnalyzer.
-        if (libraryConfig != null && libraryConfig.isEnabled()) {
+        // In local-changes mode, include tracked library source dirs so local library edits pass
+        // the source/test dir filter in the VCS analyzers and have their prefixes stripped to
+        // mapping keys - they feed direct selection there. Outside it, library changes reach the
+        // app through the publish stamp + drain and would only be partitioned out again below, so
+        // diffing them (and loading their content) is wasted work on the select-tests path.
+        if (shouldDiffTrackedLibraryDirs(libraryConfig, checkLocalChanges)) {
             sourceFilesDirs = new ArrayList<>(sourceFilesDirs);
             sourceFilesDirs.addAll(collectTrackedLibraryDirs());
         }
@@ -1083,9 +1088,25 @@ public class TestSelector {
     }
 
     /**
+     * Decide whether the tracked libraries' source dirs are added to the dirs the app run diffs.
+     * Only local-changes mode consumes library diffs (they feed direct selection there); on any
+     * other run the library-diff partition would discard them, so they are not diffed at all.
+     *
+     * @param libraryConfig the library impact analysis config, or {@code null} if not configured
+     * @param checkLocalChanges whether this run analyzes local workspace changes
+     * @return true when library impact analysis is enabled and the run is in local-changes mode
+     */
+    private boolean shouldDiffTrackedLibraryDirs(LibraryImpactAnalysisConfig libraryConfig,
+                                                 boolean checkLocalChanges) {
+        return checkLocalChanges && libraryConfig != null && libraryConfig.isEnabled();
+    }
+
+    /**
      * Collect the source directories of every tracked library, falling back to the
-     * library's project directory when no source dirs are recorded. Used to augment
-     * the source-file dirs passed to the VCS analyzers and the method impact analyzer.
+     * library's project directory when no source dirs are recorded. Used in local-changes mode to
+     * augment the source-file dirs passed to the VCS analyzers and the method impact analyzer.
+     *
+     * @return the tracked libraries' source dirs (or project dirs when none are recorded)
      */
     private List<String> collectTrackedLibraryDirs() {
         List<String> libDirs = new ArrayList<>();
@@ -1119,7 +1140,9 @@ public class TestSelector {
 
     /**
      * Partition modified source diffs into source-project and per-library buckets, returning the
-     * source-project diffs. Library-owned diffs are deliberately excluded from source selection -
+     * source-project diffs. The tracked library dirs are not diffed outside local-changes mode, so
+     * library diffs only reach here when the configured source dirs themselves cover a tracked
+     * library. Library-owned diffs are deliberately excluded from source selection -
      * a library change is not a source-project change - and, under publish-time stamping, the app
      * run does not stamp them either: the library's own publish records the impacted methods, and
      * the drain picks them up once the app resolves a build that contains them.
