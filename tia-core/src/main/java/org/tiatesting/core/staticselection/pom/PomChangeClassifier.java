@@ -21,7 +21,8 @@ import java.util.Set;
  *
  * <p>Inert: project metadata, the project's own version, a same-reactor parent version, reactor
  * module dependency versions, tracked-library versions (owned by library impact analysis), inert
- * plugins, Tia's own plugin and {@code tia*} properties. Everything unrecognised is
+ * plugins, Tia's own plugin and {@code tia*} properties, and an added or deleted POM that no other
+ * changed POM lists as a module or parent. Everything unrecognised is
  * {@link PomChangeCategory#OTHER}.
  *
  * <p>Values are compared after resolving {@code ${...}} references against the POM's own
@@ -36,7 +37,8 @@ import java.util.Set;
  * classifier falls back to heuristics: a parent is in the reactor when the project inherits its
  * version or moved in lockstep with it; a dependency is a reactor module when its version is
  * {@code ${project.version}} or it shares the project's groupId and moved in lockstep with the
- * project version; and a changed property in a POM that may be a parent is {@code OTHER}.
+ * project version; a changed property in a POM that may be a parent is {@code OTHER}; and an
+ * added or deleted POM is {@code OTHER}.
  */
 public final class PomChangeClassifier {
 
@@ -116,7 +118,7 @@ public final class PomChangeClassifier {
             return new PomChangeReport(changes);
         }
         if (oldPom == null || newPom == null) {
-            changes.add(PomChange.functional(PomChangeCategory.OTHER, oldPom == null ? "POM added" : "POM deleted"));
+            changes.add(addedOrDeleted(oldPom == null, environment));
             return new PomChangeReport(changes);
         }
 
@@ -140,6 +142,30 @@ public final class PomChangeClassifier {
             changes.addAll(environment.childChanges());
         }
         return new PomChangeReport(changes);
+    }
+
+    /**
+     * Classify a POM that exists on only one side of the diff. It is inert when no other changed
+     * POM lists it as a module or points its parent's relative path at it, because a build can only
+     * pick it up through such a reference and that edit is classified in its own POM. It is
+     * {@code OTHER} when one does, or when the environment cannot tell.
+     *
+     * @param added {@code true} for an added POM, {@code false} for a deleted one.
+     * @param environment the POM's surroundings.
+     * @return the change.
+     */
+    private static PomChange addedOrDeleted(final boolean added, final PomEnvironment environment) {
+        String what = added ? "POM added" : "POM deleted";
+        Boolean referenced = environment.referencedByChangedPoms(added);
+        if (referenced == null) {
+            return PomChange.functional(PomChangeCategory.OTHER, what);
+        }
+        String verb = added ? "lists" : "listed";
+        if (referenced) {
+            return PomChange.functional(PomChangeCategory.OTHER,
+                    what + "; a changed POM " + verb + " it as a module or parent");
+        }
+        return PomChange.inert(what + "; no changed POM " + verb + " it as a module or parent");
     }
 
     /**

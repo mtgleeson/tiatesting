@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * A {@link PomEnvironment} backed by a {@link PomTree}. Each piece of knowledge is computed on
@@ -28,6 +29,7 @@ final class PomTreeEnvironment implements PomEnvironment {
     private final Predicate<String> oldSides;
     private final Predicate<String> newSides;
     private final boolean classifyChildren;
+    private final Supplier<PomReferences> references;
 
     private Set<String> reactorModules;
     private Set<String> children;
@@ -44,16 +46,19 @@ final class PomTreeEnvironment implements PomEnvironment {
      * @param newSides which side of the diff each POM is read on for the "after" side.
      * @param classifyChildren whether {@link #childChanges()} classifies the child modules; off for
      *                         a child itself, whose own children are covered by the POM that changed.
+     * @param references the diff's reference index, built on first use; {@code null} for a child
+     *                   module, which is never added or deleted.
      */
     private PomTreeEnvironment(final PomTree tree, final PomChangeClassifier classifier, final String path,
                                final Predicate<String> oldSides, final Predicate<String> newSides,
-                               final boolean classifyChildren) {
+                               final boolean classifyChildren, final Supplier<PomReferences> references) {
         this.tree = tree;
         this.classifier = classifier;
         this.path = path;
         this.oldSides = oldSides;
         this.newSides = newSides;
         this.classifyChildren = classifyChildren;
+        this.references = references;
     }
 
     /**
@@ -62,11 +67,12 @@ final class PomTreeEnvironment implements PomEnvironment {
      * @param tree the repository's POMs.
      * @param classifier the classifier used for child modules.
      * @param path the changed POM.
+     * @param references the diff's reference index, built on first use.
      * @return the environment.
      */
     static PomTreeEnvironment forChangedPom(final PomTree tree, final PomChangeClassifier classifier,
-                                            final String path) {
-        return new PomTreeEnvironment(tree, classifier, path, pom -> false, pom -> true, true);
+                                            final String path, final Supplier<PomReferences> references) {
+        return new PomTreeEnvironment(tree, classifier, path, pom -> false, pom -> true, true, references);
     }
 
     /**
@@ -141,7 +147,7 @@ final class PomTreeEnvironment implements PomEnvironment {
                 continue;
             }
             PomTreeEnvironment childEnvironment = new PomTreeEnvironment(tree, classifier, child,
-                    thisPomOld, pom -> true, false);
+                    thisPomOld, pom -> true, false, null);
             PomChangeReport report = classifier.classify(content.getNewContent(), content.getNewContent(),
                     childEnvironment);
             for (PomChange change : report.getChanges()) {
@@ -153,6 +159,14 @@ final class PomTreeEnvironment implements PomEnvironment {
         }
         childChanges = Collections.unmodifiableList(changes);
         return childChanges;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Boolean referencedByChangedPoms(final boolean newSide) {
+        return references == null ? null : references.get().isReferenced(path, newSide);
     }
 
     /**

@@ -443,6 +443,24 @@ class PomChangeClassifierTest {
         assertEquals(3, report.getChanges().size(), report.toString());
     }
 
+    /**
+     * Verify that, with no knowledge of other POMs, an added or deleted POM stays {@code OTHER}.
+     */
+    @Test
+    void addedOrDeletedPomWithoutAnEnvironmentIsOther() {
+        // given
+        String content = pom("<groupId>com.acme</groupId>", "<artifactId>app</artifactId>", "<version>1.0</version>");
+
+        // when
+        PomChangeReport added = classifier.classify(null, content);
+        PomChangeReport deleted = classifier.classify(content, null);
+
+        // then
+        assertCategories(added, OTHER);
+        assertCategories(deleted, OTHER);
+        assertEquals("POM added (OTHER)", added.getChanges().get(0).toString());
+    }
+
     @Test
     void modulesPackagingAndRepositoriesAreOther() {
         // given

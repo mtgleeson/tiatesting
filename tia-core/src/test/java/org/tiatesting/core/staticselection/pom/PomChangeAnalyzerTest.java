@@ -32,7 +32,7 @@ class PomChangeAnalyzerTest {
         contents.put("pom.xml", new FileContentPair(pom("1.0"), pom("2.0")));
         contents.put("a/pom.xml", new FileContentPair(pom("1.0"), pom("1.0")));
         RecordingVCSReader reader = new RecordingVCSReader(contents);
-        PomChangeAnalyzer analyzer = new PomChangeAnalyzer(reader, "base123", true,
+        PomChangeAnalyzer analyzer = new PomChangeAnalyzer(reader, "base123", true, Collections.<String>emptySet(),
                 new PomChangeClassifier(Collections.<String>emptyList()), null);
 
         // when
@@ -52,7 +52,7 @@ class PomChangeAnalyzerTest {
         // given - the bumped dependency is tracked
         RecordingVCSReader reader = new RecordingVCSReader(Collections.singletonMap("pom.xml",
                 new FileContentPair(pom("1.0"), pom("2.0"))));
-        PomChangeAnalyzer analyzer = new PomChangeAnalyzer(reader, "base", false,
+        PomChangeAnalyzer analyzer = new PomChangeAnalyzer(reader, "base", false, Collections.<String>emptySet(),
                 new PomChangeClassifier(Collections.singletonList("org.lib:lib")), null);
 
         // when
@@ -66,7 +66,7 @@ class PomChangeAnalyzerTest {
     void pathWithNoContentReturnedIsTreatedAsUnchanged() {
         // given - the reader returns nothing for the path
         RecordingVCSReader reader = new RecordingVCSReader(Collections.<String, FileContentPair>emptyMap());
-        PomChangeAnalyzer analyzer = new PomChangeAnalyzer(reader, "base", false,
+        PomChangeAnalyzer analyzer = new PomChangeAnalyzer(reader, "base", false, Collections.<String>emptySet(),
                 new PomChangeClassifier(Collections.<String>emptyList()), null);
 
         // when

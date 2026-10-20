@@ -78,7 +78,7 @@ A rule becomes POM-aware when it sets `pomChanges` to a comma-separated list of 
 - **Anything else** (only a `FUNCTIONAL` rule fires on these):
   - modules, packaging, repositories, extensions or profile activation changed
   - a changed property that nothing in the POM or its modules references
-  - a POM was added, deleted or can't be parsed
+  - a POM can't be parsed, or a POM was added or deleted that another changed `pom.xml` lists as a `<module>` or points at through its parent's `<relativePath>`
 
 **Never fires (inert).**
 
@@ -89,6 +89,7 @@ A rule becomes POM-aware when it sets `pomChanges` to a comma-separated list of 
 - Tia's own plugin configuration and `tia*` properties.
 - Whitespace, comments, and reordering of dependencies, plugins or executions.
 - An external parent or BOM version bump whose content didn't change in any of the ways listed above.
+- An added or deleted POM that no changed `pom.xml` in the diff lists as a module or points at as a parent, such as a frozen release copy of a parent POM. A build can only pick a POM file up through one of those references, and adding or removing one edits a POM in the same diff, which is classified on its own. Every changed `pom.xml` counts as a referrer, not only those a rule matched, so a rule scoped to a new module's directory still fires when an aggregator elsewhere registers it. A matching groupId, artifactId and version alone is not a reference, since Maven resolves those from the repository. Not detected: an unchanged module whose default `../pom.xml` parent path now lands on an added POM with the declared coordinates.
 
 A filtered resource that embeds `${project.version}` is a real behaviour change that the classifier treats as inert. If a test asserts on such a value, add a plain path or `SUITE_NAMES` rule for it.
 
@@ -106,7 +107,7 @@ A filtered resource that embeds `${project.version}` is a real behaviour change 
 - *Imported BOM.* An import brings in only the BOM's dependency management, so only dependency changes in the BOM count, labelled e.g. `(in BOM org.junit:junit-bom:5.11.4)`. A BOM bump that changes only tracked libraries, or nothing a consumer would see, is inert.
 - *Not available.* If either version's POM is not in the local repository, the bump is `DEPENDENCY_VERSIONS`, which is the safe direction. The new version is always there, because Maven resolved it to build. The previous one usually is on a developer machine, but may be missing from a fresh CI cache.
 
-Reads are batched: the changed POMs' parent chains are read one level per VCS call across all of them, and the reactor is read one module-tree level per call, once per run. A POM whose change needs neither the reactor nor its children (for example a compiler property) causes no further reads.
+Reads are batched: the changed POMs' parent chains are read one level per VCS call across all of them, and the reactor is read one module-tree level per call, once per run. A POM whose change needs neither the reactor nor its children (for example a compiler property) causes no further reads. When the diff adds or deletes a POM, the diff's other changed `pom.xml` files are read in one more call to find references to it. Without an added or deleted POM they are not read.
 
 **Logging and history.** When a POM-aware rule matches a POM, an INFO line says why it fired or why it did not, listing the first few changes, e.g. `Static test selection rule 'Functional POM changes' matched [pom.xml] but none of the changes is in [FUNCTIONAL]: [project version 1.4.0 -> 1.5.0 (inert)]`. The full change list is logged at DEBUG. The run-history trigger records the categories that fired, e.g. `Functional POM changes [DEPENDENCY_VERSIONS]`.
 
