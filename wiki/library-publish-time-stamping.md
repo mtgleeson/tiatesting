@@ -358,10 +358,14 @@ the working tree.
   safe direction.
 - **A pinned consumer** accumulates stamps by design and drains them in one catch-up when the
   dependency finally moves; union semantics dedupe repeated methods.
-- **Library commits not yet published** are partitioned out of the app run's source selection and
+- **Library commits not yet published** are kept out of the app run's source selection and
   select nothing - correct, the resolved jar does not contain them - and the publish task's
-  baseline diff stamps them later. The app's commit cursor and the mapping baseline are
-  independent; no coordination or timing window exists.
+  baseline diff stamps them later. Outside `checkLocalChanges` mode the app run does not diff the
+  tracked libraries' source dirs at all, so no listing or content fetch is spent on library files
+  it would discard. The library-diff partition stays as a guard for configured source dirs that
+  themselves cover a tracked library. The recorded `tia_library` source dirs are therefore read by
+  the app run only in local-changes mode and by that partition. The app's commit cursor and the
+  mapping baseline are independent; no coordination or timing window exists.
 - **Reconcile owns identity only.** The reconciler inserts/updates/deletes `tia_library` rows from
   the `tiaSourceLibs` config (project dir, source dirs); the ledger state (`mapping_baseline_commit`,
   `last_applied_seq`) is owned by the publish task and the post-run cleanup and survives config
