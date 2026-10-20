@@ -46,6 +46,19 @@ public class MavenStaticTestSelectionRule {
      */
     private String pomChanges;
 
+    /**
+     * Optional comma-separated plugins whose changes are inert for this POM-aware rule, each an
+     * {@code artifactId} (any groupId) or a {@code groupId:artifactId}, e.g. in-house deploy-only
+     * plugins. Extends the built-in inert list for this rule only.
+     */
+    private String inertPlugins;
+
+    /**
+     * Optional comma-separated regexes matched against the whole profile id; every change inside a
+     * matching profile is inert for this POM-aware rule, e.g. {@code Deploy.*}.
+     */
+    private String inertProfiles;
+
     public String getName() {
         return name;
     }
@@ -90,5 +103,33 @@ public class MavenStaticTestSelectionRule {
      */
     public void setPomChanges(final String pomChanges) {
         this.pomChanges = pomChanges;
+    }
+
+    /**
+     * @return the raw comma-separated inert plugins, or {@code null} when not configured.
+     */
+    public String getInertPlugins() {
+        return inertPlugins;
+    }
+
+    /**
+     * @param inertPlugins the raw comma-separated inert plugins.
+     */
+    public void setInertPlugins(final String inertPlugins) {
+        this.inertPlugins = inertPlugins;
+    }
+
+    /**
+     * @return the raw comma-separated inert profile regexes, or {@code null} when not configured.
+     */
+    public String getInertProfiles() {
+        return inertProfiles;
+    }
+
+    /**
+     * @param inertProfiles the raw comma-separated inert profile regexes.
+     */
+    public void setInertProfiles(final String inertProfiles) {
+        this.inertProfiles = inertProfiles;
     }
 }
