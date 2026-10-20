@@ -696,13 +696,18 @@ public class TiaPlugin implements Plugin<Project> {
         String jarFilePath = resolveBuiltArchivePath();
 
         StaticTestSelectionConfig staticConfig = buildStaticTestSelectionConfig();
+        // Diff against this project's own source roots, not the absolute paths the consumer's build
+        // recorded on the tracked library - those belong to the consumer's workspace and need not
+        // exist or be mapped in this build's VCS client.
+        List<String> publishingSourceDirs = LibraryJarResolver.readPublishingSourceDirs(project);
 
         // Unlike the reporting tasks this one cannot be satisfied by a configured branch alone -
         // the stamper reads the publish's own commit from the VCS - but it still opens one reader
         // for the whole publish rather than one per consuming schema, and closes it.
         try (WorkspaceIdentity workspaceIdentity = workspaceIdentity()) {
             stampPublishToEachConsumingSchema(groupArtifact, publishedVersion, jarFilePath,
-                    workspaceIdentity.openVCSReader(), workspaceIdentity.getBranch(), staticConfig);
+                    workspaceIdentity.openVCSReader(), workspaceIdentity.getBranch(), staticConfig,
+                    publishingSourceDirs);
         }
     }
 
@@ -729,13 +734,15 @@ public class TiaPlugin implements Plugin<Project> {
      * @param vcsReader this project's VCS reader
      * @param branch the branch whose schemas are stamped
      * @param staticConfig this project's static test selection configuration
+     * @param publishingSourceDirs this project's own source roots, which the publish diff runs over
      */
     private void stampPublishToEachConsumingSchema(final String groupArtifact,
                                                    final String publishedVersion,
                                                    final String jarFilePath,
                                                    final VCSReader vcsReader,
                                                    final String branch,
-                                                   final StaticTestSelectionConfig staticConfig) {
+                                                   final StaticTestSelectionConfig staticConfig,
+                                                   final List<String> publishingSourceDirs) {
         List<String> targetSuffixes = declaredLibraryStampSchemas();
         if (targetSuffixes.isEmpty()) {
             targetSuffixes = new ArrayList<>(reportingSchemaSuffixes());
@@ -749,7 +756,7 @@ public class TiaPlugin implements Plugin<Project> {
             try (DataStore dataStore = buildDataStore(branch, suffix)) {
                 LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
                         .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion,
-                                jarFilePath, staticConfig);
+                                jarFilePath, staticConfig, publishingSourceDirs);
                 LOGGER.info("Tia publish stamp for {} {} into schema {}: {} (seq {}, {} methods).",
                         groupArtifact, publishedVersion, schemaLabel, result.getOutcome(),
                         result.getPublishSeq(), result.getStampedMethodIds().size());

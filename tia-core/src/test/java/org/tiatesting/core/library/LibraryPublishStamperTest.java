@@ -93,7 +93,7 @@ class LibraryPublishStamperTest {
         // when the first publish is stamped
         PublishStampResult result = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-1", diffFor(LIB_FILE_KEY)), LIB, "1.0.0-SNAPSHOT", null,
-                StaticTestSelectionConfig.EMPTY);
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
 
         // then the ledger is seeded, nothing is stamped and the baseline is set to the publish HEAD
         assertEquals(PublishStampResult.Outcome.SEEDED, result.getOutcome());
@@ -124,7 +124,7 @@ class LibraryPublishStamperTest {
         // when a publish with a change to the tracked library file is stamped
         PublishStampResult result = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-2", diffFor(LIB_FILE_KEY)), LIB, "1.0.1-SNAPSHOT", jar.getAbsolutePath(),
-                StaticTestSelectionConfig.EMPTY);
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
 
         // then the impacted method is stamped against the assigned sequence
         assertEquals(PublishStampResult.Outcome.STAMPED, result.getOutcome());
@@ -147,6 +147,57 @@ class LibraryPublishStamperTest {
     }
 
     /**
+     * A publish from a workspace other than the consumer's (e.g. the library's own release job)
+     * diffs the publishing build's own source roots, not the consumer-workspace paths recorded on
+     * the tracked library, which are not in the publishing workspace. Mapping keys are
+     * package-relative, so the methods still match. The tracked row keeps the consumer's paths.
+     */
+    @Test
+    void publishDiffsPublishingSourceDirsInsteadOfTrackedConsumerDirs() {
+        // given a tracked library whose recorded source dir is in the consumer's workspace
+        String consumerSrcDir = "/consumer-ws/libs/lib/src/main/java";
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/consumer-ws/libs/lib", consumerSrcDir);
+        lib.setMappingBaselineCommit("baseline-1");
+        dataStore.persistTrackedLibrary(lib);
+        StubVCSReader reader = new StubVCSReader("head-2", diffFor(LIB_FILE_KEY));
+
+        // when the library is published from its own workspace with its own source root
+        PublishStampResult result = stamper.stampPublish(dataStore, reader, LIB, "1.0.1", null,
+                StaticTestSelectionConfig.EMPTY, Collections.singletonList(LIB_SRC_DIR));
+
+        // then the diff ran over the publishing source root and the impacted method is stamped
+        assertEquals(PublishStampResult.Outcome.STAMPED, result.getOutcome());
+        assertEquals(Collections.singleton(METHOD_LIB), result.getStampedMethodIds());
+        assertEquals(Collections.singletonList(Collections.singletonList(LIB_SRC_DIR)),
+                reader.getRequestedSourceDirs());
+
+        // and the tracked library still records the consumer's source dir
+        assertEquals(consumerSrcDir, dataStore.readTrackedLibraries().get(LIB).getSourceDirsCsv());
+    }
+
+    /**
+     * With no publishing source roots supplied (e.g. the publishing build has none on disk), the
+     * publish diff falls back to the tracked library's recorded source dirs.
+     */
+    @Test
+    void publishFallsBackToTrackedSourceDirsWhenNoPublishingDirs() {
+        // given a tracked library with a seeded baseline and a recorded source dir
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR);
+        lib.setMappingBaselineCommit("baseline-1");
+        dataStore.persistTrackedLibrary(lib);
+        StubVCSReader reader = new StubVCSReader("head-2", diffFor(LIB_FILE_KEY));
+
+        // when the publish supplies no source roots of its own
+        PublishStampResult result = stamper.stampPublish(dataStore, reader, LIB, "1.0.1", null,
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
+
+        // then the diff ran over the tracked source dir and the impacted method is stamped
+        assertEquals(Collections.singleton(METHOD_LIB), result.getStampedMethodIds());
+        assertEquals(Collections.singletonList(Collections.singletonList(LIB_SRC_DIR)),
+                reader.getRequestedSourceDirs());
+    }
+
+    /**
      * A publish with no source changes since the baseline still writes the ledger row - the
      * publish happened and must be resolvable by the consumer's drain lookup - but no stamp.
      */
@@ -159,7 +210,8 @@ class LibraryPublishStamperTest {
 
         // when a publish with an empty diff is stamped
         PublishStampResult result = stamper.stampPublish(dataStore,
-                new StubVCSReader("head-2"), LIB, "1.0.1", null, StaticTestSelectionConfig.EMPTY);
+                new StubVCSReader("head-2"), LIB, "1.0.1", null, StaticTestSelectionConfig.EMPTY,
+                Collections.<String>emptyList());
 
         // then the ledger row exists and no stamp was written
         assertEquals(PublishStampResult.Outcome.STAMPED, result.getOutcome());
@@ -180,7 +232,7 @@ class LibraryPublishStamperTest {
         // when a publish is stamped for the untracked coordinate
         PublishStampResult result = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-1", diffFor(LIB_FILE_KEY)), LIB, "1.0.0", null,
-                StaticTestSelectionConfig.EMPTY);
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
 
         // then nothing was written
         assertEquals(PublishStampResult.Outcome.SKIPPED_NOT_TRACKED, result.getOutcome());
@@ -205,10 +257,10 @@ class LibraryPublishStamperTest {
         // when publish 1 changes Lib.java and publish 2's cumulative diff spans Lib.java and Other.java
         PublishStampResult first = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-2", diffFor(LIB_FILE_KEY)), LIB, "1.0.1-SNAPSHOT", null,
-                StaticTestSelectionConfig.EMPTY);
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
         PublishStampResult second = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-3", diffFor(LIB_FILE_KEY), diffFor(OTHER_FILE_KEY)),
-                LIB, "1.0.1-SNAPSHOT", null, StaticTestSelectionConfig.EMPTY);
+                LIB, "1.0.1-SNAPSHOT", null, StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
 
         // then the sequences advance and the second stamp is the cumulative superset
         assertEquals(1L, first.getPublishSeq());
@@ -239,7 +291,7 @@ class LibraryPublishStamperTest {
         dataStore.persistTrackedLibrary(lib);
         PublishStampResult first = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-2", diffFor(LIB_FILE_KEY)), LIB, "1.7-SNAPSHOT", null,
-                StaticTestSelectionConfig.EMPTY);
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
         assertEquals(Collections.singleton(METHOD_LIB), first.getStampedMethodIds());
 
         // when a version-only publish follows: Lib.java still differs from the baseline (Diff 1),
@@ -249,7 +301,7 @@ class LibraryPublishStamperTest {
         byBase.put("head-2", Collections.emptySet());
         PublishStampResult second = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-3", setOf(diffFor(LIB_FILE_KEY)), byBase), LIB, "1.7", null,
-                StaticTestSelectionConfig.EMPTY);
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
 
         // then the ledger row is written but the stamp is empty, and only the first publish is pending
         assertEquals(PublishStampResult.Outcome.STAMPED, second.getOutcome());
@@ -275,7 +327,7 @@ class LibraryPublishStamperTest {
         lib.setMappingBaselineCommit("baseline-1");
         dataStore.persistTrackedLibrary(lib);
         stamper.stampPublish(dataStore, new StubVCSReader("head-2", diffFor(LIB_FILE_KEY)),
-                LIB, "1.0.1-SNAPSHOT", null, StaticTestSelectionConfig.EMPTY);
+                LIB, "1.0.1-SNAPSHOT", null, StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
 
         // when the second publish's cumulative baseline diff spans both files but only Other.java
         // changed since the previous publish head-2
@@ -284,7 +336,7 @@ class LibraryPublishStamperTest {
         byBase.put("head-2", setOf(diffFor(OTHER_FILE_KEY)));
         PublishStampResult second = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-3", setOf(diffFor(LIB_FILE_KEY), diffFor(OTHER_FILE_KEY)), byBase),
-                LIB, "1.0.2-SNAPSHOT", null, StaticTestSelectionConfig.EMPTY);
+                LIB, "1.0.2-SNAPSHOT", null, StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
 
         // then only Other.java's method is stamped for the second publish
         assertEquals(Collections.singleton(METHOD_OTHER), second.getStampedMethodIds());
@@ -309,7 +361,7 @@ class LibraryPublishStamperTest {
         PublishStampResult result = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
                         changedPathsAt("prev-commit", "libs/widget/src/main/resources/db/V2__add.sql")),
-                LIB, "1.2.0", null, config);
+                LIB, "1.2.0", null, config, Collections.<String>emptyList());
 
         // then a RUN_ALL forced selection is recorded against the assigned publish sequence
         assertEquals(PublishStampResult.Outcome.STAMPED, result.getOutcome());
@@ -339,7 +391,8 @@ class LibraryPublishStamperTest {
                                 libraryPom("1.0", "org.lib", "lib", "2.1"))));
 
         // when
-        PublishStampResult result = stamper.stampPublish(dataStore, reader, LIB, "1.2.0", null, config);
+        PublishStampResult result = stamper.stampPublish(dataStore, reader, LIB, "1.2.0", null, config,
+                Collections.<String>emptyList());
 
         // then
         assertEquals(1, result.getForcedSelections().size());
@@ -366,7 +419,8 @@ class LibraryPublishStamperTest {
                                 libraryPom("1.1", tracked[0], tracked[1], "3.1"))));
 
         // when
-        PublishStampResult result = stamper.stampPublish(dataStore, reader, LIB, "1.2.0", null, config);
+        PublishStampResult result = stamper.stampPublish(dataStore, reader, LIB, "1.2.0", null, config,
+                Collections.<String>emptyList());
 
         // then
         assertEquals(PublishStampResult.Outcome.STAMPED, result.getOutcome());
@@ -405,7 +459,7 @@ class LibraryPublishStamperTest {
         PublishStampResult result = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
                         changedPathsAt("prev-commit", "libs/widget/src/main/java/Foo.java")),
-                LIB, "1.2.0", null, config);
+                LIB, "1.2.0", null, config, Collections.<String>emptyList());
 
         // then no forced selection is recorded
         assertTrue(result.getForcedSelections().isEmpty());
@@ -431,14 +485,14 @@ class LibraryPublishStamperTest {
         PublishStampResult first = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
                         changedPathsAt("prev-commit", "libs/widget/src/main/resources/db/V2__add.sql")),
-                LIB, "1.2.0", null, config);
+                LIB, "1.2.0", null, config, Collections.<String>emptyList());
 
         // and publish B's diff since "head-2" (publish A's commit, now the previous publish) has no
         // matching file
         PublishStampResult second = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-3", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
                         changedPathsAt("head-2", "libs/widget/src/main/java/Foo.java")),
-                LIB, "1.3.0", null, config);
+                LIB, "1.3.0", null, config, Collections.<String>emptyList());
 
         // then publish A recorded the forced selection and publish B recorded none
         assertEquals(1, first.getForcedSelections().size());
@@ -464,7 +518,7 @@ class LibraryPublishStamperTest {
         PublishStampResult result = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
                         changedPathsAt("prev-commit", "libs/gadget/src/main/resources/db/V2.sql")),
-                LIB, "1.2.0", null, config);
+                LIB, "1.2.0", null, config, Collections.<String>emptyList());
 
         // then a forced selection is recorded - the rule fired on the repo-wide match
         assertEquals(1, result.getForcedSelections().size());
@@ -569,6 +623,7 @@ class LibraryPublishStamperTest {
         private final Map<String, Set<String>> changedFilePathsByBase;
         private Map<String, FileContentPair> fileContents = Collections.emptyMap();
         private String fileContentsBase;
+        private final List<List<String>> requestedSourceDirs = new ArrayList<>();
 
         StubVCSReader(String headCommit, SourceFileDiffContext... diffs) {
             this(headCommit, new HashSet<>(Arrays.asList(diffs)), Collections.emptyMap(), Collections.emptyMap());
@@ -604,10 +659,30 @@ class LibraryPublishStamperTest {
         @Override public String getBranchName() { return "test"; }
         @Override public String getHeadCommit() { return headCommit; }
 
+        /**
+         * Return the diff set configured for the requested base, recording the source dirs the
+         * diff was restricted to.
+         *
+         * @param baseChangeNum the diff base commit.
+         * @param sourceFilesDirs the source dirs requested, recorded.
+         * @param testFilesDirs unused.
+         * @param checkLocalChanges unused.
+         * @return the diffs configured for {@code baseChangeNum}, or the default diffs.
+         */
         @Override
         public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
                                                        List<String> testFilesDirs, boolean checkLocalChanges) {
+            requestedSourceDirs.add(new ArrayList<>(sourceFilesDirs));
             return diffsByBase.getOrDefault(baseChangeNum, defaultDiffs);
+        }
+
+        /**
+         * Return the source dirs passed to each {@link #getDiffFiles} call, in call order.
+         *
+         * @return the requested source dirs per diff call.
+         */
+        List<List<String>> getRequestedSourceDirs() {
+            return requestedSourceDirs;
         }
 
         @Override

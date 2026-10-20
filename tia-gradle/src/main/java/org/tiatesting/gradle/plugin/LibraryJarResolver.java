@@ -429,9 +429,14 @@ public class LibraryJarResolver implements LibraryMetadataReader {
      * Read source directories for a sibling subproject. Uses {@code main.getAllJava().getSrcDirs()}
      * which returns Java + jointly-compiled languages (Groovy, Scala) and naturally excludes
      * resource directories and test source sets. Kotlin sources are not included because the Kotlin
-     * compiler doesn't participate in joint compilation; that's a known limitation.
+     * compiler doesn't participate in joint compilation; that's a known limitation. Also backs
+     * {@link #readPublishingSourceDirs(Project)} for the publish stamp.
+     *
+     * @param gradleProject the project whose main source set to read.
+     * @return the canonical paths of the main source set's Java (and jointly-compiled) source dirs;
+     *         empty when the project has no source sets.
      */
-    private List<String> readSourceDirsFromGradleProject(Project gradleProject) {
+    private static List<String> readSourceDirsFromGradleProject(Project gradleProject) {
         List<String> result = new ArrayList<>();
         SourceSetContainer sourceSets = gradleProject.getExtensions()
                 .findByType(SourceSetContainer.class);
@@ -443,6 +448,30 @@ public class LibraryJarResolver implements LibraryMetadataReader {
         if (main != null) {
             for (File srcDir : main.getAllJava().getSrcDirs()) {
                 result.add(canonicalPath(srcDir));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Read the publishing project's own source roots for the publish stamp's diffs: the main
+     * source set's Java (and jointly-compiled) dirs that exist on disk. Gradle lists the
+     * conventional dirs (e.g. {@code src/main/java}, {@code src/main/groovy}) whether or not they
+     * exist; passing a missing one to the VCS reader only produces a "not present in the local
+     * workspace" warning on Perforce, so they are dropped here, matching the Maven publish goal's
+     * exists-on-disk filter.
+     *
+     * @param gradleProject the project being published.
+     * @return the canonical paths of the existing main source dirs; empty when there are none.
+     */
+    static List<String> readPublishingSourceDirs(Project gradleProject) {
+        List<String> result = new ArrayList<>();
+        for (String dir : readSourceDirsFromGradleProject(gradleProject)) {
+            if (new File(dir).isDirectory()) {
+                result.add(dir);
+            } else {
+                gradleProject.getLogger().debug("Skipping source directory {} for the publish stamp of {} - "
+                        + "it doesn't exist on disk.", dir, gradleProject.getPath());
             }
         }
         return result;

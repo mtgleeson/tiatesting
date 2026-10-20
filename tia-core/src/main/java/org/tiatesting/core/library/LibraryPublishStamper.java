@@ -86,12 +86,21 @@ public class LibraryPublishStamper {
      * @param staticConfig the library's own static test selection rules, evaluated against the
      *                     files it changed since its previous publish; pass
      *                     {@link StaticTestSelectionConfig#EMPTY} when the library configures none.
+     * @param publishingSourceDirs the source roots of the library module being published, as they
+     *                             exist in the publishing build's own workspace. These drive the
+     *                             publish-time diffs in preference to the tracked library's recorded
+     *                             source dirs, which are absolute paths from the consumer's workspace
+     *                             and need not exist (or be mapped in the VCS client) on the
+     *                             publishing machine. The tracked row is not modified - the consumer
+     *                             still needs its own paths. Pass an empty list to fall back to the
+     *                             tracked library's recorded dirs.
      * @return the outcome, the assigned publish sequence (0 when skipped), the stamped method ids
      *         and any forced-selection batches recorded from the library's static rules.
      */
     public PublishStampResult stampPublish(DataStore dataStore, VCSReader vcsReader, String groupArtifact,
                                            String publishedVersion, String jarFilePath,
-                                           final StaticTestSelectionConfig staticConfig) {
+                                           final StaticTestSelectionConfig staticConfig,
+                                           final List<String> publishingSourceDirs) {
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         TrackedLibrary tracked = trackedLibraries.get(groupArtifact);
         if (tracked == null) {
@@ -119,7 +128,7 @@ public class LibraryPublishStamper {
 
         String previousPublishCommit = resolvePreviousPublishCommit(dataStore, groupArtifact, tracked);
         Set<Integer> impactedMethods = findImpactedMethodsSinceBaseline(dataStore, vcsReader, tracked,
-                previousPublishCommit);
+                previousPublishCommit, publishingSourceDirs);
         List<PendingLibraryForcedSelection> forcedSelections = evaluateForcedSelections(
                 vcsReader, tracked, previousPublishCommit, publishedVersion, staticConfig, trackedLibraries.keySet());
         long seq = dataStore.persistLibraryPublish(publish, impactedMethods, forcedSelections);
@@ -160,15 +169,18 @@ public class LibraryPublishStamper {
      * @param vcsReader the VCS reader used to diff and load file content.
      * @param tracked the tracked library whose baseline and source dirs drive the diff.
      * @param previousPublishCommit the commit of the previous publish, driving the Diff 2 filter.
+     * @param publishingSourceDirs the publishing module's own source roots; preferred over the
+     *                             tracked library's recorded dirs when non-empty.
      * @return the impacted tracked method ids; empty when nothing changed since the previous
      *         publish or nothing is tracked.
      */
     private Set<Integer> findImpactedMethodsSinceBaseline(DataStore dataStore, VCSReader vcsReader,
-                                                          TrackedLibrary tracked, String previousPublishCommit) {
-        List<String> sourceDirs = resolveLibrarySourceDirs(tracked);
+                                                          TrackedLibrary tracked, String previousPublishCommit,
+                                                          List<String> publishingSourceDirs) {
+        List<String> sourceDirs = resolveLibrarySourceDirs(tracked, publishingSourceDirs);
         if (sourceDirs.isEmpty()) {
-            log.warn("Library '{}' has no source dirs or project dir recorded - cannot diff, stamping nothing.",
-                    tracked.getGroupArtifact());
+            log.warn("Library '{}' has no source dirs in the publishing build and no source dirs or project dir "
+                    + "recorded - cannot diff, stamping nothing.", tracked.getGroupArtifact());
             return Collections.emptySet();
         }
 
@@ -246,14 +258,33 @@ public class LibraryPublishStamper {
     }
 
     /**
-     * Resolve the directories to diff for a tracked library: its recorded source dirs when
-     * present, otherwise its project dir.
+     * Resolve the directories to diff for a library publish. The publishing module's own source
+     * roots win when supplied: the tracked library's recorded dirs are absolute paths captured by
+     * the consumer's build, so when the library is published from a different workspace (e.g. its
+     * own CI job with its own VCS client) they point outside that workspace and the diff finds
+     * nothing. Mapping keys are package-relative, so the publishing roots still line up with the
+     * tracked methods. Otherwise falls back to the tracked library's recorded source dirs, then its
+     * project dir.
      *
      * @param tracked the tracked library.
-     * @return the directories to restrict the diff to; empty when neither is recorded.
+     * @param publishingSourceDirs the publishing module's own source roots; may be null or empty.
+     * @return the directories to restrict the diff to; empty when none is available.
      */
-    private List<String> resolveLibrarySourceDirs(TrackedLibrary tracked) {
+    private List<String> resolveLibrarySourceDirs(TrackedLibrary tracked, List<String> publishingSourceDirs) {
         List<String> dirs = new ArrayList<>();
+        if (publishingSourceDirs != null) {
+            for (String dir : publishingSourceDirs) {
+                if (dir != null && !dir.trim().isEmpty()) {
+                    dirs.add(dir.trim());
+                }
+            }
+        }
+        if (!dirs.isEmpty()) {
+            log.debug("Library '{}' publish diff uses the publishing build's source dirs {} (tracked: {}).",
+                    tracked.getGroupArtifact(), dirs, tracked.getSourceDirsCsv());
+            return dirs;
+        }
+
         if (tracked.getSourceDirsCsv() != null && !tracked.getSourceDirsCsv().isEmpty()) {
             for (String dir : tracked.getSourceDirsCsv().split(",")) {
                 String trimmed = dir.trim();

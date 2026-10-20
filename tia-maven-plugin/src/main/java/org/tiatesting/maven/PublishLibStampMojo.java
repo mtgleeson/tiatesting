@@ -35,7 +35,8 @@ public class PublishLibStampMojo extends AbstractTiaMojo {
      * Record this module's publish in the ledger and stamp its impacted methods, evaluating this
      * module's own configured static test selection rules (built the same way as the
      * {@code tia-select-tests} mojo, via {@link #buildStaticTestSelectionConfig()}) against the
-     * files changed since the previous publish. No-ops when Tia is disabled or this build does not
+     * files changed since the previous publish. The impacted-method diff runs over this module's
+     * own compile source roots that exist on disk. No-ops when Tia is disabled or this build does not
      * own mapping-DB writes; the stamper itself skips (with a warning) when the module is not a
      * tracked library in the Tia DB.
      */
@@ -56,6 +57,11 @@ public class PublishLibStampMojo extends AbstractTiaMojo {
         String jarFilePath = resolveBuiltArtifactPath();
 
         StaticTestSelectionConfig staticConfig = buildStaticTestSelectionConfig();
+        // Diff against this module's own source roots, not the absolute paths the consumer's build
+        // recorded on the tracked library - those belong to the consumer's workspace and need not
+        // exist or be mapped in this build's VCS client.
+        List<String> publishingSourceDirs = LibraryJarResolver.filterExistingSourceRoots(
+                getProject().getCompileSourceRoots(), getProject().getId(), getLog());
 
         // The consuming schemas are declared, never derived: the consuming app is a separate build,
         // so this module cannot see its schemas. A stamp written where no consumer reads it is
@@ -76,7 +82,7 @@ public class PublishLibStampMojo extends AbstractTiaMojo {
                 try (DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), suffix)) {
                     LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
                             .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion,
-                                    jarFilePath, staticConfig);
+                                    jarFilePath, staticConfig, publishingSourceDirs);
                     getLog().info("Tia publish stamp for " + groupArtifact + " " + publishedVersion
                             + " into schema " + schemaLabel + ": " + result.getOutcome() + " (seq "
                             + result.getPublishSeq() + ", " + result.getStampedMethodIds().size()
