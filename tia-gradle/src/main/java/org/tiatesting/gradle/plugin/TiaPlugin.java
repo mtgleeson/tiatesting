@@ -24,6 +24,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
+import org.tiatesting.core.staticselection.pom.PomInertOverrides;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.VCSReaderFactory;
 import org.tiatesting.core.vcs.VcsDetector;
@@ -1358,7 +1359,7 @@ public class TiaPlugin implements Plugin<Project> {
             // POM-aware rules are Maven-only: a Gradle build has no POMs to classify.
             compiledRules.add(new StaticTestSelectionRule(
                     raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns(),
-                    Collections.<PomChangeCategory>emptySet()));
+                    Collections.<PomChangeCategory>emptySet(), PomInertOverrides.NONE));
         }
         return new StaticTestSelectionConfig(compiledRules, null);
     }

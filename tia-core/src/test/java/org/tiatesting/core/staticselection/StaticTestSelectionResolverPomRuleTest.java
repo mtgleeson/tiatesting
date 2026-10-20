@@ -6,6 +6,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.staticselection.pom.PomChangeAnalyzer;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.staticselection.pom.PomChangeClassifier;
+import org.tiatesting.core.staticselection.pom.PomInertOverrides;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -91,7 +92,7 @@ class StaticTestSelectionResolverPomRuleTest {
         StaticTestSelectionConfig config = configWith(
                 pomRule("all-poms", null, PomChangeCategory.FUNCTIONAL),
                 pomRule("module-poms", "module-a/pom\\.xml$", PomChangeCategory.DEPENDENCY_VERSIONS),
-                new StaticTestSelectionRule("sql", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null));
+                new StaticTestSelectionRule("sql", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null, null));
 
         // when
         List<FiredStaticRule> fired = new StaticTestSelectionResolver(config)
@@ -110,7 +111,7 @@ class StaticTestSelectionResolverPomRuleTest {
                 new FileContentPair(pom("1.0", "2.0"), pom("1.0", "2.1"))));
         StaticTestSelectionRule rule = new StaticTestSelectionRule("dep-its", null,
                 StaticTestSelectionRuleMode.SUITE_NAMES, Collections.singletonList("IT$"),
-                EnumSet.of(PomChangeCategory.DEPENDENCY_VERSIONS));
+                EnumSet.of(PomChangeCategory.DEPENDENCY_VERSIONS), null);
 
         // when
         StaticTestSelectionResult result = new StaticTestSelectionResolver(configWith(rule))
@@ -182,6 +183,36 @@ class StaticTestSelectionResolverPomRuleTest {
     }
 
     /**
+     * Verify the build 358 shape: a deploy plugin's configuration change and a plugin change in a
+     * deploy profile do not fire a rule that declares them inert, while a rule without overrides
+     * still fires on the same shared report.
+     */
+    @Test
+    void inertOverridesApplyPerRule() {
+        // given
+        String pom = "<project><groupId>com.acme</groupId><artifactId>app</artifactId><version>1.0</version>"
+                + "<build><plugins><plugin><groupId>com.acme.rs</groupId><artifactId>remote-maven-plugin</artifactId>"
+                + "<configuration><host>%s</host></configuration></plugin></plugins></build>"
+                + "<profiles><profile><id>DeployToGCS</id><build><plugins><plugin><groupId>com.acme.fut</groupId>"
+                + "<artifactId>gcs_upload_m2-maven-plugin</artifactId><configuration><bucket>%s</bucket>"
+                + "</configuration></plugin></plugins></build></profile></profiles></project>";
+        ContentVCSReader reader = new ContentVCSReader(Collections.singletonMap(ROOT_POM,
+                new FileContentPair(String.format(pom, "a", "a"), String.format(pom, "b", "b"))));
+        StaticTestSelectionConfig config = configWith(
+                new StaticTestSelectionRule("with-overrides", null, StaticTestSelectionRuleMode.RUN_ALL, null,
+                        EnumSet.of(PomChangeCategory.FUNCTIONAL),
+                        PomInertOverrides.parse("remote-maven-plugin", "DeployToGCS")),
+                pomRule("plain", null, PomChangeCategory.FUNCTIONAL));
+
+        // when
+        List<FiredStaticRule> fired = new StaticTestSelectionResolver(config)
+                .evaluateRules(setOf(ROOT_POM), analyzer(reader, setOf(ROOT_POM)));
+
+        // then
+        assertEquals(Collections.singletonList("plain"), ruleNames(fired));
+    }
+
+    /**
      * @param reader the reader serving POM content.
      * @param changedPaths every changed path in the diff.
      * @return an analyzer over the reader with no tracked libraries.
@@ -199,7 +230,7 @@ class StaticTestSelectionResolverPomRuleTest {
      */
     private static StaticTestSelectionRule pomRule(String name, String filePattern, PomChangeCategory category) {
         return new StaticTestSelectionRule(name, filePattern, StaticTestSelectionRuleMode.RUN_ALL, null,
-                EnumSet.of(category));
+                EnumSet.of(category), null);
     }
 
     /**

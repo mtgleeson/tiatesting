@@ -8,9 +8,10 @@ import java.util.Set;
 /**
  * The built-in knowledge of which plugins and properties affect what: which plugins are inert,
  * which generate code, which properties are read implicitly by the compiler or test runner. These
- * are code constants rather than user configuration; extending them is a code change. Plugins are
- * matched by artifactId alone because generator and quality plugins are published under several
- * groupIds over their history.
+ * are code constants; extending them for every project is a code change, and a POM-aware rule can
+ * add its own inert plugins and profiles (see {@link PomInertOverrides}). Plugins are matched by
+ * artifactId alone because generator and quality plugins are published under several groupIds over
+ * their history.
  */
 final class PomBuiltInCategories {
 

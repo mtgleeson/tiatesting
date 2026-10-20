@@ -360,13 +360,13 @@ class StaticTestSelectionResolverTest {
     }
 
     private static StaticTestSelectionRule runAllRule(String name, String filePattern) {
-        return new StaticTestSelectionRule(name, filePattern, StaticTestSelectionRuleMode.RUN_ALL, null, null);
+        return new StaticTestSelectionRule(name, filePattern, StaticTestSelectionRuleMode.RUN_ALL, null, null, null);
     }
 
     private static StaticTestSelectionRule suiteNamesRule(String name, String filePattern,
                                                           String... suitePatterns) {
         List<String> patterns = Arrays.asList(suitePatterns);
-        return new StaticTestSelectionRule(name, filePattern, StaticTestSelectionRuleMode.SUITE_NAMES, patterns, null);
+        return new StaticTestSelectionRule(name, filePattern, StaticTestSelectionRuleMode.SUITE_NAMES, patterns, null, null);
     }
 
     private static Set<String> setOf(String... values) {

@@ -11,16 +11,23 @@ public final class PomChange {
 
     private final PomChangeCategory category;
     private final String description;
+    private final String plugin;
+    private final String profile;
 
     /**
      * Construct a change.
      *
      * @param category the change's category, or {@code null} for an inert change.
      * @param description the human-readable description of the change.
+     * @param plugin the resolved {@code groupId:artifactId} of the plugin the change is in, or {@code null}.
+     * @param profile the id of the profile the change is in, or {@code null}.
      */
-    private PomChange(final PomChangeCategory category, final String description) {
+    private PomChange(final PomChangeCategory category, final String description, final String plugin,
+                      final String profile) {
         this.category = category;
         this.description = description;
+        this.plugin = plugin;
+        this.profile = profile;
     }
 
     /**
@@ -35,7 +42,7 @@ public final class PomChange {
         if (category == null || category == PomChangeCategory.FUNCTIONAL) {
             throw new IllegalArgumentException("A functional POM change needs a concrete category, got " + category);
         }
-        return new PomChange(category, description);
+        return new PomChange(category, description, null, null);
     }
 
     /**
@@ -45,7 +52,7 @@ public final class PomChange {
      * @return the change.
      */
     public static PomChange inert(final String description) {
-        return new PomChange(null, description);
+        return new PomChange(null, description, null, null);
     }
 
     /**
@@ -63,6 +70,55 @@ public final class PomChange {
     }
 
     /**
+     * @return the resolved {@code groupId:artifactId} of the plugin the change is in, or
+     *         {@code null} when it is not a plugin change. Lets a rule's {@code inertPlugins}
+     *         override the plugin's built-in category.
+     */
+    public String getPlugin() {
+        return plugin;
+    }
+
+    /**
+     * @return the id of the profile the change is in, or {@code null} when it is outside any
+     *         profile. Lets a rule's {@code inertProfiles} make the change inert.
+     */
+    public String getProfile() {
+        return profile;
+    }
+
+    /**
+     * Tag the change with the plugin it is in.
+     *
+     * @param pluginKey the plugin's resolved {@code groupId:artifactId}.
+     * @return a copy carrying the plugin tag.
+     */
+    PomChange inPlugin(final String pluginKey) {
+        return new PomChange(category, description, pluginKey, profile);
+    }
+
+    /**
+     * Tag the change with the profile it is in. A change already tagged keeps its first profile,
+     * the one nearest to it.
+     *
+     * @param profileId the profile id.
+     * @return a copy carrying the profile tag.
+     */
+    PomChange inProfile(final String profileId) {
+        return new PomChange(category, description, plugin, profile != null ? profile : profileId);
+    }
+
+    /**
+     * Append to the description, keeping the category and the tags; used when a change is
+     * attributed to another POM (a child module, an external parent or BOM).
+     *
+     * @param suffix the text to append.
+     * @return the relabelled copy.
+     */
+    PomChange withDescriptionSuffix(final String suffix) {
+        return new PomChange(category, description + suffix, plugin, profile);
+    }
+
+    /**
      * @return {@code true} when the change cannot affect the behaviour of the code or tests.
      */
     public boolean isInert() {
@@ -70,7 +126,8 @@ public final class PomChange {
     }
 
     /**
-     * Compare two changes by category and description.
+     * Compare two changes by category and description. The plugin and profile tags are ignored,
+     * because the description already names the plugin and profile.
      *
      * @param o the object to compare with.
      * @return {@code true} when {@code o} is a change with the same category and description.
