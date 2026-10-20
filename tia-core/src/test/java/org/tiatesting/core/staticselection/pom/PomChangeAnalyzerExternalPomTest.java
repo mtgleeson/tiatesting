@@ -194,6 +194,28 @@ class PomChangeAnalyzerExternalPomTest {
         assertEquals("dependency org.lib:lib version 1.0 -> 2.0", report.getChanges().get(0).getDescription());
     }
 
+    /**
+     * Verify a plugin version taken from an external parent's property is not reported as changed
+     * when the parent bump keeps the property's value, so the bump is inert.
+     */
+    @Test
+    void externalParentPropertyWithAnUnchangedValueIsNotAChange() {
+        // given - both parent versions define surefirePlugin.version 2.20.1; the root's surefire uses it
+        MapPomSource source = new MapPomSource()
+                .add(BOOT, "boot-parent", "1", bootParent("1", properties("surefirePlugin.version", "2.20.1")))
+                .add(BOOT, "boot-parent", "2", bootParent("2", properties("surefirePlugin.version", "2.20.1")));
+        String surefire = "<build><plugins><plugin><artifactId>maven-surefire-plugin</artifactId>"
+                + "<version>${surefirePlugin.version}</version></plugin></plugins></build>";
+        InMemoryPomRepository repository = new InMemoryPomRepository()
+                .changed(ROOT, rootWithParent("1", surefire), rootWithParent("2", surefire));
+
+        // when
+        PomChangeReport report = analyze(repository, source, ROOT);
+
+        // then
+        assertTrue(report.getCategories().isEmpty(), report.toString());
+    }
+
     @Test
     void bomBumpCountsOnlyItsDependencyManagement() {
         // given - the BOM changes a plugin and a property nobody uses, and bumps a managed library
