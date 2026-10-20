@@ -152,8 +152,7 @@ final class PomTreeEnvironment implements PomEnvironment {
                     childEnvironment);
             for (PomChange change : report.getChanges()) {
                 if (!change.isInert()) {
-                    changes.add(PomChange.functional(change.getCategory(),
-                            change.getDescription() + " (in " + child + ")"));
+                    changes.add(change.withDescriptionSuffix(" (in " + child + ")"));
                 }
             }
         }
