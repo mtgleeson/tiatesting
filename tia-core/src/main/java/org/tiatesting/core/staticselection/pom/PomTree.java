@@ -126,12 +126,13 @@ final class PomTree {
 
     /**
      * The file a POM's {@code <relativePath>} points to (default {@code ../pom.xml}), unchecked.
+     * Shared with {@link PomReferences} so both apply Maven's relative-path rule the same way.
      *
      * @param path the POM path.
      * @param model the POM on one side; may be {@code null}.
      * @return the candidate parent path, or {@code null} when there is no parent or no repository lookup.
      */
-    private static String parentCandidate(final String path, final PomModel model) {
+    static String parentCandidate(final String path, final PomModel model) {
         if (model == null || model.getParent() == null) {
             return null;
         }
