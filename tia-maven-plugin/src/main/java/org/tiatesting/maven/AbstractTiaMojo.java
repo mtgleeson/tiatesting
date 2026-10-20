@@ -441,7 +441,8 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     protected MavenSession session;
 
     /**
-     * Maven's resolver, used to resolve the VCS provider module at run time.
+     * Maven's resolver, used to resolve the VCS provider module at run time, and external parent
+     * and BOM POMs missing from the local repository.
      */
     @Component
     protected RepositorySystem repositorySystem;
@@ -1100,17 +1101,23 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     /**
      * Build the reader POM-aware static rules use for external parent and BOM POMs: the session's
-     * local repository. Returns {@code null} when there is no session (e.g. a mojo built in a
-     * unit test), making external bumps {@code DEPENDENCY_VERSIONS}.
+     * local repository first, then the project's remote repositories through Maven's resolver (see
+     * {@link ResolvingPomSource}). Returns {@code null} when there is no session (e.g. a mojo built
+     * in a unit test), making external bumps {@code DEPENDENCY_VERSIONS}. Only called when static
+     * rules are configured, and the resolver is only called for a POM a bump needs that is not in
+     * the local repository.
      *
-     * @return the local-repository POM source, or {@code null}.
+     * @return the POM source, or {@code null}.
      */
     private ExternalPomSource buildExternalPomSource() {
         if (session == null || session.getRepositorySession() == null
                 || session.getRepositorySession().getLocalRepository() == null) {
             return null;
         }
-        return new LocalRepositoryPomSource(session.getRepositorySession().getLocalRepository().getBasedir(), getLog());
+        LocalRepositoryPomSource localRepository = new LocalRepositoryPomSource(
+                session.getRepositorySession().getLocalRepository().getBasedir(), getLog());
+        return new ResolvingPomSource(localRepository, repositorySystem, session.getRepositorySession(),
+                getProject().getRemoteProjectRepositories(), getLog());
     }
 
     /**

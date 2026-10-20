@@ -12,8 +12,8 @@ import java.nio.file.Files;
  * Reads external POMs (parents, imported BOMs) from the Maven local repository, using the standard
  * {@code <groupId path>/<artifactId>/<version>/<artifactId>-<version>.pom} layout. Nothing is
  * downloaded: a POM not in the local repository is reported as missing. The POM for the version
- * a build uses is always present (Maven resolved it to build); the previous version usually is on
- * a developer machine and may not be on a fresh CI cache.
+ * a build uses is always present (Maven resolved it to build); the previous version may not be on a
+ * fresh CI cache, which is why the Maven plugin wraps this in a {@link ResolvingPomSource}.
  */
 public class LocalRepositoryPomSource implements ExternalPomSource {
 
