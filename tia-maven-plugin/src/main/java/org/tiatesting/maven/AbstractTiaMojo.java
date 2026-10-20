@@ -26,6 +26,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.staticselection.pom.ExternalPomSource;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
+import org.tiatesting.core.staticselection.pom.PomInertOverrides;
 import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
@@ -1085,7 +1086,8 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
                         + (raw.getName() != null ? raw.getName() : raw.getFilePathPattern()) + "': " + e.getMessage(), e);
             }
             compiledRules.add(new StaticTestSelectionRule(
-                    raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns(), pomChanges));
+                    raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns(), pomChanges,
+                    PomInertOverrides.NONE));
         }
         return new StaticTestSelectionConfig(compiledRules, buildExternalPomSource());
     }
