@@ -6,7 +6,6 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.staticselection.pom.PomChangeAnalyzer;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.staticselection.pom.PomChangeClassifier;
-import org.tiatesting.core.staticselection.pom.PomInertOverrides;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -92,7 +91,7 @@ class StaticTestSelectionResolverPomRuleTest {
         StaticTestSelectionConfig config = configWith(
                 pomRule("all-poms", null, PomChangeCategory.FUNCTIONAL),
                 pomRule("module-poms", "module-a/pom\\.xml$", PomChangeCategory.DEPENDENCY_VERSIONS),
-                new StaticTestSelectionRule("sql", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null, null));
+                new StaticTestSelectionRule("sql", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null));
 
         // when
         List<FiredStaticRule> fired = new StaticTestSelectionResolver(config)
@@ -111,7 +110,7 @@ class StaticTestSelectionResolverPomRuleTest {
                 new FileContentPair(pom("1.0", "2.0"), pom("1.0", "2.1"))));
         StaticTestSelectionRule rule = new StaticTestSelectionRule("dep-its", null,
                 StaticTestSelectionRuleMode.SUITE_NAMES, Collections.singletonList("IT$"),
-                EnumSet.of(PomChangeCategory.DEPENDENCY_VERSIONS), null);
+                EnumSet.of(PomChangeCategory.DEPENDENCY_VERSIONS));
 
         // when
         StaticTestSelectionResult result = new StaticTestSelectionResolver(configWith(rule))
@@ -183,33 +182,97 @@ class StaticTestSelectionResolverPomRuleTest {
     }
 
     /**
-     * Verify the build 358 shape: a deploy plugin's configuration change and a plugin change in a
-     * deploy profile do not fire a rule that declares them inert, while a rule without overrides
-     * still fires on the same shared report.
+     * Verify a CODE_AND_TESTS rule ignores a configuration change to a project-specific plugin
+     * that is not on the built-in lists, which a FUNCTIONAL rule fires for.
      */
     @Test
-    void inertOverridesApplyPerRule() {
+    void codeAndTestsRuleDoesNotFireForAnUnknownPluginChange() {
         // given
         String pom = "<project><groupId>com.acme</groupId><artifactId>app</artifactId><version>1.0</version>"
                 + "<build><plugins><plugin><groupId>com.acme.rs</groupId><artifactId>remote-maven-plugin</artifactId>"
-                + "<configuration><host>%s</host></configuration></plugin></plugins></build>"
-                + "<profiles><profile><id>DeployToGCS</id><build><plugins><plugin><groupId>com.acme.fut</groupId>"
-                + "<artifactId>gcs_upload_m2-maven-plugin</artifactId><configuration><bucket>%s</bucket>"
-                + "</configuration></plugin></plugins></build></profile></profiles></project>";
+                + "<configuration><host>%s</host></configuration></plugin></plugins></build></project>";
         ContentVCSReader reader = new ContentVCSReader(Collections.singletonMap(ROOT_POM,
-                new FileContentPair(String.format(pom, "a", "a"), String.format(pom, "b", "b"))));
+                new FileContentPair(String.format(pom, "a"), String.format(pom, "b"))));
         StaticTestSelectionConfig config = configWith(
-                new StaticTestSelectionRule("with-overrides", null, StaticTestSelectionRuleMode.RUN_ALL, null,
-                        EnumSet.of(PomChangeCategory.FUNCTIONAL),
-                        PomInertOverrides.parse("remote-maven-plugin", "DeployToGCS")),
-                pomRule("plain", null, PomChangeCategory.FUNCTIONAL));
+                pomRule("code-and-tests", null, PomChangeCategory.CODE_AND_TESTS),
+                pomRule("functional", null, PomChangeCategory.FUNCTIONAL));
 
         // when
         List<FiredStaticRule> fired = new StaticTestSelectionResolver(config)
                 .evaluateRules(setOf(ROOT_POM), analyzer(reader, setOf(ROOT_POM)));
 
         // then
-        assertEquals(Collections.singletonList("plain"), ruleNames(fired));
+        assertEquals(Collections.singletonList("functional"), ruleNames(fired));
+    }
+
+    /**
+     * Verify a CODE_AND_TESTS rule ignores an OTHER change (a packaging change), which a
+     * FUNCTIONAL rule fires for.
+     */
+    @Test
+    void codeAndTestsRuleDoesNotFireForAnOtherChange() {
+        // given
+        String pom = "<project><groupId>com.acme</groupId><artifactId>app</artifactId><version>1.0</version>"
+                + "<packaging>%s</packaging></project>";
+        ContentVCSReader reader = new ContentVCSReader(Collections.singletonMap(ROOT_POM,
+                new FileContentPair(String.format(pom, "jar"), String.format(pom, "war"))));
+        StaticTestSelectionConfig config = configWith(
+                pomRule("code-and-tests", null, PomChangeCategory.CODE_AND_TESTS),
+                pomRule("functional", null, PomChangeCategory.FUNCTIONAL));
+
+        // when
+        List<FiredStaticRule> fired = new StaticTestSelectionResolver(config)
+                .evaluateRules(setOf(ROOT_POM), analyzer(reader, setOf(ROOT_POM)));
+
+        // then
+        assertEquals(Collections.singletonList("functional"), ruleNames(fired));
+    }
+
+    /**
+     * Verify a CODE_AND_TESTS rule fires for a dependency added inside a profile, and the trigger
+     * names the change's own category rather than CODE_AND_TESTS.
+     */
+    @Test
+    void codeAndTestsRuleFiresForADependencyAddedInAProfile() {
+        // given
+        String pom = "<project><groupId>com.acme</groupId><artifactId>app</artifactId><version>1.0</version>"
+                + "<profiles><profile><id>extra</id><dependencies>%s</dependencies></profile></profiles></project>";
+        String dependency = "<dependency><groupId>org.lib</groupId><artifactId>lib</artifactId>"
+                + "<version>1.0</version></dependency>";
+        ContentVCSReader reader = new ContentVCSReader(Collections.singletonMap(ROOT_POM,
+                new FileContentPair(String.format(pom, ""), String.format(pom, dependency))));
+        StaticTestSelectionConfig config = configWith(pomRule("poms", null, PomChangeCategory.CODE_AND_TESTS));
+
+        // when
+        StaticTestSelectionResult result = new StaticTestSelectionResolver(config)
+                .resolve(setOf(ROOT_POM), tracked("com.acme.AIT"), analyzer(reader, setOf(ROOT_POM)));
+
+        // then
+        assertEquals(setOf("com.acme.AIT"), result.getForcedSuites());
+        assertEquals("poms [DEPENDENCY_SET]", result.getRuleTriggers().get(0).getName());
+    }
+
+    /**
+     * Verify a CODE_AND_TESTS rule fires for a surefire configuration change.
+     */
+    @Test
+    void codeAndTestsRuleFiresForASurefireChange() {
+        // given
+        String pom = "<project><groupId>com.acme</groupId><artifactId>app</artifactId><version>1.0</version>"
+                + "<build><plugins><plugin><groupId>org.apache.maven.plugins</groupId>"
+                + "<artifactId>maven-surefire-plugin</artifactId><configuration><forkCount>%s</forkCount>"
+                + "</configuration></plugin></plugins></build></project>";
+        ContentVCSReader reader = new ContentVCSReader(Collections.singletonMap(ROOT_POM,
+                new FileContentPair(String.format(pom, "1"), String.format(pom, "2"))));
+        StaticTestSelectionConfig config = configWith(pomRule("poms", null, PomChangeCategory.CODE_AND_TESTS));
+
+        // when
+        StaticTestSelectionResult result = new StaticTestSelectionResolver(config)
+                .resolve(setOf(ROOT_POM), tracked("com.acme.AIT"), analyzer(reader, setOf(ROOT_POM)));
+
+        // then
+        assertEquals(setOf("com.acme.AIT"), result.getForcedSuites());
+        assertEquals("poms [TEST_RUNNER]", result.getRuleTriggers().get(0).getName());
     }
 
     /**
@@ -230,7 +293,7 @@ class StaticTestSelectionResolverPomRuleTest {
      */
     private static StaticTestSelectionRule pomRule(String name, String filePattern, PomChangeCategory category) {
         return new StaticTestSelectionRule(name, filePattern, StaticTestSelectionRuleMode.RUN_ALL, null,
-                EnumSet.of(category), null);
+                EnumSet.of(category));
     }
 
     /**

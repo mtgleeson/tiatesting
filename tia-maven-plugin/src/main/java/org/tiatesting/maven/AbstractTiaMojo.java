@@ -26,7 +26,6 @@ import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.staticselection.pom.ExternalPomSource;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
-import org.tiatesting.core.staticselection.pom.PomInertOverrides;
 import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
@@ -411,7 +410,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      *   </tiaStaticTestSelectionRule>
      *   <tiaStaticTestSelectionRule>
      *     <name>pom-changes</name>
-     *     <pomChanges>FUNCTIONAL</pomChanges>
+     *     <pomChanges>CODE_AND_TESTS</pomChanges>
      *     <mode>RUN_ALL</mode>
      *   </tiaStaticTestSelectionRule>
      * </tiaStaticTestSelectionRules>
@@ -420,8 +419,8 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * <p>A rule with {@code pomChanges} is POM-aware: it fires only when a matched POM's changes
      * fall into one of the listed categories (release version bumps, metadata and tracked-library
      * version changes never do), and its {@code filePathPattern} defaults to any {@code pom.xml}.
-     * Its optional comma-separated {@code inertPlugins} and {@code inertProfiles} make changes to
-     * the listed plugins, or inside matching profiles, inert for that rule only.
+     * {@code CODE_AND_TESTS} is the recommended setting; {@code FUNCTIONAL} also fires for any
+     * other plugin and unrecognised changes.
      */
     @Parameter
     List<MavenStaticTestSelectionRule> tiaStaticTestSelectionRules;
@@ -1065,14 +1064,12 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     /**
      * Build the static test selection configuration from the Maven nested
      * {@code <tiaStaticTestSelectionRules>} block. Validates each entry, parses its mode, and
-     * pre-compiles its regex patterns, and parses its optional {@code pomChanges} categories and its
-     * {@code inertPlugins} / {@code inertProfiles} overrides (compiling the profile regexes once).
+     * pre-compiles its regex patterns, and parses its optional {@code pomChanges} categories.
      * Returns {@link StaticTestSelectionConfig#EMPTY} when no rules are configured.
      *
      * @return the parsed static test selection config.
      * @throws IllegalArgumentException if any rule is missing required fields, has an unknown
-     *                                  mode, contains an invalid regex (including an inert profile
-     *                                  regex), or sets inert overrides without pomChanges.
+     *                                  mode, or contains an invalid regex.
      */
     protected StaticTestSelectionConfig buildStaticTestSelectionConfig() {
         List<MavenStaticTestSelectionRule> rawRules = getTiaStaticTestSelectionRules();
@@ -1084,17 +1081,14 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         for (MavenStaticTestSelectionRule raw : rawRules) {
             StaticTestSelectionRuleMode mode = parseStaticTestSelectionRuleMode(raw.getMode(), raw.getFilePathPattern());
             Set<PomChangeCategory> pomChanges;
-            PomInertOverrides inertOverrides;
             try {
                 pomChanges = PomChangeCategory.parseList(raw.getPomChanges());
-                inertOverrides = PomInertOverrides.parse(raw.getInertPlugins(), raw.getInertProfiles());
             } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException("Static test selection rule '"
                         + (raw.getName() != null ? raw.getName() : raw.getFilePathPattern()) + "': " + e.getMessage(), e);
             }
             compiledRules.add(new StaticTestSelectionRule(
-                    raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns(), pomChanges,
-                    inertOverrides));
+                    raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns(), pomChanges));
         }
         return new StaticTestSelectionConfig(compiledRules, buildExternalPomSource());
     }

@@ -114,8 +114,7 @@ interface PomEnvironment {
      * child is classified with its own content unchanged and only this POM's side of the diff
      * switched, so a child's own edits are not attributed to this POM.
      *
-     * @return the changes, labelled with the child POM's path and keeping their plugin and profile
-     *         tags; empty when there are none.
+     * @return the changes, labelled with the child POM's path; empty when there are none.
      */
     List<PomChange> childChanges();
 

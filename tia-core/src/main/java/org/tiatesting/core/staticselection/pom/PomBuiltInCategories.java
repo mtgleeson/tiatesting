@@ -8,10 +8,9 @@ import java.util.Set;
 /**
  * The built-in knowledge of which plugins and properties affect what: which plugins are inert,
  * which generate code, which properties are read implicitly by the compiler or test runner. These
- * are code constants; extending them for every project is a code change, and a POM-aware rule can
- * add its own inert plugins and profiles (see {@link PomInertOverrides}). Plugins are matched by
- * artifactId alone because generator and quality plugins are published under several groupIds over
- * their history.
+ * are code constants rather than user configuration; extending them is a code change. Plugins are
+ * matched by artifactId alone because generator and quality plugins are published under several
+ * groupIds over their history.
  */
 final class PomBuiltInCategories {
 
@@ -24,7 +23,8 @@ final class PomBuiltInCategories {
             "maven-gpg-plugin", "maven-release-plugin", "maven-site-plugin", "maven-project-info-reports-plugin",
             "nexus-staging-maven-plugin", "central-publishing-maven-plugin", "versions-maven-plugin",
             "maven-checkstyle-plugin", "spotbugs-maven-plugin", "maven-pmd-plugin", "maven-enforcer-plugin",
-            TIA_PLUGIN_ARTIFACT_ID);
+            "maven-jxr-plugin", "maven-surefire-report-plugin", "sonar-maven-plugin", "maven-scm-plugin",
+            "maven-help-plugin", TIA_PLUGIN_ARTIFACT_ID);
 
     /** Plugins whose output is generated source or classes that are not in version control. */
     private static final Set<String> CODE_GENERATION_PLUGINS = setOf(

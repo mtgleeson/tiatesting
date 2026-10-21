@@ -355,7 +355,7 @@ class LibraryPublishStamperTest {
         // since that previous publish
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
-                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null, null)), null);
+                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null)), null);
 
         // when a publish is stamped with no tracked method change but a matching SQL file change
         PublishStampResult result = stamper.stampPublish(dataStore,
@@ -383,7 +383,7 @@ class LibraryPublishStamperTest {
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("pom-changes", null, StaticTestSelectionRuleMode.RUN_ALL, null,
-                        EnumSet.of(PomChangeCategory.FUNCTIONAL), null)), null);
+                        EnumSet.of(PomChangeCategory.FUNCTIONAL))), null);
         StubVCSReader reader = new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(),
                 Collections.emptyMap(), changedPathsAt("prev-commit", "libs/widget/pom.xml"))
                 .withFileContents(Collections.singletonMap("libs/widget/pom.xml",
@@ -411,7 +411,7 @@ class LibraryPublishStamperTest {
         String[] tracked = LIB.split(":");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("pom-changes", null, StaticTestSelectionRuleMode.RUN_ALL, null,
-                        EnumSet.of(PomChangeCategory.FUNCTIONAL), null)), null);
+                        EnumSet.of(PomChangeCategory.FUNCTIONAL))), null);
         StubVCSReader reader = new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(),
                 Collections.emptyMap(), changedPathsAt("prev-commit", "libs/widget/pom.xml"))
                 .withFileContents(Collections.singletonMap("libs/widget/pom.xml",
@@ -453,7 +453,7 @@ class LibraryPublishStamperTest {
         // given the same setup but the changed file does not match the configured rule
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
-                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null, null)), null);
+                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null)), null);
 
         // when
         PublishStampResult result = stamper.stampPublish(dataStore,
@@ -479,7 +479,7 @@ class LibraryPublishStamperTest {
         // given a tracked library with a baseline and a previous publish
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
-                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null, null)), null);
+                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null)), null);
 
         // when publish A's diff since "prev-commit" has a matching SQL file
         PublishStampResult first = stamper.stampPublish(dataStore,
@@ -512,7 +512,7 @@ class LibraryPublishStamperTest {
         // given a tracked library "widget" and a rule matching any .sql file
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
-                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null, null)), null);
+                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null)), null);
 
         // when the only changed file since the previous publish is under a sibling module "gadget"
         PublishStampResult result = stamper.stampPublish(dataStore,

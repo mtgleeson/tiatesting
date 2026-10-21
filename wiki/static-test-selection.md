@@ -50,8 +50,8 @@ A rule becomes POM-aware when it sets `pomChanges` to a comma-separated list of 
 
 ```xml
 <tiaStaticTestSelectionRule>
-  <name>Functional POM changes</name>
-  <pomChanges>FUNCTIONAL</pomChanges>
+  <name>POM changes</name>
+  <pomChanges>CODE_AND_TESTS</pomChanges>
   <mode>RUN_ALL</mode>
 </tiaStaticTestSelectionRule>
 <tiaStaticTestSelectionRule>
@@ -64,33 +64,25 @@ A rule becomes POM-aware when it sets `pomChanges` to a comma-separated list of 
 </tiaStaticTestSelectionRule>
 ```
 
-`FUNCTIONAL` is the recommended setting: it fires for any change that is not known to be inert. The finer categories are for targeting a subset of suites with `SUITE_NAMES`.
+`CODE_AND_TESTS` is the recommended setting. It fires for the categories that change the code or the tests (`DEPENDENCY_VERSIONS`, `DEPENDENCY_SET`, `COMPILER`, `TEST_RUNNER`, `CODE_GENERATION` and `RESOURCES`) and ignores `BUILD_PLUGINS` and anything else. Project-specific deploy, report and release plugins, and profiles the test build never activates, therefore don't force a full run, and there is no list of them to maintain. A profile's content is classified by what it changes, so a dependency added inside a profile is still `DEPENDENCY_SET`.
 
-**Project-specific inert plugins and profiles.** The built-in inert list covers public publish, report and quality plugins. A rule can add its own with two optional settings:
+`FUNCTIONAL` is the strict option: it fires for any change that is not known to be inert. Choose it when an unnecessary full run is cheaper for the project than a missed one. The finer categories are for targeting a subset of suites with `SUITE_NAMES`.
 
-```xml
-<tiaStaticTestSelectionRule>
-  <name>Functional POM changes</name>
-  <pomChanges>FUNCTIONAL</pomChanges>
-  <mode>RUN_ALL</mode>
-  <inertPlugins>remote-maven-plugin,com.acme.fut:gcs_upload_m2-maven-plugin</inertPlugins>
-  <inertProfiles>Deploy.*|Release.*</inertProfiles>
-</tiaStaticTestSelectionRule>
-```
+The trade-off with `CODE_AND_TESTS` is that it does not fire for:
 
-- `inertPlugins`: comma-separated plugins whose changes are inert, in `<plugins>` or `<pluginManagement>`. A bare `artifactId` matches any groupId, the way the built-in list does. A `groupId:artifactId` matches only that groupId.
-- `inertProfiles`: comma-separated regexes matched against the whole profile id. Every change inside a matching profile is inert: its plugins, properties, dependencies and activation, including the profile being added or removed. This is usually the more robust choice, because deploy-only plugins tend to live in a deploy profile the test build never activates. A regex can't contain a comma, so use `|` alternation.
+- A project-specific plugin that really does affect tests, for example a custom code generator Tia doesn't know about, or a plugin that starts containers or deploys the server under test. If the plugin is public, add it to the built-in `CODE_GENERATION` list (`PomBuiltInCategories`). Otherwise cover it with a plain path rule, or a rule that names `BUILD_PLUGINS`.
+- Anything else in the list below: modules, packaging, repositories, build extensions, profile activation, a changed property nothing references, an unparseable POM, or an added or deleted referenced POM. These are rare. A new module usually arrives with code changes that coverage or other rules pick up, and an unparseable POM breaks the build anyway.
 
-The overrides apply only to the rule that declares them, and they also cover a plugin change attributed to a parent (`(in module-a/pom.xml)`, `(in parent ...)`). An overridden change is still listed, as inert with the reason, e.g. `plugin com.acme.rs:remote-maven-plugin changed: configuration (plugin listed in inertPlugins) (inert)`. Setting either option on a rule without `pomChanges` fails the build.
+So the failure mode changes from an unnecessary full run to a rare missed run. A scheduled full run catches a missed one, and the set of plugins to think about is short and stable.
 
-**Fires the rule.** Every category below fires a `FUNCTIONAL` rule. A rule set to a narrower category fires only on that category's changes.
+**Fires the rule.** Every category below fires a `FUNCTIONAL` rule. A `CODE_AND_TESTS` rule fires on `DEPENDENCY_VERSIONS`, `DEPENDENCY_SET`, `COMPILER`, `TEST_RUNNER`, `CODE_GENERATION` and `RESOURCES`. A rule set to a narrower category fires only on that category's changes.
 
 - **`DEPENDENCY_VERSIONS`:** the resolved version of an untracked, non-reactor dependency or managed dependency changed, or a managed entry was added or removed. Also fires when an external parent or BOM version bump changes managed versions, or when either version can't be read from the local or remote repositories.
 - **`DEPENDENCY_SET`:** a dependency was added or removed, or its scope, classifier, type, optional flag, system path or exclusions changed. This includes tracked libraries.
 - **`COMPILER`:** the compiler plugin (including annotation processors), or a `maven.compiler.*` or `project.build.sourceEncoding` property changed.
 - **`TEST_RUNNER`:** the surefire or failsafe plugin, `argLine`, `skipTests`, or a `surefire.*` or `failsafe.*` property changed.
 - **`CODE_GENERATION`:** a known code generation plugin changed (openapi-generator, jaxb, cxf, protobuf, avro, antlr, jooq, build-helper and similar). Its output is not in version control, so coverage can't see the change.
-- **`BUILD_PLUGINS`:** any other plugin or plugin management entry that is not on the inert list changed.
+- **`BUILD_PLUGINS`:** any other plugin or plugin management entry that is not on the inert list changed. Only a `FUNCTIONAL` rule, or a rule that names `BUILD_PLUGINS`, fires on these.
 - **`RESOURCES`:** resources, resource filtering, filters or the source directory layout changed.
 - **Anything else** (only a `FUNCTIONAL` rule fires on these):
   - modules, packaging, repositories, extensions or profile activation changed
@@ -102,8 +94,7 @@ The overrides apply only to the rule that declares them, and they also cover a p
 - The project's own version, including through a CI-friendly `${revision}`, a same-reactor parent version, and the versions of dependencies on other reactor modules.
 - Tracked library versions (`tiaSourceLibs`), which the library publish stamp and drain handle, including when the drain holds back (unknown build, downgrade).
 - Project metadata such as `name`, `description`, `url`, `scm`, `developers`, `licenses`, `distributionManagement` and `reporting`.
-- Publishing, reporting and quality plugins: deploy, install, javadoc, source, gpg, release, site, checkstyle, spotbugs, pmd, enforcer and similar.
-- Plugins and profiles the rule lists in `inertPlugins` / `inertProfiles` (see above).
+- Publishing, reporting and quality plugins: deploy, install, javadoc, source, gpg, release, site, checkstyle, spotbugs, pmd, enforcer, jxr, surefire-report, sonar, scm, help and similar.
 - Tia's own plugin configuration and `tia*` properties.
 - Whitespace, comments, and reordering of dependencies, plugins or executions.
 - An external parent or BOM version bump whose content didn't change in any of the ways listed above.
@@ -116,7 +107,7 @@ A filtered resource that embeds `${project.version}` is a real behaviour change 
 **Parents, modules and the reactor.** A POM is classified in the context of the other POMs in the repository, which Tia reads only when a decision needs them:
 
 - *Inherited properties.* A POM's `<parent>` is looked up in the repository through `<relativePath>` (default `../pom.xml`). It counts as in-repo only when that file has the declared groupId, artifactId and version, which is the same check Maven makes. Properties inherited from in-repo parents resolve like the POM's own, so a child switching `${old.version}` to `${new.version}` is judged by the resolved versions.
-- *Properties used by child modules.* When a parent changes a property, its child modules are found and classified with their own content unchanged and only the parent's side switched. A bumped `lib.version` in the root shows up as `dependency org.lib:lib version 1.0 -> 2.0 (in module-a/pom.xml)`. A tracked library versioned from a parent property is therefore inert, and a property nothing in the POM or its modules references is `FUNCTIONAL`. A child that overrides the property, or a child's own edits, are not attributed to the parent.
+- *Properties used by child modules.* When a parent changes a property, its child modules are found and classified with their own content unchanged and only the parent's side switched. A bumped `lib.version` in the root shows up as `dependency org.lib:lib version 1.0 -> 2.0 (in module-a/pom.xml)`. A tracked library versioned from a parent property is therefore inert, and a property nothing in the POM or its modules references falls under anything else, which only fires a `FUNCTIONAL` rule. A child that overrides the property, or a child's own edits, are not attributed to the parent.
 - *The reactor.* A dependency is a reactor module when its groupId and artifactId belong to a POM in the reactor. The reactor is every POM reachable through `<modules>` from the top-most `pom.xml` above the changed POM whose module tree includes it. Child modules are found in the reactor too, so a parent that is not also the aggregator still finds its children. A parent version change is inert when the new parent is in the repository at that version, and `DEPENDENCY_VERSIONS` when Maven would resolve it externally.
 
 **External parents and BOMs.** When an external parent (such as `spring-boot-starter-parent`) or an imported BOM changes version, Tia reads both versions and classifies their diff the same way:
@@ -128,7 +119,7 @@ A filtered resource that embeds `${project.version}` is a real behaviour change 
 
 Reads are batched: the changed POMs' parent chains are read one level per VCS call across all of them, and the reactor is read one module-tree level per call, once per run. A POM whose change needs neither the reactor nor its children (for example a compiler property) causes no further reads. When the diff adds or deletes a POM, the diff's other changed `pom.xml` files are read in one more call to find references to it. Without an added or deleted POM they are not read.
 
-**Logging and history.** When a POM-aware rule matches a POM, an INFO line says why it fired or why it did not, listing the first few changes, e.g. `Static test selection rule 'Functional POM changes' matched [pom.xml] but none of the changes is in [FUNCTIONAL]: [project version 1.4.0 -> 1.5.0 (inert)]`. The full change list is logged at DEBUG. The run-history trigger records the categories that fired, e.g. `Functional POM changes [DEPENDENCY_VERSIONS]`.
+**Logging and history.** When a POM-aware rule matches a POM, an INFO line says why it fired or why it did not, listing the first few changes, e.g. `Static test selection rule 'POM changes' matched [pom.xml] but none of the changes is in [CODE_AND_TESTS]: [project version 1.4.0 -> 1.5.0 (inert)]`. The full change list is logged at DEBUG. The run-history trigger records the categories of the changes that fired, not the rule's aggregate, e.g. `POM changes [DEPENDENCY_VERSIONS]`.
 
 **Library rules.** A library's own static rules, evaluated at publish time against the files changed since its previous publish, use the same evaluation. A library's POM-aware rule therefore records a forced selection for a consumer only for a functional POM change.
 
