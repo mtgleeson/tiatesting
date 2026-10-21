@@ -94,7 +94,7 @@ So the failure mode changes from an unnecessary full run to a rare missed run. A
 - The project's own version, including through a CI-friendly `${revision}`, a same-reactor parent version, and the versions of dependencies on other reactor modules.
 - Tracked library versions (`tiaSourceLibs`), which the library publish stamp and drain handle, including when the drain holds back (unknown build, downgrade).
 - Project metadata such as `name`, `description`, `url`, `scm`, `developers`, `licenses`, `distributionManagement` and `reporting`.
-- Publishing, reporting and quality plugins: deploy, install, javadoc, source, gpg, release, site, checkstyle, spotbugs, pmd, enforcer and similar.
+- Publishing, reporting and quality plugins: deploy, install, javadoc, source, gpg, release, site, checkstyle, spotbugs, pmd, enforcer, jxr, surefire-report, sonar, scm, help and similar.
 - Tia's own plugin configuration and `tia*` properties.
 - Whitespace, comments, and reordering of dependencies, plugins or executions.
 - An external parent or BOM version bump whose content didn't change in any of the ways listed above.

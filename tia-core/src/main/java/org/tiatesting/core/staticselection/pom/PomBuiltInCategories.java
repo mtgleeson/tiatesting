@@ -23,7 +23,8 @@ final class PomBuiltInCategories {
             "maven-gpg-plugin", "maven-release-plugin", "maven-site-plugin", "maven-project-info-reports-plugin",
             "nexus-staging-maven-plugin", "central-publishing-maven-plugin", "versions-maven-plugin",
             "maven-checkstyle-plugin", "spotbugs-maven-plugin", "maven-pmd-plugin", "maven-enforcer-plugin",
-            TIA_PLUGIN_ARTIFACT_ID);
+            "maven-jxr-plugin", "maven-surefire-report-plugin", "sonar-maven-plugin", "maven-scm-plugin",
+            "maven-help-plugin", TIA_PLUGIN_ARTIFACT_ID);
 
     /** Plugins whose output is generated source or classes that are not in version control. */
     private static final Set<String> CODE_GENERATION_PLUGINS = setOf(

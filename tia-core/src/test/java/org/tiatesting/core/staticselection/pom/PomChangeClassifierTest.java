@@ -411,6 +411,31 @@ class PomChangeClassifierTest {
         assertEquals(3, report.getChanges().size(), report.toString());
     }
 
+    /**
+     * Verify the report, source-browsing, SCM and help plugins added to the built-in inert list
+     * produce inert changes.
+     */
+    @Test
+    void reportScmAndHelpPluginsAreInert() {
+        // given
+        String[] plugins = {"maven-jxr-plugin", "maven-surefire-report-plugin", "sonar-maven-plugin",
+                "maven-scm-plugin", "maven-help-plugin"};
+        StringBuilder before = new StringBuilder();
+        StringBuilder after = new StringBuilder();
+        for (String plugin : plugins) {
+            before.append(plugin(plugin, ""));
+            after.append(plugin(plugin, "<configuration><skip>true</skip></configuration>"));
+        }
+
+        // when
+        PomChangeReport report = classifier.classify(jarPom("1.0", build(before.toString())),
+                jarPom("1.0", build(after.toString())));
+
+        // then
+        assertCategories(report);
+        assertEquals(plugins.length, report.getChanges().size(), report.toString());
+    }
+
     // ---- build elements and other sections ----
 
     @Test
