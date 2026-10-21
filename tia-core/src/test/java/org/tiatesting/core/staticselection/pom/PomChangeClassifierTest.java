@@ -9,7 +9,6 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.tiatesting.core.staticselection.pom.PomChangeCategory.BUILD_PLUGINS;
 import static org.tiatesting.core.staticselection.pom.PomChangeCategory.CODE_GENERATION;
@@ -587,48 +586,6 @@ class PomChangeClassifierTest {
 
         // then
         assertCategories(report);
-    }
-
-    /**
-     * Verify a plugin change is tagged with the plugin's resolved key and no profile.
-     */
-    @Test
-    void pluginChangeIsTaggedWithItsKey() {
-        // given
-        String before = jarPom("1.0", build(plugin("maven-compiler-plugin", "<configuration><release>17</release></configuration>")));
-        String after = jarPom("1.0", build(plugin("maven-compiler-plugin", "<configuration><release>21</release></configuration>")));
-
-        // when
-        PomChangeReport report = classifier.classify(before, after);
-
-        // then
-        assertEquals("org.apache.maven.plugins:maven-compiler-plugin", report.getChanges().get(0).getPlugin());
-        assertNull(report.getChanges().get(0).getProfile());
-    }
-
-    /**
-     * Verify every change inside a profile, whether a plugin, a property or the activation, is
-     * tagged with the profile id.
-     */
-    @Test
-    void changesInsideAProfileAreTaggedWithIt() {
-        // given
-        String profile = "<profiles><profile><id>DeployToGCS</id><activation><property><name>%s</name></property>"
-                + "</activation><properties><gcs.region>%s</gcs.region></properties>"
-                + build(plugin("gcs-upload-plugin", "<configuration><bucket>%s</bucket></configuration>"))
-                + "</profile></profiles>";
-        String before = jarPom("1.0", String.format(profile, "deploy", "us", "a"));
-        String after = jarPom("1.0", String.format(profile, "gcs", "eu", "b"));
-
-        // when
-        PomChangeReport report = classifier.classify(before, after);
-
-        // then
-        assertEquals(3, report.getChanges().size(), report.toString());
-        assertTrue(report.getChanges().stream().allMatch(change -> "DeployToGCS".equals(change.getProfile())),
-                report.toString());
-        assertTrue(report.getChanges().stream().anyMatch(change ->
-                "org.apache.maven.plugins:gcs-upload-plugin".equals(change.getPlugin())), report.toString());
     }
 
     // ---- added, deleted, unparseable ----

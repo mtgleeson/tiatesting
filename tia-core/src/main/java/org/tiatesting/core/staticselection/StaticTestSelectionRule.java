@@ -1,7 +1,6 @@
 package org.tiatesting.core.staticselection;
 
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
-import org.tiatesting.core.staticselection.pom.PomInertOverrides;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -64,12 +63,6 @@ public class StaticTestSelectionRule {
     private final Set<PomChangeCategory> pomChanges;
 
     /**
-     * The rule's own inert plugins and profiles, applied to matched POM changes before checking
-     * {@link #pomChanges}; {@link PomInertOverrides#NONE} when not configured.
-     */
-    private final PomInertOverrides inertOverrides;
-
-    /**
      * Construct a static test selection rule from raw regex strings, compiling each one at
      * construction time. Validates mode-specific constraints and rejects modes that are not
      * yet implemented.
@@ -86,17 +79,13 @@ public class StaticTestSelectionRule {
      *                                must be empty (or {@code null}) for other modes.
      * @param pomChanges the POM change categories that make the rule fire; {@code null} or empty
      *                   for a plain path rule. Must not contain {@link PomChangeCategory#OTHER}.
-     * @param inertOverrides the rule's own inert plugins and profiles; {@code null} for none. Only
-     *                       valid on a POM-aware rule.
-     * @throws IllegalArgumentException if validation fails, any regex fails to compile, or inert
-     *                                  overrides are set without {@code pomChanges}.
+     * @throws IllegalArgumentException if validation fails or any regex fails to compile.
      * @throws UnsupportedOperationException if {@code mode} is {@link StaticTestSelectionRuleMode#ANNOTATIONS_TAGS}.
      */
     public StaticTestSelectionRule(final String name, final String filePathPatternRegex,
                                    final StaticTestSelectionRuleMode mode,
                                    final List<String> suiteNamePatternRegexes,
-                                   final Set<PomChangeCategory> pomChanges,
-                                   final PomInertOverrides inertOverrides) {
+                                   final Set<PomChangeCategory> pomChanges) {
         this.pomChanges = pomChanges == null || pomChanges.isEmpty()
                 ? Collections.<PomChangeCategory>emptySet()
                 : Collections.unmodifiableSet(EnumSet.copyOf(pomChanges));
@@ -110,12 +99,6 @@ public class StaticTestSelectionRule {
                     + " (or set pomChanges for a POM-aware rule).");
         }
         String effectivePattern = blankPattern ? DEFAULT_POM_FILE_PATH_PATTERN : filePathPatternRegex;
-        this.inertOverrides = inertOverrides == null ? PomInertOverrides.NONE : inertOverrides;
-        if (!this.inertOverrides.isEmpty() && this.pomChanges.isEmpty()) {
-            String displayName = name != null && !name.trim().isEmpty() ? name.trim() : effectivePattern;
-            throw new IllegalArgumentException("Static test selection rule '" + displayName
-                    + "': inertPlugins and inertProfiles need pomChanges.");
-        }
         validateMode(effectivePattern, mode);
         this.filePathPattern = compilePattern(effectivePattern, "file path pattern");
         this.mode = mode;
@@ -225,13 +208,6 @@ public class StaticTestSelectionRule {
      */
     public Set<PomChangeCategory> getPomChanges() {
         return pomChanges;
-    }
-
-    /**
-     * @return the rule's own inert plugins and profiles; {@link PomInertOverrides#NONE} when not configured.
-     */
-    public PomInertOverrides getInertOverrides() {
-        return inertOverrides;
     }
 
     /**

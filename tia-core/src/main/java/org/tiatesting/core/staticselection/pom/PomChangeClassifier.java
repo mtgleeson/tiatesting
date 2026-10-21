@@ -430,8 +430,8 @@ public final class PomChangeClassifier {
      * BOM) by what it changes. Both versions are read through the environment; when either is
      * unavailable the bump is {@code DEPENDENCY_VERSIONS}. Otherwise the two versions are
      * classified like any POM diff, and the bump itself is recorded as inert with the external
-     * POM's functional changes listed after it, keeping their plugin and profile tags. For a BOM
-     * only dependency changes count, since an import brings in only its dependency management.
+     * POM's functional changes listed after it. For a BOM only dependency changes count, since an
+     * import brings in only its dependency management.
      *
      * @param bom {@code true} for an imported BOM, {@code false} for an external parent.
      * @param groupId the external POM's groupId.
@@ -572,8 +572,7 @@ public final class PomChangeClassifier {
     /**
      * Compare a {@code <plugins>} list keyed by {@code groupId:artifactId}. Any difference in a
      * plugin (version, configuration, executions, dependencies, ...) takes the plugin's built-in
-     * category; inert plugins and Tia's own plugin produce inert changes. Each change is tagged
-     * with the plugin's key (see {@link PomChange#getPlugin()}).
+     * category; inert plugins and Tia's own plugin produce inert changes.
      *
      * @param oldList the list before the change; may be {@code null}.
      * @param newList the list after the change; may be {@code null}.
@@ -602,8 +601,7 @@ public final class PomChangeClassifier {
                 description = kind + key + " changed: " + String.join(", ", aspects) + label;
             }
             PomChangeCategory category = PomBuiltInCategories.pluginCategory(key.substring(key.indexOf(':') + 1));
-            PomChange change = category == null ? PomChange.inert(description) : PomChange.functional(category, description);
-            changes.add(change.inPlugin(key));
+            changes.add(category == null ? PomChange.inert(description) : PomChange.functional(category, description));
         }
     }
 
@@ -660,7 +658,7 @@ public final class PomChangeClassifier {
      * Compare profiles by id. Each profile's content is compared like the project's, with the
      * profile's properties overlaid; an added or removed profile is compared against an empty one,
      * so it counts by what it contains. An activation change on a profile present on both sides is
-     * {@code OTHER}. Each change is tagged with the profile id (see {@link PomChange#getProfile()}).
+     * {@code OTHER}.
      *
      * @param oldSide the POM before the change.
      * @param newSide the POM after the change.
@@ -673,21 +671,17 @@ public final class PomChangeClassifier {
             Element before = oldProfiles.get(id);
             Element after = newProfiles.get(id);
             String label = " in profile " + id;
-            List<PomChange> profileChanges = new ArrayList<>();
             if (before != null && after != null) {
                 String oldActivation = PomXml.canonical(PomXml.child(before, "activation"), oldSide.resolver);
                 String newActivation = PomXml.canonical(PomXml.child(after, "activation"), newSide.resolver);
                 if (!oldActivation.equals(newActivation)) {
-                    profileChanges.add(PomChange.functional(PomChangeCategory.OTHER, "activation changed" + label));
+                    changes.add(PomChange.functional(PomChangeCategory.OTHER, "activation changed" + label));
                 }
             }
             compareBody(before, after, oldSide, newSide,
                     PomPropertyResolver.forProfile(oldSide.model, before, oldSide.inherited),
                     PomPropertyResolver.forProfile(newSide.model, after, newSide.inherited),
-                    PROFILE_SPECIFIC_ELEMENTS, label, profileChanges);
-            for (PomChange change : profileChanges) {
-                changes.add(change.inProfile(id));
-            }
+                    PROFILE_SPECIFIC_ELEMENTS, label, changes);
         }
     }
 
@@ -707,8 +701,7 @@ public final class PomChangeClassifier {
      * </ul>
      *
      * <p>When a changed property is referenced by a child module, {@code newSide.childrenAffected}
-     * is set so the children's resulting changes are added. Each change to a profile's property
-     * is tagged with the profile id (see {@link PomChange#getProfile()}).
+     * is set so the children's resulting changes are added.
      *
      * @param oldSide the POM before the change.
      * @param newSide the POM after the change.
@@ -722,14 +715,10 @@ public final class PomChangeClassifier {
         for (String id : union(oldProfiles.keySet(), newProfiles.keySet())) {
             Element before = oldProfiles.get(id);
             Element after = newProfiles.get(id);
-            List<PomChange> profileChanges = new ArrayList<>();
             compareOwnerProperties(before, after,
                     PomPropertyResolver.forProfile(oldSide.model, before, oldSide.inherited),
                     PomPropertyResolver.forProfile(newSide.model, after, newSide.inherited),
-                    oldSide, newSide, " in profile " + id, profileChanges);
-            for (PomChange change : profileChanges) {
-                changes.add(change.inProfile(id));
-            }
+                    oldSide, newSide, " in profile " + id, changes);
         }
     }
 

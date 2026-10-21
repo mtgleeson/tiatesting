@@ -54,7 +54,7 @@ class StaticTestSelectionConfigTest {
     void nonEmptyRulesEnableTheConfig() {
         // given
         StaticTestSelectionRule rule = new StaticTestSelectionRule(
-                "sql-migration", ".*\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null, null);
+                "sql-migration", ".*\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null);
 
         // when
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(rule), null);
@@ -69,7 +69,7 @@ class StaticTestSelectionConfigTest {
     void rulesListIsImmutable() {
         // given
         StaticTestSelectionRule rule = new StaticTestSelectionRule(
-                "sql-migration", ".*\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null, null);
+                "sql-migration", ".*\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null);
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(
                 new java.util.ArrayList<>(Collections.singletonList(rule)), null);
 
@@ -84,10 +84,10 @@ class StaticTestSelectionConfigTest {
     void multipleRulesArePreservedInOrder() {
         // given
         StaticTestSelectionRule first = new StaticTestSelectionRule(
-                "first", ".*\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null, null);
+                "first", ".*\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null);
         StaticTestSelectionRule second = new StaticTestSelectionRule(
                 "second", ".*\\.properties$", StaticTestSelectionRuleMode.SUITE_NAMES,
-                Collections.singletonList(".*IT$"), null, null);
+                Collections.singletonList(".*IT$"), null);
 
         // when
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Arrays.asList(first, second), null);

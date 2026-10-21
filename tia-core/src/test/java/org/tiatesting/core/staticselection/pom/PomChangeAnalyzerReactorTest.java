@@ -220,27 +220,6 @@ class PomChangeAnalyzerReactorTest {
     }
 
     /**
-     * Verify a child module's plugin change caused by a parent property keeps its plugin tag when
-     * it is attributed to the parent.
-     */
-    @Test
-    void childPluginChangeAttributedToTheParentKeepsItsPluginTag() {
-        // given - module-a's upload plugin reads upload.target from the root
-        String upload = "<build><plugins><plugin><groupId>com.acme.tools</groupId><artifactId>upload-plugin</artifactId>"
-                + "<configuration><target>${upload.target}</target></configuration></plugin></plugins></build>";
-        InMemoryPomRepository repository = new InMemoryPomRepository()
-                .changed(ROOT, root(properties("upload.target", "a")), root(properties("upload.target", "b")))
-                .unchanged(MODULE_A, module("a", upload));
-
-        // when
-        PomChangeReport report = analyze(repository, ROOT);
-
-        // then
-        assertTrue(report.getChanges().stream().anyMatch(change -> change.getDescription().endsWith("(in module-a/pom.xml)")
-                && "com.acme.tools:upload-plugin".equals(change.getPlugin())), report.toString());
-    }
-
-    /**
      * Analyze one changed POM with {@code com.example:widgets} as the tracked library.
      *
      * @param repository the repository.

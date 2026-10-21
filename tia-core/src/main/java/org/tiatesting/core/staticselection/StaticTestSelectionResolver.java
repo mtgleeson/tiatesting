@@ -182,10 +182,7 @@ public class StaticTestSelectionResolver {
     }
 
     /**
-     * Decide whether a POM-aware rule fires for the POMs it matched, and log why. The rule's own
-     * inert plugins and profiles are applied to the shared classification first, so a change they
-     * cover is listed as inert with its reason and never fires this rule; other rules see the
-     * change as classified.
+     * Decide whether a POM-aware rule fires for the POMs it matched, and log why.
      *
      * @param rule the POM-aware rule.
      * @param matchedPaths the changed POM paths the rule's path pattern matched.
@@ -198,11 +195,8 @@ public class StaticTestSelectionResolver {
         Set<PomChangeCategory> firedCategories = EnumSet.noneOf(PomChangeCategory.class);
         List<PomChange> firingChanges = new ArrayList<>();
         List<PomChange> otherChanges = new ArrayList<>();
-        List<PomChange> ruleChanges = new ArrayList<>();
         for (String path : matchedPaths) {
-            for (PomChange reported : reports.get(path).getChanges()) {
-                PomChange change = rule.getInertOverrides().apply(reported);
-                ruleChanges.add(change);
+            for (PomChange change : reports.get(path).getChanges()) {
                 if (!change.isInert() && coveredByRule(rule, change.getCategory())) {
                     firedCategories.add(change.getCategory());
                     firingChanges.add(change);
@@ -212,7 +206,7 @@ public class StaticTestSelectionResolver {
             }
         }
         log.debug("Static test selection rule '{}' matched POM(s) {}; changes: {}",
-                rule.getName(), matchedPaths, ruleChanges);
+                rule.getName(), matchedPaths, reports.values());
 
         if (firedCategories.isEmpty()) {
             log.info("Static test selection rule '{}' matched {} but none of the changes is in {}: {}",

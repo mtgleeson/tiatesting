@@ -75,23 +75,6 @@ The trade-off with `CODE_AND_TESTS` is that it does not fire for:
 
 So the failure mode changes from an unnecessary full run to a rare missed run. A scheduled full run catches a missed one, and the set of plugins to think about is short and stable.
 
-**Project-specific inert plugins and profiles.** The built-in inert list covers public publish, report and quality plugins. A rule can add its own with two optional settings:
-
-```xml
-<tiaStaticTestSelectionRule>
-  <name>Functional POM changes</name>
-  <pomChanges>FUNCTIONAL</pomChanges>
-  <mode>RUN_ALL</mode>
-  <inertPlugins>remote-maven-plugin,com.acme.fut:gcs_upload_m2-maven-plugin</inertPlugins>
-  <inertProfiles>Deploy.*|Release.*</inertProfiles>
-</tiaStaticTestSelectionRule>
-```
-
-- `inertPlugins`: comma-separated plugins whose changes are inert, in `<plugins>` or `<pluginManagement>`. A bare `artifactId` matches any groupId, the way the built-in list does. A `groupId:artifactId` matches only that groupId.
-- `inertProfiles`: comma-separated regexes matched against the whole profile id. Every change inside a matching profile is inert: its plugins, properties, dependencies and activation, including the profile being added or removed. This is usually the more robust choice, because deploy-only plugins tend to live in a deploy profile the test build never activates. A regex can't contain a comma, so use `|` alternation.
-
-The overrides apply only to the rule that declares them, and they also cover a plugin change attributed to a parent (`(in module-a/pom.xml)`, `(in parent ...)`). An overridden change is still listed, as inert with the reason, e.g. `plugin com.acme.rs:remote-maven-plugin changed: configuration (plugin listed in inertPlugins) (inert)`. Setting either option on a rule without `pomChanges` fails the build.
-
 **Fires the rule.** Every category below fires a `FUNCTIONAL` rule. A `CODE_AND_TESTS` rule fires on `DEPENDENCY_VERSIONS`, `DEPENDENCY_SET`, `COMPILER`, `TEST_RUNNER`, `CODE_GENERATION` and `RESOURCES`. A rule set to a narrower category fires only on that category's changes.
 
 - **`DEPENDENCY_VERSIONS`:** the resolved version of an untracked, non-reactor dependency or managed dependency changed, or a managed entry was added or removed. Also fires when an external parent or BOM version bump changes managed versions, or when either version can't be read from the local or remote repositories.
@@ -112,7 +95,6 @@ The overrides apply only to the rule that declares them, and they also cover a p
 - Tracked library versions (`tiaSourceLibs`), which the library publish stamp and drain handle, including when the drain holds back (unknown build, downgrade).
 - Project metadata such as `name`, `description`, `url`, `scm`, `developers`, `licenses`, `distributionManagement` and `reporting`.
 - Publishing, reporting and quality plugins: deploy, install, javadoc, source, gpg, release, site, checkstyle, spotbugs, pmd, enforcer and similar.
-- Plugins and profiles the rule lists in `inertPlugins` / `inertProfiles` (see above).
 - Tia's own plugin configuration and `tia*` properties.
 - Whitespace, comments, and reordering of dependencies, plugins or executions.
 - An external parent or BOM version bump whose content didn't change in any of the ways listed above.
