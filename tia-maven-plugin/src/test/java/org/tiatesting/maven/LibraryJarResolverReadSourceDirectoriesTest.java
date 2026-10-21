@@ -61,9 +61,9 @@ class LibraryJarResolverReadSourceDirectoriesTest {
 
         // when
         List<String> fromMessyList = LibraryJarResolver.filterExistingSourceRoots(
-                declaredRoots, "com.ea:lib:jar:1.0.0", new SystemStreamLog());
+                declaredRoots, "com.acme:lib:jar:1.0.0", new SystemStreamLog());
         List<String> fromNullList = LibraryJarResolver.filterExistingSourceRoots(
-                null, "com.ea:lib:jar:1.0.0", new SystemStreamLog());
+                null, "com.acme:lib:jar:1.0.0", new SystemStreamLog());
 
         // then - both resolve to an empty result
         assertTrue(fromMessyList.isEmpty(), "null/empty/blank roots must be skipped");
