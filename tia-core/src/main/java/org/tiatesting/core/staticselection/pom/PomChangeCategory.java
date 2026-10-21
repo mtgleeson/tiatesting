@@ -12,6 +12,9 @@ import java.util.StringJoiner;
  *
  * <p>Anything the classifier does not recognise is {@link #OTHER}, so it still counts towards
  * {@link #FUNCTIONAL}: a false trigger costs build time, a false skip costs correctness.
+ * {@link #CODE_AND_TESTS} deliberately trades that for not needing a project-maintained denylist:
+ * it ignores {@link #BUILD_PLUGINS} and {@link #OTHER}, so a deploy, report or release plugin, or a
+ * profile the test build never activates, does not force a full run.
  */
 public enum PomChangeCategory {
 
@@ -50,17 +53,51 @@ public enum PomChangeCategory {
     OTHER,
 
     /** Every category above: any change that is not inert. */
-    FUNCTIONAL;
+    FUNCTIONAL,
+
+    /**
+     * The categories that change the code under test or the tests themselves:
+     * {@link #DEPENDENCY_VERSIONS}, {@link #DEPENDENCY_SET}, {@link #COMPILER},
+     * {@link #TEST_RUNNER}, {@link #CODE_GENERATION} and {@link #RESOURCES}.
+     *
+     * <p>{@link #BUILD_PLUGINS} is excluded because project-specific deploy, report and release
+     * plugins land there and would otherwise force a full run on every change to them.
+     * {@link #OTHER} is excluded because its changes (modules, packaging, repositories, profile
+     * activation, unreferenced properties) rarely change test outcomes on their own. A plugin that
+     * really does affect tests needs a built-in category, a narrower rule or a plain path rule.
+     */
+    CODE_AND_TESTS;
+
+    /** The categories {@link #CODE_AND_TESTS} covers. */
+    private static final Set<PomChangeCategory> CODE_AND_TESTS_CATEGORIES = EnumSet.of(DEPENDENCY_VERSIONS,
+            DEPENDENCY_SET, COMPILER, TEST_RUNNER, CODE_GENERATION, RESOURCES);
 
     /**
      * Check whether a rule configured with this category fires for a change of the given
-     * category. {@link #FUNCTIONAL} covers every category; any other category covers only itself.
+     * category. {@link #FUNCTIONAL} covers every category, {@link #CODE_AND_TESTS} covers the
+     * categories that change code or tests, and any other category covers only itself.
      *
      * @param changeCategory the category of a classified change.
      * @return {@code true} if a rule configured with this category fires for the change.
      */
     public boolean covers(final PomChangeCategory changeCategory) {
-        return this == FUNCTIONAL || this == changeCategory;
+        if (this == FUNCTIONAL) {
+            return true;
+        }
+        if (this == CODE_AND_TESTS) {
+            return CODE_AND_TESTS_CATEGORIES.contains(changeCategory);
+        }
+        return this == changeCategory;
+    }
+
+    /**
+     * Check whether this is a rule-side grouping of other categories rather than a kind of change
+     * the classifier can assign.
+     *
+     * @return {@code true} for {@link #FUNCTIONAL} and {@link #CODE_AND_TESTS}.
+     */
+    public boolean isAggregate() {
+        return this == FUNCTIONAL || this == CODE_AND_TESTS;
     }
 
     /**

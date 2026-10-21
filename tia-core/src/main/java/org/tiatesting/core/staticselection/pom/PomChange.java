@@ -33,13 +33,14 @@ public final class PomChange {
     /**
      * Create a change that can affect the behaviour of the code or tests.
      *
-     * @param category the change's category; must not be {@link PomChangeCategory#FUNCTIONAL},
-     *                 which is a rule-side grouping rather than a kind of change.
+     * @param category the change's category; must not be an aggregate such as
+     *                 {@link PomChangeCategory#FUNCTIONAL}, which is a rule-side grouping rather
+     *                 than a kind of change.
      * @param description the human-readable description of the change.
      * @return the change.
      */
     public static PomChange functional(final PomChangeCategory category, final String description) {
-        if (category == null || category == PomChangeCategory.FUNCTIONAL) {
+        if (category == null || category.isAggregate()) {
             throw new IllegalArgumentException("A functional POM change needs a concrete category, got " + category);
         }
         return new PomChange(category, description, null, null);

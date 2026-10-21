@@ -411,7 +411,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      *   </tiaStaticTestSelectionRule>
      *   <tiaStaticTestSelectionRule>
      *     <name>pom-changes</name>
-     *     <pomChanges>FUNCTIONAL</pomChanges>
+     *     <pomChanges>CODE_AND_TESTS</pomChanges>
      *     <mode>RUN_ALL</mode>
      *   </tiaStaticTestSelectionRule>
      * </tiaStaticTestSelectionRules>
@@ -420,7 +420,8 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * <p>A rule with {@code pomChanges} is POM-aware: it fires only when a matched POM's changes
      * fall into one of the listed categories (release version bumps, metadata and tracked-library
      * version changes never do), and its {@code filePathPattern} defaults to any {@code pom.xml}.
-     * Its optional comma-separated {@code inertPlugins} and {@code inertProfiles} make changes to
+     * {@code CODE_AND_TESTS} is the recommended setting; {@code FUNCTIONAL} also fires for any
+     * other plugin and unrecognised changes. Its optional comma-separated {@code inertPlugins} and {@code inertProfiles} make changes to
      * the listed plugins, or inside matching profiles, inert for that rule only.
      */
     @Parameter

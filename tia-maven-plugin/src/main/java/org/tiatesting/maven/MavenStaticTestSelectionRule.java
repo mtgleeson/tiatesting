@@ -39,7 +39,7 @@ public class MavenStaticTestSelectionRule {
     private List<String> suiteNamePatterns;
 
     /**
-     * Optional comma-separated POM change categories, e.g. {@code FUNCTIONAL} or
+     * Optional comma-separated POM change categories, e.g. {@code CODE_AND_TESTS}, {@code FUNCTIONAL} or
      * {@code DEPENDENCY_VERSIONS,TEST_RUNNER}. When set the rule is POM-aware: it fires only when a
      * matched POM's changes include one of these categories, and {@code filePathPattern} defaults
      * to any {@code pom.xml}.

@@ -44,6 +44,23 @@ class AbstractTiaMojoStaticRulesTest {
     }
 
     /**
+     * The recommended CODE_AND_TESTS setting parses onto a POM-aware rule.
+     */
+    @Test
+    void codeAndTestsPomChangesParses() {
+        // given
+        TestMojo mojo = mojoWith(rule("pom-changes", null, "RUN_ALL", "CODE_AND_TESTS"));
+
+        // when
+        StaticTestSelectionConfig config = mojo.buildStaticTestSelectionConfig();
+
+        // then
+        StaticTestSelectionRule rule = config.getRules().get(0);
+        assertTrue(rule.isPomAware());
+        assertEquals(EnumSet.of(PomChangeCategory.CODE_AND_TESTS), rule.getPomChanges());
+    }
+
+    /**
      * A rule without pomChanges stays a plain path rule.
      */
     @Test

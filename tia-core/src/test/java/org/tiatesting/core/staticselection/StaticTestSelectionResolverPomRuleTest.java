@@ -213,6 +213,100 @@ class StaticTestSelectionResolverPomRuleTest {
     }
 
     /**
+     * Verify a CODE_AND_TESTS rule ignores a configuration change to a project-specific plugin
+     * that is not on the built-in lists, which a FUNCTIONAL rule fires for.
+     */
+    @Test
+    void codeAndTestsRuleDoesNotFireForAnUnknownPluginChange() {
+        // given
+        String pom = "<project><groupId>com.acme</groupId><artifactId>app</artifactId><version>1.0</version>"
+                + "<build><plugins><plugin><groupId>com.acme.rs</groupId><artifactId>remote-maven-plugin</artifactId>"
+                + "<configuration><host>%s</host></configuration></plugin></plugins></build></project>";
+        ContentVCSReader reader = new ContentVCSReader(Collections.singletonMap(ROOT_POM,
+                new FileContentPair(String.format(pom, "a"), String.format(pom, "b"))));
+        StaticTestSelectionConfig config = configWith(
+                pomRule("code-and-tests", null, PomChangeCategory.CODE_AND_TESTS),
+                pomRule("functional", null, PomChangeCategory.FUNCTIONAL));
+
+        // when
+        List<FiredStaticRule> fired = new StaticTestSelectionResolver(config)
+                .evaluateRules(setOf(ROOT_POM), analyzer(reader, setOf(ROOT_POM)));
+
+        // then
+        assertEquals(Collections.singletonList("functional"), ruleNames(fired));
+    }
+
+    /**
+     * Verify a CODE_AND_TESTS rule ignores an OTHER change (a packaging change), which a
+     * FUNCTIONAL rule fires for.
+     */
+    @Test
+    void codeAndTestsRuleDoesNotFireForAnOtherChange() {
+        // given
+        String pom = "<project><groupId>com.acme</groupId><artifactId>app</artifactId><version>1.0</version>"
+                + "<packaging>%s</packaging></project>";
+        ContentVCSReader reader = new ContentVCSReader(Collections.singletonMap(ROOT_POM,
+                new FileContentPair(String.format(pom, "jar"), String.format(pom, "war"))));
+        StaticTestSelectionConfig config = configWith(
+                pomRule("code-and-tests", null, PomChangeCategory.CODE_AND_TESTS),
+                pomRule("functional", null, PomChangeCategory.FUNCTIONAL));
+
+        // when
+        List<FiredStaticRule> fired = new StaticTestSelectionResolver(config)
+                .evaluateRules(setOf(ROOT_POM), analyzer(reader, setOf(ROOT_POM)));
+
+        // then
+        assertEquals(Collections.singletonList("functional"), ruleNames(fired));
+    }
+
+    /**
+     * Verify a CODE_AND_TESTS rule fires for a dependency added inside a profile, and the trigger
+     * names the change's own category rather than CODE_AND_TESTS.
+     */
+    @Test
+    void codeAndTestsRuleFiresForADependencyAddedInAProfile() {
+        // given
+        String pom = "<project><groupId>com.acme</groupId><artifactId>app</artifactId><version>1.0</version>"
+                + "<profiles><profile><id>extra</id><dependencies>%s</dependencies></profile></profiles></project>";
+        String dependency = "<dependency><groupId>org.lib</groupId><artifactId>lib</artifactId>"
+                + "<version>1.0</version></dependency>";
+        ContentVCSReader reader = new ContentVCSReader(Collections.singletonMap(ROOT_POM,
+                new FileContentPair(String.format(pom, ""), String.format(pom, dependency))));
+        StaticTestSelectionConfig config = configWith(pomRule("poms", null, PomChangeCategory.CODE_AND_TESTS));
+
+        // when
+        StaticTestSelectionResult result = new StaticTestSelectionResolver(config)
+                .resolve(setOf(ROOT_POM), tracked("com.acme.AIT"), analyzer(reader, setOf(ROOT_POM)));
+
+        // then
+        assertEquals(setOf("com.acme.AIT"), result.getForcedSuites());
+        assertEquals("poms [DEPENDENCY_SET]", result.getRuleTriggers().get(0).getName());
+    }
+
+    /**
+     * Verify a CODE_AND_TESTS rule fires for a surefire configuration change.
+     */
+    @Test
+    void codeAndTestsRuleFiresForASurefireChange() {
+        // given
+        String pom = "<project><groupId>com.acme</groupId><artifactId>app</artifactId><version>1.0</version>"
+                + "<build><plugins><plugin><groupId>org.apache.maven.plugins</groupId>"
+                + "<artifactId>maven-surefire-plugin</artifactId><configuration><forkCount>%s</forkCount>"
+                + "</configuration></plugin></plugins></build></project>";
+        ContentVCSReader reader = new ContentVCSReader(Collections.singletonMap(ROOT_POM,
+                new FileContentPair(String.format(pom, "1"), String.format(pom, "2"))));
+        StaticTestSelectionConfig config = configWith(pomRule("poms", null, PomChangeCategory.CODE_AND_TESTS));
+
+        // when
+        StaticTestSelectionResult result = new StaticTestSelectionResolver(config)
+                .resolve(setOf(ROOT_POM), tracked("com.acme.AIT"), analyzer(reader, setOf(ROOT_POM)));
+
+        // then
+        assertEquals(setOf("com.acme.AIT"), result.getForcedSuites());
+        assertEquals("poms [TEST_RUNNER]", result.getRuleTriggers().get(0).getName());
+    }
+
+    /**
      * @param reader the reader serving POM content.
      * @param changedPaths every changed path in the diff.
      * @return an analyzer over the reader with no tracked libraries.

@@ -45,6 +45,44 @@ class PomChangeCategoryTest {
     }
 
     @Test
+    void codeAndTestsCoversOnlyCategoriesThatChangeCodeOrTests() {
+        // given
+        PomChangeCategory rule = PomChangeCategory.CODE_AND_TESTS;
+        Set<PomChangeCategory> expected = EnumSet.of(PomChangeCategory.DEPENDENCY_VERSIONS,
+                PomChangeCategory.DEPENDENCY_SET, PomChangeCategory.COMPILER, PomChangeCategory.TEST_RUNNER,
+                PomChangeCategory.CODE_GENERATION, PomChangeCategory.RESOURCES);
+
+        // when
+        Set<PomChangeCategory> covered = EnumSet.noneOf(PomChangeCategory.class);
+        for (PomChangeCategory category : PomChangeCategory.values()) {
+            if (!category.isAggregate() && rule.covers(category)) {
+                covered.add(category);
+            }
+        }
+
+        // then
+        assertEquals(expected, covered);
+        assertFalse(rule.covers(PomChangeCategory.BUILD_PLUGINS));
+        assertFalse(rule.covers(PomChangeCategory.OTHER));
+    }
+
+    @Test
+    void onlyFunctionalAndCodeAndTestsAreAggregates() {
+        // given
+        Set<PomChangeCategory> aggregates = EnumSet.noneOf(PomChangeCategory.class);
+
+        // when
+        for (PomChangeCategory category : PomChangeCategory.values()) {
+            if (category.isAggregate()) {
+                aggregates.add(category);
+            }
+        }
+
+        // then
+        assertEquals(EnumSet.of(PomChangeCategory.FUNCTIONAL, PomChangeCategory.CODE_AND_TESTS), aggregates);
+    }
+
+    @Test
     void functionalChangesNeedAConcreteCategory() {
         // given
         String description = "something changed";
@@ -57,6 +95,8 @@ class PomChangeCategoryTest {
         assertEquals("something changed (inert)", inert.toString());
         assertThrows(IllegalArgumentException.class,
                 () -> PomChange.functional(PomChangeCategory.FUNCTIONAL, description));
+        assertThrows(IllegalArgumentException.class,
+                () -> PomChange.functional(PomChangeCategory.CODE_AND_TESTS, description));
         assertThrows(IllegalArgumentException.class, () -> PomChange.functional(null, description));
     }
 
@@ -71,6 +111,18 @@ class PomChangeCategoryTest {
         // then
         assertEquals(EnumSet.of(PomChangeCategory.FUNCTIONAL, PomChangeCategory.DEPENDENCY_VERSIONS,
                 PomChangeCategory.TEST_RUNNER), categories);
+    }
+
+    @Test
+    void parseListAcceptsCodeAndTests() {
+        // given
+        String csv = "code_and_tests";
+
+        // when
+        Set<PomChangeCategory> categories = PomChangeCategory.parseList(csv);
+
+        // then
+        assertEquals(EnumSet.of(PomChangeCategory.CODE_AND_TESTS), categories);
     }
 
     @Test
