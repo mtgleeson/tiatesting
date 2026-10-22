@@ -687,9 +687,9 @@ class DistributedRunSealerStatsHistoryTest {
 
         // when - the runner reports twice for its one group, as a retried JVM does, each time with
         // the 2 distinct suites it has executed
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 3_000L, 2, 1, 2, 0L),
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 3_000L, 2, 1, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L),
                 "test setup expects the first attempt's report to be accepted");
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, 2, 0L),
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L),
                 "test setup expects the retry's report to be accepted");
         assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L),
                 "test setup expects the completion to be accepted");
@@ -1155,7 +1155,7 @@ class DistributedRunSealerStatsHistoryTest {
         assertEquals(groupNumber, claimed.getGroupNumber(),
                 "test setup expects the groups to be claimed in order");
         assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                suitesRan, suitesFailed, suitesRan, suitesDurationMs),
+                suitesRan, suitesFailed, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesRan), suitesDurationMs),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L),
                 "test setup expects the completion to be accepted");

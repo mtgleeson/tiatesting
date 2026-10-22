@@ -17,9 +17,12 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -37,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DistributedRunnerPersistTest {
 
     private static final String RUN_ID = "run-1";
+    private static final Set<String> SUITE_0 = Collections.singleton("com.example.Suite0Test");
     private static final String RUNNER_KEY = "runner-a";
 
     private JdbcDataStore dataStore;
@@ -141,7 +145,7 @@ class DistributedRunnerPersistTest {
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, 2, 0L));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L));
         assertNotNull(runnerPersist.completeGroup(6000L));
 
         // when
@@ -188,7 +192,7 @@ class DistributedRunnerPersistTest {
         persistPlan("run-2", 1);
 
         // when
-        boolean applied = runnerPersist.reportGroupProgress(1000L, 2, 0, 2, 0L);
+        boolean applied = runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L);
 
         // then
         assertFalse(applied, "a progress report on a dead claim must report failure rather than "
@@ -246,7 +250,7 @@ class DistributedRunnerPersistTest {
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, 2, 0L));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L));
         assertNotNull(runnerPersist.completeGroup(6000L));
 
         // when
@@ -320,24 +324,24 @@ class DistributedRunnerPersistTest {
      * test-retry round's fresh JVM would - sum the duration but keep the greater ran count: the ran
      * count is the distinct suites the runner executed, so a retry can re-report the same suites or
      * fewer but never adds new executions of them. The failed set is replaced outright by the later
-     * report, since it is current state. The observed count is written the same way as the ran count
-     * ({@code GREATEST}, see {@link DataStore#reportGroupProgress}), because the set it is drawn from
-     * is already cumulative per JVM. The ran and observed totals are deliberately kept different
+     * report, since it is current state. The observed count is the number of suite rows the reports
+     * have flagged observed (see {@link DataStore#reportGroupProgress}), so a retry naming the same
+     * suites again adds nothing and naming more adds only the new ones. The ran and observed totals are deliberately kept different
      * numbers below (50 vs 53) so a getter/column transposition between the two would fail this test
      * - a shared value could not tell them apart.
      */
     @Test
     void reportGroupProgressSumsDurationReplacesFailedAndTakesTheGreaterRanAndObservedCounts() {
         // given
-        persistPlan(RUN_ID, 1);
+        persistPlanWithOneGroupOfSuites(RUN_ID, 60);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
 
         // when - the first test plan reports 50 distinct suites run (all 50 observed) with 3
         // failures; the retry reports the 2 suites it re-ran while the observed count - the JVM's
         // cumulative total, not this call's own contribution - reaches 53
-        assertTrue(runnerPersist.reportGroupProgress(4000L, 50, 3, 50, 0L));
-        assertTrue(runnerPersist.reportGroupProgress(500L, 2, 0, 53, 0L));
+        assertTrue(runnerPersist.reportGroupProgress(4000L, 50, 3, suites(0, 50), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(500L, 2, 0, suites(0, 53), 0L));
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);
@@ -347,8 +351,8 @@ class DistributedRunnerPersistTest {
         assertEquals(0, group.getSuitesFailed(),
                 "the failed count must reflect only the later report, not accumulate onto the first");
         assertEquals(53, group.getSuitesObserved(),
-                "the observed count must reflect only the later report's cumulative total, not "
-                        + "sum onto the first report's");
+                "the observed count must be the union of the suites the reports named, not the sum "
+                        + "of the two reports' sizes");
     }
 
     /**
@@ -392,6 +396,40 @@ class DistributedRunnerPersistTest {
             }
         }
         throw new IllegalStateException("no group " + groupNumber + " in run " + runId);
+    }
+
+    /**
+     * Build and persist a single-group plan with {@code suiteCount} suites, for a test that needs a
+     * group large enough to report a growing observed set against.
+     *
+     * @param runId the run identifier to plan under
+     * @param suiteCount how many suites to assign to the one group
+     */
+    private void persistPlanWithOneGroupOfSuites(final String runId, final int suiteCount) {
+        List<String> suiteNames = new ArrayList<>(suites(0, suiteCount));
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, suiteNames);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open(runId, "main", "plan-commit", 1, 1, null, 1000L, 1234L,
+                        SelectionMode.SELECTIVE, null),
+                Collections.singletonList(DistributedRunGroup.pending(runId, 0, 1000L)), suites, null));
+    }
+
+    /**
+     * Name suites the way the plan helpers assign them: {@link #persistPlan} gives group {@code i}
+     * suite {@code i}, and {@link #persistPlanWithOneGroupOfSuites} gives its group suites {@code 0}
+     * to {@code suiteCount - 1}.
+     *
+     * @param from the first suite index, inclusive
+     * @param to the last suite index, exclusive
+     * @return {@code com.example.Suite<from>Test} to {@code com.example.Suite<to-1>Test}, in order
+     */
+    private static Set<String> suites(final int from, final int to) {
+        Set<String> names = new LinkedHashSet<>();
+        for (int i = from; i < to; i++) {
+            names.add("com.example.Suite" + i + "Test");
+        }
+        return names;
     }
 
     /**

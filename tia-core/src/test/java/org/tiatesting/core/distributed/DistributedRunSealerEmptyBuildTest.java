@@ -327,7 +327,8 @@ class DistributedRunSealerEmptyBuildTest {
      * @param runnerKey the identity to claim under
      * @param actualDurationMs the group's measured test-execution time
      * @param suitesRan the number of suites the runner executed
-     * @param suitesObserved the number of its assigned suites the runner saw finish or saw skipped
+     * @param suitesObserved how many of its assigned suites the runner saw finish or saw skipped;
+     *                       the first that many assigned suites are reported observed
      * @param suitesFailed the number of the runner's suites with at least one failed test
      */
     private void completeGroup(final String runId, final int groupNumber, final String runnerKey,
@@ -338,7 +339,7 @@ class DistributedRunSealerEmptyBuildTest {
         assertEquals(groupNumber, claimed.getGroupNumber(),
                 "test setup expects the groups to be claimed in order");
         assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                suitesRan, suitesFailed, suitesObserved, 0L),
+                suitesRan, suitesFailed, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesObserved), 0L),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L),
                 "test setup expects the completion to be accepted");

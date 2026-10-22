@@ -602,7 +602,7 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override
         public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
                                            long actualDurationMs, int suitesRan, int suitesFailed,
-                                           int suitesObserved, long suitesDurationMs) {
+                                           Set<String> suitesObserved, long suitesDurationMs) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

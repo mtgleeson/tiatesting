@@ -22,6 +22,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -117,7 +118,8 @@ class TiaDistCompleteMojoDistributedTest {
     private void claimAndObserveGroupZero(final String runId, final String runnerKey) {
         try (DataStore dataStore = openStore()) {
             dataStore.claimNextPendingGroup(runId, runnerKey, 5000L);
-            dataStore.reportGroupProgress(runId, 0, runnerKey, 1000L, 1, 0, 1, 0L);
+            dataStore.reportGroupProgress(runId, 0, runnerKey, 1000L, 1, 0,
+                    Collections.singleton("com.example.Suite0Test"), 0L);
         }
     }
 

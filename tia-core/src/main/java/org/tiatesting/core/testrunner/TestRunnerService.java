@@ -325,21 +325,21 @@ public class TestRunnerService {
         //    a Gradle test-retry round, which executed only the retried suites, cannot shrink it. suitesDurationMs - the part of the duration attributable to
         //    a named suite, which is what lets the sealer charge each runner's fixed JVM overhead
         //    once for the build rather than once per group - is written via GREATEST rather than
-        //    accumulated, for the reason sumMeasuredSuiteRunTimes explains. suitesObserved also
-        //    replaces what was stored (via GREATEST,
-        //    see DataStore#reportGroupProgress), but for a different reason: getSuitesObserved() is
-        //    already cumulative across every test plan in this JVM, so accumulating it here would
-        //    double-count. It is deliberately fed from the intersection of getSuitesObserved() with
-        //    this group's own assigned suites (see countObservedSuitesInGroup), not from
+        //    accumulated, for the reason sumMeasuredSuiteRunTimes explains. suitesObserved is a set
+        //    of names: each one's group-suite row is flagged observed, so a retry re-reporting the
+        //    same suites changes nothing and several JVMs' reports add up to their union (see
+        //    DataStore#reportGroupProgress). It is deliberately fed from the intersection of
+        //    getSuitesObserved() with this group's own assigned suites (see
+        //    observedSuitesInGroup), not from
         //    getSuitesObserved() alone and not from getRunnerTestSuites(). getRunnerTestSuites() can
         //    be a project-wide directory scan on Maven (testClassesDir) that carries no information
         //    about this runner's own progress, which was the second bug in this guard's history; the
         //    third was feeding the guard from the raw size of getSuitesObserved(), which on Maven
         //    also counts every foreign suite this JVM's ByteBuddy-disabled classes fire
         //    executionSkipped for - suites Tia deselected onto other groups, not suites this group
-        //    was ever assigned. Intersecting with the assigned list is what makes the count exact
-        //    regardless of how many foreign suites this JVM happened to observe. suitesObserved is
-        //    what the completeness guard later reads, not suitesRan, so a suite the runner observed
+        //    was ever assigned. Flags can only land on assigned rows, and intersecting first keeps
+        //    those foreign names out of the report entirely. The observed flags are what the
+        //    completeness guard later counts, not suitesRan, so a suite the runner observed
         //    but never executed (a disabled class, a Surefire/Gradle filter, a class deleted since
         //    the last mapping run) does not block the group from completing, as long as it is one of
         //    this group's own assigned suites. The status flip itself is not made here: this runs
@@ -351,7 +351,7 @@ public class TestRunnerService {
         int suitesRan = testRunResult.getTestSuiteTrackers().size();
         int suitesFailed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
-        int suitesObserved = countObservedSuitesInGroup(testRunResult.getSuitesObserved(),
+        Set<String> suitesObserved = observedSuitesInGroup(testRunResult.getSuitesObserved(),
                 distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber().intValue());
         runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesObserved,
                 suitesDurationMs);
@@ -397,34 +397,33 @@ public class TestRunnerService {
 
     /**
      * Scope a runner's observed-suite set down to the suites the plan actually assigned to its
-     * group, so the completeness guard can never be satisfied by suites this JVM observed for an
-     * unrelated reason. On Maven, Tia's own group-based deselection injects
+     * group, so the progress report flags only this group's own suites as observed. On Maven, Tia's own group-based deselection injects
      * {@code @Disabled}/{@code @Ignore} onto every suite outside this runner's group; those classes
      * are still discovered and loaded, so each one fires {@code executionSkipped} and lands in
      * {@link TestRunResult#getSuitesObserved()} exactly like one of this group's own suites - a
      * 500-suite project split into 10 groups of 50 would otherwise let group 0 see ~450 foreign
-     * suites, satisfying {@code observed >= assignedCount} on the very first persist regardless of
-     * how far this runner actually got. Comparing the same set on both sides - {@code |observed
-     * INTERSECT assigned|} rather than {@code |observed|} - is what makes the guard exact by
-     * construction. One extra read per persist, on the order of tens of rows for a group's suite
-     * list; not on the {@code select-tests} hot path.
+     * suites. The flag update ignores names that match no assigned row anyway, but on Maven those
+     * foreign names can run to thousands, so they are dropped here rather than shipped to the
+     * database. One extra read per persist, on the order of tens of rows for a group's suite list;
+     * not on the {@code select-tests} hot path.
      *
      * @param suitesObserved the suites this runner's JVM has observed so far (finished or skipped),
      *                       potentially including suites outside this group's assignment; may be
      *                       null or empty
      * @param runId the distributed run the group belongs to
      * @param groupNumber the group's zero-based index within the run
-     * @return the count of suites in {@code suitesObserved} that are also assigned to this group
+     * @return the suites in {@code suitesObserved} that are also assigned to this group; a new
+     *         mutable set, empty when nothing was observed
      */
-    private int countObservedSuitesInGroup(final Set<String> suitesObserved, final String runId,
-                                           final int groupNumber) {
+    private Set<String> observedSuitesInGroup(final Set<String> suitesObserved, final String runId,
+                                              final int groupNumber) {
         if (suitesObserved == null || suitesObserved.isEmpty()) {
-            return 0;
+            return new HashSet<>();
         }
 
         Set<String> assignedSuites = new HashSet<>(dataStore.readDistributedRunGroupSuites(runId, groupNumber));
         assignedSuites.retainAll(suitesObserved);
-        return assignedSuites.size();
+        return assignedSuites;
     }
 
     /**

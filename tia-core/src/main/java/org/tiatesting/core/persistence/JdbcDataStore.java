@@ -580,7 +580,7 @@ public class JdbcDataStore implements DataStore {
     @Override
     public boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                        final long actualDurationMs, final int suitesRan,
-                                       final int suitesFailed, final int suitesObserved,
+                                       final int suitesFailed, final Set<String> suitesObserved,
                                        final long suitesDurationMs) {
         return distributedRunGroupRepository.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs, suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
     }

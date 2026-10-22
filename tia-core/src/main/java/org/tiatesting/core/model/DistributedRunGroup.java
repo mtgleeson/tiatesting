@@ -37,17 +37,17 @@ public final class DistributedRunGroup {
      *                  aggregates into the build's history row, where {@code ignoredSuiteCount} and
      *                  {@code allTestsRun} depend on it meaning "ran to completion".
      * @param suitesFailed number of this group's suites with at least one failed test
-     * @param suitesObserved number of suites the runner <b>observed</b> - saw finish or saw skipped -
-     *                       not a counter in the strict sense: it is written via {@code GREATEST} of
-     *                       the stored value and the latest report, since the underlying set is
-     *                       already cumulative per JVM. This is the figure the completeness guard
-     *                       compares against the group's assigned suite count; it is deliberately not
+     * @param suitesObserved number of this group's assigned suites the runner <b>observed</b> - saw
+     *                       finish or saw skipped - which is the count of its suite rows flagged
+     *                       {@code observed}, so the union of every report against the group. On a
+     *                       full run it is the figure the completeness guard reads; on any other run
+     *                       the guard counts the flagged rows directly. It is deliberately not
      *                       the same figure as {@code suitesRan}, since a suite Tia never got to run
      *                       (a disabled class, a Surefire filter, a class deleted since the last
      *                       mapping run) is observed (skipped) without ever being executed.
      * @param suitesDurationMs summed measured run time of the suites this runner timed, in ms - the
      *                         part of {@code actualDurationMs} that is attributable to a named
-     *                         suite. Like {@code suitesObserved} it is written via {@code GREATEST}
+     *                         suite. Like {@code suitesRan} it is written via {@code GREATEST}
      *                         rather than accumulated, since the tracker map it is summed from is
      *                         already cumulative per JVM. The remainder,
      *                         {@code actualDurationMs - suitesDurationMs}, is this runner's fixed

@@ -549,6 +549,11 @@ class TestRunnerServiceDistributedPersistTest {
                 System.currentTimeMillis());
 
         // then
+        assertEquals(Collections.singletonList(new HashSet<>(Arrays.asList(
+                        "com.example.Suite0Test", "com.example.Suite1Test"))),
+                dataStore.observedSuitesReported,
+                "the progress report must name only this group's own observed suites, never the "
+                        + "foreign suites Tia disabled for other groups");
         DistributedRunGroup group = readGroup(RUN_ID, 0);
         assertEquals(2, group.getSuitesObserved(),
                 "only the observed suites assigned to this group may count (2), not the raw observed "
@@ -884,6 +889,7 @@ class TestRunnerServiceDistributedPersistTest {
     private static final class RecordingDataStore extends JdbcDataStore {
 
         private final List<String> callOrder = new ArrayList<>();
+        private final List<Set<String>> observedSuitesReported = new ArrayList<>();
 
         /**
          * Open an embedded H2 store under a test-owned directory, in the same per-branch schema
@@ -989,16 +995,18 @@ class TestRunnerServiceDistributedPersistTest {
          * @param actualDurationMs this call's measured test-execution time, added to the group
          * @param suitesRan number of suites this call's test plan executed, added to the group
          * @param suitesFailed number of suites currently failing, replacing what was stored
-         * @param suitesObserved number of suites observed so far, replacing what was stored with
-         *                       the greater of the two values
+         * @param suitesObserved the group's suites observed so far, each flagged observed; recorded
+         *                       so a test can assert exactly which names the persist reported
+         * @param suitesDurationMs the summed measured run time of the suites timed so far
          * @return true when the guarded update applied, false when the claim is no longer live
          */
         @Override
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final int suitesObserved, final long suitesDurationMs) {
+                                           final Set<String> suitesObserved, final long suitesDurationMs) {
             callOrder.add("reportGroupProgress");
+            observedSuitesReported.add(new HashSet<>(suitesObserved));
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
                     suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
         }

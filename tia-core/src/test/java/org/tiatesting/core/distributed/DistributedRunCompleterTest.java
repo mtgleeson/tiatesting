@@ -411,15 +411,14 @@ class DistributedRunCompleterTest {
          * @param actualDurationMs this call's measured test-execution time, added to the group
          * @param suitesRan number of suites this call's test plan executed, added to the group
          * @param suitesFailed number of suites currently failing, replacing what was stored
-         * @param suitesObserved number of suites observed so far, replacing what was stored with
-         *                       the greater of the two values
+         * @param suitesObserved the group's suites observed so far, each flagged observed
          * @return true when the guarded update applied, false when the claim is no longer live
          */
         @Override
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final int suitesObserved, final long suitesDurationMs) {
+                                           final Set<String> suitesObserved, final long suitesDurationMs) {
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
                     suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
         }

@@ -563,46 +563,36 @@ public interface DataStore extends AutoCloseable {
      *   <li>{@code suitesFailed} is current state, not a counter: it is replaced outright, because
      *       a suite that passes on retry must legitimately leave the failed set, and accumulating
      *       it would instead leave a fixed suite recorded as permanently failed.</li>
-     *   <li>{@code suitesObserved} is written as {@code GREATEST(COALESCE(stored, 0), value)}
-     *       rather than accumulated, but for a different reason than {@code suitesFailed}: the set
-     *       it is drawn from ({@link org.tiatesting.core.testrunner.TestRunResult#getSuitesObserved()})
-     *       is already cumulative across every test plan in the JVM, so summing it here would
-     *       double-count. It counts every suite the runner <b>observed</b> - saw finish or saw
-     *       skipped - which is deliberately not the same figure as {@code suitesRan}: a suite Tia
+     *   <li>{@code suitesObserved} is a set of names, not a figure: each named suite's row in
+     *       {@code tia_distributed_run_group_suite} has its {@code observed} flag set, and the
+     *       group's {@code suites_observed} column is then rewritten as the count of flagged rows.
+     *       Flags only ever go from false to true, so a retry re-reporting the same suites changes
+     *       nothing, and reports from several JVMs against the same group add up to their union.
+     *       Names not assigned to the group match no row and are ignored. It holds every suite the
+     *       runner <b>observed</b> - saw finish or saw skipped - which is deliberately not the
+     *       same as {@code suitesRan}: a suite Tia
      *       never got to run (a class-level {@code @Disabled}, a Surefire/Gradle filter, a class
      *       deleted since the last mapping run) is observed (skipped) without ever being executed.
-     *       This is the figure {@link #completeGroup}'s completeness guard reads, precisely so that
-     *       a group with such a suite can still complete. Do not conflate {@code suitesRan} and
+     *       The flags are what {@link #completeGroup}'s completeness guard counts, precisely so
+     *       that a group with such a suite can still complete. Do not conflate {@code suitesRan} and
      *       {@code suitesObserved}: one is the sealer's "executed" figure, the other is the guard's
      *       "accounted for" figure, and they answer different questions.</li>
      * </ul>
      *
-     * <p><strong>Precondition: one JVM works one group end to end.</strong> The "already cumulative"
-     * claim above about {@code suitesObserved} - and therefore the correctness of {@code GREATEST}
-     * over a plain replace - holds only when every call for a given {@code (runId, groupNumber,
-     * runnerKey)} comes from the same JVM's shared, monotonically-growing observed set, exactly what
-     * a Surefire retry within one JVM is. Maven {@code forkCount > 1} / {@code reuseForks=false} is
-     * what breaks this precondition: {@code AgentMojo.writeForkPropertiesFile} writes one
-     * claimed group number and runner key into a single fork-properties file that every Surefire
-     * fork for the module reads, so several independent JVMs end up reporting against the same group
-     * under the same runner key, each with its own smaller observed set; {@code GREATEST} then
-     * converges on the largest single fork's count rather than the true union, which under-counts and
-     * can leave the completeness guard blocked even once every fork has finished. This is strictly
-     * safer than a plain replace (which could regress below an earlier, more-complete report
-     * depending on write order) but does not make multi-fork correct - it is a known-unsupported
-     * configuration for the mapping write already, and this call does not attempt to lift that.
-     *
-     * <p>Gradle {@code maxParallelForks > 1} / {@code forkEvery > 0} breaks the same precondition
-     * for the same structural reason: {@code TiaTestTaskConfigurer.claimDistributedRun}
-     * claims once in the daemon and forwards the one run id, runner key and group number to the test
-     * task as system properties, which Gradle passes to <em>every</em> worker JVM, so all of them
-     * report against the same {@code (runId, groupNumber, runnerKey)}. Gradle's case is the worse of
-     * the two, because Gradle really does split the group's suites across its workers: no single
-     * worker ever observes the whole group, {@code GREATEST} converges on the largest worker's count
-     * which is strictly less than the group's assigned total, the completeness guard never passes,
-     * the group never completes and the run never seals - on a build that still exits green. That is
-     * why {@code claimDistributedRun} refuses both settings when the test task starts, before it
-     * forks anything, rather than letting the run hang.
+     * <p><strong>Precondition for the figures: one JVM works one group end to end.</strong> The
+     * observed flags union across JVMs, so the completeness guard is right however many JVMs report
+     * against a group. {@code suitesRan} and {@code suitesDurationMs} are still written via
+     * {@code GREATEST} of per-JVM cumulative figures, which is only exact when every call for a given
+     * {@code (runId, groupNumber, runnerKey)} comes from one JVM, as a Surefire retry within one
+     * JVM does. Maven {@code forkCount > 1} / {@code reuseForks=false} breaks that:
+     * {@code AgentMojo.writeForkPropertiesFile} writes one claimed group number and runner key into
+     * a single fork-properties file that every Surefire fork for the module reads, so several JVMs
+     * report against the same group and those two figures converge on the largest single fork's
+     * rather than the total. Several forks remain a known-unsupported configuration for the mapping
+     * write, and this call does not attempt to lift that. Gradle {@code maxParallelForks > 1} /
+     * {@code forkEvery > 0} has the same shape - {@code TiaTestTaskConfigurer.claimDistributedRun}
+     * forwards one claim to every worker JVM - and {@code claimDistributedRun} refuses both
+     * settings when the test task starts, before it forks anything.
      *
      * <p>Conditional on the group still being {@code CLAIMED} <strong>by this runner key</strong>,
      * the same straggler-protection predicate {@link #completeGroup} is guarded on. A {@code
@@ -619,9 +609,10 @@ public interface DataStore extends AutoCloseable {
      * @param suitesRan the number of distinct suites the runner has executed so far, written as
      *                  the greatest of this value and whatever was already stored
      * @param suitesFailed the number of suites currently failing, replacing whatever was stored
-     * @param suitesObserved the number of suites the runner has observed so far (finished or
-     *                       skipped), written as the greatest of this value and whatever was
-     *                       already stored
+     * @param suitesObserved the names of this group's assigned suites the runner has observed so
+     *                       far (finished or skipped); each one's {@code observed} flag is set, and
+     *                       the group's {@code suites_observed} becomes the count of flagged rows.
+     *                       May be empty, which flags nothing
      * @param suitesDurationMs the summed measured run time, in ms, of every suite this runner has
      *                         timed so far, written as the greatest of this value and whatever was
      *                         already stored. Splits the group's duration into the part attributable
@@ -636,7 +627,7 @@ public interface DataStore extends AutoCloseable {
      */
     boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                 final long actualDurationMs, final int suitesRan,
-                                final int suitesFailed, final int suitesObserved,
+                                final int suitesFailed, final Set<String> suitesObserved,
                                 final long suitesDurationMs);
 
     /**
