@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.persistence.dialect.SqlDialect;
 
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.function.Supplier;
@@ -48,6 +49,8 @@ class SchemaManager {
      * depends on another having run first. An existing DB costs one existence check and no DDL.
      * Memoized per datastore instance: the schema can't disappear within a JVM, so repeat calls
      * skip even that check.
+     * An existing DB also gets the TEMPORARY group-suite flag column check - see {@link
+     * #hasGroupSuiteFlagColumns(Connection)}.
      *
      * @param connection the connection to check on
      * @return {@code true} if the Tia DB already existed before this call (or an earlier call
@@ -63,10 +66,77 @@ class SchemaManager {
         if (!dbExisted) {
             log.debug("The Tia DB doesn't currently exist at {}", jdbcUrl);
             createTiaDB();
+        } else if (!hasGroupSuiteFlagColumns(connection)) {
+            addGroupSuiteFlagColumns();
         }
 
         schemaEnsured = true;
         return dbExisted;
+    }
+
+    /**
+     * TEMPORARY one-off migration check: report whether {@code tia_distributed_run_group_suite}
+     * already has the {@code observed} and {@code unrunnable} columns. Remove this method, {@link
+     * #addGroupSuiteFlagColumns()} and their call in {@link #ensureSchema} once the shared database
+     * has been migrated - Tia otherwise has no migrations (see the class javadoc).
+     *
+     * <p>Reads JDBC metadata on the caller's connection rather than probing with a query, so an
+     * already-migrated schema costs one metadata read, opens no connection, takes no lock and can
+     * never fail a statement inside a caller's transaction. Names are compared ignoring case, since
+     * H2 folds unquoted identifiers to upper case and Postgres to lower case; the table name is
+     * compared exactly because metadata patterns treat its underscores as wildcards.
+     *
+     * @param connection the caller's connection, with the per-branch schema selected
+     * @return true when both columns exist (or the table itself is absent, so there is nothing to
+     *         migrate)
+     * @throws SQLException if the metadata read fails
+     */
+    private boolean hasGroupSuiteFlagColumns(Connection connection) throws SQLException {
+        String schema = connection.getSchema();
+        boolean tableFound = false;
+        boolean observedFound = false;
+        boolean unrunnableFound = false;
+        for (String tableName : new String[]{TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE.toUpperCase(),
+                TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE.toLowerCase()}) {
+            try (ResultSet columns = connection.getMetaData().getColumns(null, schema, tableName, null)) {
+                while (columns.next()) {
+                    if (!TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE.equalsIgnoreCase(columns.getString("TABLE_NAME"))
+                            || (schema != null && !schema.equals(columns.getString("TABLE_SCHEM")))) {
+                        continue;
+                    }
+                    tableFound = true;
+                    String column = columns.getString("COLUMN_NAME");
+                    observedFound |= COL_OBSERVED.equalsIgnoreCase(column);
+                    unrunnableFound |= COL_UNRUNNABLE.equalsIgnoreCase(column);
+                }
+            }
+        }
+        return !tableFound || (observedFound && unrunnableFound);
+    }
+
+    /**
+     * TEMPORARY one-off migration: add the {@code observed} and {@code unrunnable} columns to a
+     * {@code tia_distributed_run_group_suite} table created before they existed. See {@link
+     * #hasGroupSuiteFlagColumns(Connection)} for when to remove it.
+     *
+     * <p>Runs on a fresh connection, like {@link #createTiaDB()}, so the DDL (which H2 commits
+     * implicitly) never touches a caller's transaction. {@code ADD COLUMN IF NOT EXISTS} makes two
+     * runners migrating the same schema at once harmless.
+     *
+     * @throws TiaPersistenceException if either statement fails
+     */
+    private void addGroupSuiteFlagColumns() {
+        log.info("Adding the {} and {} columns to {} at {}", COL_OBSERVED, COL_UNRUNNABLE,
+                TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE, jdbcUrl);
+        try (Connection connection = connections.get();
+             Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
+                    + " ADD COLUMN IF NOT EXISTS " + COL_OBSERVED + " BOOLEAN DEFAULT FALSE NOT NULL");
+            statement.execute("ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
+                    + " ADD COLUMN IF NOT EXISTS " + COL_UNRUNNABLE + " BOOLEAN DEFAULT FALSE NOT NULL");
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
     }
 
     /**

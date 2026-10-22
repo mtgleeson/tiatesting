@@ -101,6 +101,43 @@ class SchemaManagerTest {
     }
 
     @Test
+    void existingDbMissingTheGroupSuiteFlagsGetsThemAddedOnce(@TempDir Path dir) throws Exception {
+        // given an existing DB whose group-suite table predates the observed/unrunnable flags
+        H2ConnectionProvider provider = new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.toString()));
+        try (Connection connection = provider.get()) {
+            new SchemaManager(new H2Dialect(), opening(provider, new AtomicInteger()), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
+                        + " DROP COLUMN " + TiaSchema.COL_OBSERVED);
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
+                        + " DROP COLUMN " + TiaSchema.COL_UNRUNNABLE);
+            }
+
+            // when two fresh managers (two later JVMs) ensure the schema in turn
+            AtomicInteger openedByFirst = new AtomicInteger();
+            boolean existed = new SchemaManager(new H2Dialect(), opening(provider, openedByFirst), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            AtomicInteger openedBySecond = new AtomicInteger();
+            new SchemaManager(new H2Dialect(), opening(provider, openedBySecond), provider.jdbcUrl())
+                    .ensureSchema(connection);
+
+            // then the first adds both columns on a connection of its own, and the second finds
+            // them already there and opens nothing
+            assertTrue(existed);
+            assertEquals(1, openedByFirst.get());
+            assertEquals(0, openedBySecond.get());
+            try (Statement statement = connection.createStatement();
+                 ResultSet resultSet = statement.executeQuery("SELECT " + TiaSchema.COL_OBSERVED + ", "
+                         + TiaSchema.COL_UNRUNNABLE + " FROM " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE)) {
+                assertFalse(resultSet.next());
+            }
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
     void ensureSchemaIsMemoisedAfterTheFirstCall(@TempDir Path dir) throws Exception {
         // given a schema manager that has already bootstrapped an empty database
         H2ConnectionProvider provider = new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.toString()));
