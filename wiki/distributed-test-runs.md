@@ -1053,7 +1053,12 @@ verdicts:
 | `ABSTRACT` | The class is abstract | Yes |
 | `NO_TEST_METHODS` | Nothing in its hierarchy within the test dirs carries a test marker | Yes |
 | `RUNNABLE` | It, or a superclass or interface in the test dirs, carries a test marker, or it extends `spock.lang.Specification` | No |
-| `UNDETERMINED` | A superclass is outside the test dirs and not a JDK class (JUnit 3's `TestCase`, a framework base), or no configured test-classes dir exists | No |
+| `UNDETERMINED` | A superclass is outside the test dirs and not a JDK class (JUnit 3's `TestCase`, a framework base), the suite's own class file or a superclass or interface in the test dirs cannot be read, or no configured test-classes dir exists | No |
+
+A class file that exists but cannot be read - truncated by an interrupted compile, or compiled for a
+Java version newer than the bundled ASM parses (it reads up to Java 23, the same ceiling as the
+bundled JaCoCo) - is logged once at WARN as `Could not read test class file ...` and treated as
+unknown, never as an error: the plan step keeps the new file, and completion does not excuse it.
 
 A *test marker* is a class or method annotation from a known test framework package (`org.junit`,
 `org.testng`, `net.jqwik`, `io.cucumber`, `com.tngtech.archunit`, `org.spockframework`, `spock`), or

@@ -13,7 +13,6 @@ import static java.util.Collections.singletonList;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.tiatesting.core.testrunner.ClassFileFixture.classIn;
 
@@ -363,14 +362,49 @@ class TestSuiteRunnabilityClassifierTest {
     }
 
     @Test
-    void corruptClassFileFailsRatherThanBeingExcused(@TempDir Path dir) throws Exception {
+    void corruptClassFileIsUndeterminedRatherThanExcusedOrThrown(@TempDir Path dir) throws Exception {
         // given - a class file that is not a class file
         Path classFile = dir.resolve("com/example/BrokenTest.class");
         Files.createDirectories(classFile.getParent());
         Files.write(classFile, new byte[]{1, 2, 3});
-        TestSuiteRunnabilityClassifier classifier = classifierFor(dir);
 
-        // when / then - never silently treated as missing
-        assertThrows(IllegalStateException.class, () -> classifier.classify("com.example.BrokenTest"));
+        // when
+        Verdict verdict = classifierFor(dir).classify("com.example.BrokenTest");
+
+        // then - never excused as missing, and never fails the caller
+        assertEquals(Verdict.UNDETERMINED, verdict);
+        assertFalse(verdict.isNeverRunnable());
+    }
+
+    @Test
+    void classFileNewerThanAsmCanReadIsUndetermined(@TempDir Path dir) throws Exception {
+        // given - a valid class file whose major version is beyond what ASM supports
+        classIn(dir, "com.example.FutureTest").method("works", JUNIT5_TEST).write();
+        Path classFile = dir.resolve("com/example/FutureTest.class");
+        byte[] bytes = Files.readAllBytes(classFile);
+        bytes[6] = 0;
+        bytes[7] = 99;
+        Files.write(classFile, bytes);
+
+        // when
+        Verdict verdict = classifierFor(dir).classify("com.example.FutureTest");
+
+        // then
+        assertEquals(Verdict.UNDETERMINED, verdict);
+    }
+
+    @Test
+    void unreadableSuperclassInTheTestDirsMakesTheSuiteUndetermined(@TempDir Path dir) throws Exception {
+        // given - a helper with no test methods whose base class file is corrupt
+        Path baseFile = dir.resolve("com/example/BrokenBase.class");
+        Files.createDirectories(baseFile.getParent());
+        Files.write(baseFile, new byte[]{1, 2, 3});
+        classIn(dir, "com.example.Helper").extending("com.example.BrokenBase").write();
+
+        // when
+        Verdict verdict = classifierFor(dir).classify("com.example.Helper");
+
+        // then - the base could have carried the tests, so it is not "no test methods"
+        assertEquals(Verdict.UNDETERMINED, verdict);
     }
 }

@@ -46,6 +46,13 @@ import java.util.Set;
  * package is not recognised, which is why callers only ever excuse a suite that was also never
  * observed.
  *
+ * <p>A class file that exists but cannot be read - truncated by an interrupted compile, or compiled
+ * for a Java version newer than the bundled ASM can parse - is never an error. It is logged once at
+ * WARN and treated as unknown: a suite whose own class is unreadable, or whose superclass or
+ * interface in the test dirs is, is {@link Verdict#UNDETERMINED}, and an unreadable annotation type
+ * counts as a possible test marker. So test selection never fails on one, and the completeness
+ * guard never excuses one.
+ *
  * <p>Class headers are cached per instance, so classifying several suites that share a base class
  * reads it once. Not thread safe.
  */
@@ -187,9 +194,8 @@ public final class TestSuiteRunnabilityClassifier {
      * whether anything in its hierarchy carries a test marker.
      *
      * @param suiteName the suite's binary name, e.g. {@code com.example.Outer$Inner}
-     * @return the verdict; {@link Verdict#UNDETERMINED} whenever it cannot be proven either way
-     * @throws IllegalStateException if a class file exists but cannot be read or parsed - a corrupt
-     *                               file must never be excused as missing
+     * @return the verdict; {@link Verdict#UNDETERMINED} whenever it cannot be proven either way,
+     *         including when the suite's class file exists but cannot be read
      */
     public Verdict classify(final String suiteName) {
         if (dirs.isEmpty()) {
@@ -199,6 +205,9 @@ public final class TestSuiteRunnabilityClassifier {
         ClassHeader suite = header(suiteName.replace('.', '/'));
         if (suite == null) {
             return Verdict.NO_CLASS_FILE;
+        }
+        if (suite.unreadable) {
+            return Verdict.UNDETERMINED;
         }
         if ((suite.access & Opcodes.ACC_INTERFACE) != 0) {
             return Verdict.INTERFACE;
@@ -212,7 +221,8 @@ public final class TestSuiteRunnabilityClassifier {
     /**
      * Walk the suite's superclasses, and the interfaces that are in the test dirs, looking for a
      * test marker. A superclass that is neither in the test dirs nor in the JDK could carry tests
-     * the walk cannot see, so it makes the answer undetermined rather than "no test methods".
+     * the walk cannot see, so it makes the answer undetermined rather than "no test methods" - as
+     * does a superclass or interface in the test dirs whose class file cannot be read.
      *
      * @param suite the suite's own header
      * @return {@link Verdict#RUNNABLE}, {@link Verdict#UNDETERMINED} or
@@ -237,7 +247,9 @@ public final class TestSuiteRunnabilityClassifier {
                     return Verdict.RUNNABLE;
                 }
                 ClassHeader superHeader = header(superName);
-                if (superHeader != null) {
+                if (superHeader != null && superHeader.unreadable) {
+                    undetermined = true;
+                } else if (superHeader != null) {
                     pending.add(superHeader);
                 } else if (!startsWithAny(superName, JDK_PREFIXES)) {
                     undetermined = true;
@@ -247,7 +259,9 @@ public final class TestSuiteRunnabilityClassifier {
             for (String interfaceName : current.interfaces) {
                 if (visited.add(interfaceName)) {
                     ClassHeader interfaceHeader = header(interfaceName);
-                    if (interfaceHeader != null) {
+                    if (interfaceHeader != null && interfaceHeader.unreadable) {
+                        undetermined = true;
+                    } else if (interfaceHeader != null) {
                         pending.add(interfaceHeader);
                     }
                 }
@@ -260,7 +274,8 @@ public final class TestSuiteRunnabilityClassifier {
     /**
      * Report whether a class carries a test marker: a class or method annotation from a known test
      * package, or one whose annotation type is in the test dirs and is itself (recursively)
-     * annotated with one.
+     * annotated with one. An annotation type in the test dirs whose class file cannot be read counts
+     * as a marker, since it could be a composed test annotation.
      *
      * @param header the class to inspect
      * @param visitingAnnotations annotation types already inspected on this walk, so annotations
@@ -275,7 +290,8 @@ public final class TestSuiteRunnabilityClassifier {
             String annotationName = descriptor.substring(1, descriptor.length() - 1);
             if (visitingAnnotations.add(annotationName)) {
                 ClassHeader annotationHeader = header(annotationName);
-                if (annotationHeader != null && hasTestMarker(annotationHeader, visitingAnnotations)) {
+                if (annotationHeader != null
+                        && (annotationHeader.unreadable || hasTestMarker(annotationHeader, visitingAnnotations))) {
                     return true;
                 }
             }
@@ -288,7 +304,8 @@ public final class TestSuiteRunnabilityClassifier {
      * is cached too, so a JDK or library supertype shared by many suites is looked up once.
      *
      * @param internalName the class's internal name, e.g. {@code com/example/Foo}
-     * @return the header, or null when no test dir holds the class
+     * @return the header, or null when no test dir holds the class; a header flagged
+     *         {@code unreadable} when the class file exists but cannot be read
      */
     private ClassHeader header(final String internalName) {
         if (headers.containsKey(internalName)) {
@@ -308,11 +325,12 @@ public final class TestSuiteRunnabilityClassifier {
 
     /**
      * Parse a class file's access flags, supertypes and every class and method annotation
-     * (runtime-visible or not), skipping code, debug info and frames.
+     * (runtime-visible or not), skipping code, debug info and frames. A file that cannot be read or
+     * parsed is logged at WARN and returned as an {@code unreadable} header, which every caller
+     * treats as unknown rather than as missing.
      *
      * @param classFile the class file to read
-     * @return the parsed header
-     * @throws IllegalStateException if the file cannot be read or is not a valid class file
+     * @return the parsed header, or an {@code unreadable} one
      */
     private static ClassHeader readHeader(final Path classFile) {
         final ClassHeader header = new ClassHeader();
@@ -349,7 +367,12 @@ public final class TestSuiteRunnabilityClassifier {
                 }
             }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         } catch (IOException | RuntimeException e) {
-            throw new IllegalStateException("Could not read class file " + classFile, e);
+            // A truncated file, or one compiled for a Java version newer than this ASM reads.
+            log.warn("Could not read test class file {} ({}), so Tia cannot tell whether it is a "
+                    + "runnable test suite and treats it as one that may be.", classFile, e.toString());
+            ClassHeader unreadable = new ClassHeader();
+            unreadable.unreadable = true;
+            return unreadable;
         }
         return header;
     }
@@ -377,5 +400,7 @@ public final class TestSuiteRunnabilityClassifier {
         private String superName;
         private String[] interfaces = new String[0];
         private final Set<String> annotationDescriptors = new HashSet<>();
+        // The class file exists but could not be read or parsed.
+        private boolean unreadable;
     }
 }
