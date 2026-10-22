@@ -27,6 +27,7 @@ import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.testrunner.RunAttempt;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
 import java.time.Instant;
@@ -204,7 +205,8 @@ class TiaSpockRunListenerDistributedTest {
         // the completion.
         recordSpecObservedViaSkip("com.example.ATest");
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
-        DistributedRunCompleter.completeAndSeal(dataStore, context, false, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), false, true,
                 System.currentTimeMillis());
 
         // then
@@ -235,7 +237,8 @@ class TiaSpockRunListenerDistributedTest {
         // completeness guard sees it as observed.
         recordSpecObservedViaSkip("com.example.ATest");
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
-        DistributedRunCompleter.completeAndSeal(dataStore, context, false, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), false, true,
                 System.currentTimeMillis());
 
         // then

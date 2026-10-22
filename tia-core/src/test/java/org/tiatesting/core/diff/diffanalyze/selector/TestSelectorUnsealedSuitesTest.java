@@ -14,6 +14,7 @@ import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -90,6 +91,7 @@ class TestSelectorUnsealedSuitesTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 new StubVCSReader(), Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, null, null, false, SelectionMode.SELECTIVE);
 
         // then
@@ -117,6 +119,7 @@ class TestSelectorUnsealedSuitesTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 new StubVCSReader(), Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, null, null, true, SelectionMode.SELECTIVE);
 
         // then

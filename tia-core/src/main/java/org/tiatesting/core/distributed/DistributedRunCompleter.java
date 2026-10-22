@@ -2,6 +2,7 @@ package org.tiatesting.core.distributed;
 
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 /**
  * The one sequence every distributed runner performs to close out its share of a build: complete
@@ -46,6 +47,10 @@ public final class DistributedRunCompleter {
      * @param dataStore the shared datastore this build writes to; opened and closed by the caller,
      *                  since the caller also needs it open for whatever it does around this call
      * @param context the claimed runner context to complete and, on success, seal under
+     * @param classifier classifies the group's unobserved suites against this runner's compiled
+     *                   test classes, so suites that can never run (helpers, abstract classes,
+     *                   deleted classes) do not hold the group open; see {@link
+     *                   DistributedRunnerPersist#completeGroup}
      * @param updateDBMapping whether this build owns mapping-DB updates
      * @param updateDBTestRunHistory whether the build should write its one history row
      * @param nowMs UTC epoch millis to record as the completion time and, if elected, the seal time
@@ -63,10 +68,11 @@ public final class DistributedRunCompleter {
      *                          the group in that case is exactly as it was before this call
      */
     public static boolean completeAndSeal(final DataStore dataStore, final DistributedRunnerContext context,
+                                          final TestSuiteRunnabilityClassifier classifier,
                                           final boolean updateDBMapping,
                                           final boolean updateDBTestRunHistory, final long nowMs) {
         DistributedRunnerPersist runnerPersist = new DistributedRunnerPersist(dataStore, context);
-        DistributedRunGroup completed = runnerPersist.completeGroup(nowMs);
+        DistributedRunGroup completed = runnerPersist.completeGroup(nowMs, classifier);
 
         if (completed == null) {
             return false;

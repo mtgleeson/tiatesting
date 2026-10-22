@@ -22,6 +22,7 @@ import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -108,7 +109,9 @@ class TestSelectorLibraryPreviewTest {
         // when a preview build (updateDBMapping=false) runs selection with no app diffs
         TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head"),
-                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
         // then the covering test is selected and the stamp remains pending (no cleanup on preview)
         assertTrue(result.getTestsToRun().contains(LIB_TEST),
@@ -132,7 +135,9 @@ class TestSelectorLibraryPreviewTest {
         // when a preview run analyzes the library diff
         TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
-                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
         // then no test is selected for the unpublished change and nothing was persisted
         assertFalse(result.getTestsToRun().contains(LIB_TEST),
@@ -154,7 +159,9 @@ class TestSelectorLibraryPreviewTest {
         // when a primary build (updateDBMapping=true) analyzes the library diff
         TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
-                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, true, SelectionMode.SELECTIVE);
+                Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, configResolving("1.0.0"), null, true, SelectionMode.SELECTIVE);
 
         // then no stamp rows exist and the library diff selected no tests directly
         assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB_COORD).isEmpty(),
@@ -178,7 +185,9 @@ class TestSelectorLibraryPreviewTest {
         // when a local-changes run (checkLocalChanges=true, non-primary) analyzes the edit
         TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
-                Collections.emptyList(), Collections.emptyList(), true, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                true, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
         // then the covering test is selected directly and nothing was written
         assertTrue(result.getTestsToRun().contains(LIB_TEST),
@@ -204,7 +213,9 @@ class TestSelectorLibraryPreviewTest {
         // when a local-changes run executes with no diffs of its own
         TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head"),
-                Collections.emptyList(), Collections.emptyList(), true, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                true, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
         // then the published change's covering test is selected and the stamp remains pending
         assertTrue(result.getTestsToRun().contains(LIB_TEST),
@@ -228,7 +239,9 @@ class TestSelectorLibraryPreviewTest {
         // when a primary (non-local) run selects tests
         TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(reader, Collections.emptyList(),
-                Collections.emptyList(), false, configResolving("1.0.0"), null, true, SelectionMode.SELECTIVE);
+                Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, configResolving("1.0.0"), null, true, SelectionMode.SELECTIVE);
 
         // then the library dir was not diffed, no library content was loaded and nothing was selected
         assertEquals(Collections.singletonList(Collections.<String>emptyList()), reader.getRequestedSourceDirs());
@@ -250,7 +263,9 @@ class TestSelectorLibraryPreviewTest {
 
         // when a local-changes run selects tests
         TestSelector selector = new TestSelector(dataStore, new File("."));
-        selector.selectTestsToIgnore(reader, Collections.emptyList(), Collections.emptyList(), true,
+        selector.selectTestsToIgnore(reader, Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                true,
                 configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
         // then the library's source dir was part of the diff
@@ -279,7 +294,9 @@ class TestSelectorLibraryPreviewTest {
         // the tracked source dir to the stub metadata reader's
         TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(reader, Collections.singletonList(libSrcPath),
-                Collections.emptyList(), false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
         // then the tracked library file reached the partition (its content was loaded) but
         // selected no test

@@ -26,6 +26,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.testrunner.RunAttempt;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
 import java.io.IOException;
@@ -416,7 +417,8 @@ class DistributedRunWiringEndToEndTest {
         //        explicit completion, as it does once Surefire has finished retrying.
         service.persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis() - 1500L, retryRunResultForTheFirstRunner(), mavenRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, mavenRunner, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, mavenRunner,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
 
         // then - still nothing sealed, since the second group has not finished
@@ -428,7 +430,8 @@ class DistributedRunWiringEndToEndTest {
                 System.currentTimeMillis() - 2000L,
                 runResultFor(SUITE_B, "com/example/B.java", METHOD_B, "com/example/B.b.()V"),
                 gradleRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, gradleRunner, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, gradleRunner,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
 
         // then - exactly one seal, by the runner that finished last
@@ -556,7 +559,8 @@ class DistributedRunWiringEndToEndTest {
         //        then makes its explicit completion
         service.persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis(), partialResult, context);
-        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context, true,
+        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true,
                 true, System.currentTimeMillis());
 
         // then - the completion is rejected, nothing seals, and the commit stays exactly where it was
@@ -620,7 +624,8 @@ class DistributedRunWiringEndToEndTest {
         //        retries arrive - the retry that would have run again never got the chance to persist
         service.persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis(), firstAndOnlyAttempt, context);
-        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context, true,
+        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true,
                 true, System.currentTimeMillis());
 
         // then - the group completes, because every assigned suite was already observed

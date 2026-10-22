@@ -43,6 +43,7 @@ import org.tiatesting.core.report.LibrariesReportGenerator;
 import org.tiatesting.core.report.StatusReportGenerator;
 import org.tiatesting.core.report.ReportGenerator;
 import org.tiatesting.core.report.plaintext.TextReportGenerator;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.util.StringUtil;
 
@@ -488,7 +489,8 @@ public class TiaPlugin implements Plugin<Project> {
                 // The preview diffs the workspace, so it takes the identity's own reader rather
                 // than constructing a second one - the branch may be configured, the diff never is.
                 TestSelectorResult result = testSelector.selectTestsToIgnore(workspaceIdentity.openVCSReader(), sourceFilesDirs,
-                        testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false,
+                        testFilesDirs, TestSuiteRunnabilityClassifier.fromCsv(resolveTestClassesDirsCsv()),
+                        isCheckLocalChanges(), libraryConfig, staticMappingConfig, false,
                         getSelectionMode());
                 Set<String> testsToRun = result.getTestsToRun();
                 String lineSep = System.lineSeparator();

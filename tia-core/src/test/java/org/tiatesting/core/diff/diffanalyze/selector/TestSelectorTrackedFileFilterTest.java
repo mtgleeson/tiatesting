@@ -16,6 +16,7 @@ import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -82,7 +83,9 @@ class TestSelectorTrackedFileFilterTest {
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(reader,
-                Collections.emptyList(), Collections.emptyList(), false, null, null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, null, null, false, SelectionMode.SELECTIVE);
 
         // then - content was fetched for ONLY the tracked file
         assertEquals(Collections.singletonList(TRACKED_FILE_KEY), reader.contentLoadedForKeys(),
@@ -108,7 +111,9 @@ class TestSelectorTrackedFileFilterTest {
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(reader,
-                Collections.emptyList(), Collections.emptyList(), false, null, null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, null, null, false, SelectionMode.SELECTIVE);
 
         // then - nothing is content-loaded and no tests are selected from source changes
         assertTrue(reader.contentLoadedForKeys().isEmpty(), "no tracked files means no content fetch");
@@ -129,7 +134,9 @@ class TestSelectorTrackedFileFilterTest {
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(reader,
-                Collections.emptyList(), Collections.emptyList(), false, null, null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, null, null, false, SelectionMode.SELECTIVE);
 
         // then - base is the per-suite sum (no overhead folded in); overhead is reported separately
         assertTrue(result.getTestsToRun().contains(SUITE_NAME));

@@ -10,6 +10,7 @@ import org.tiatesting.core.distributed.DistributedRunCompleter;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.File;
@@ -142,8 +143,14 @@ public class TiaDistCompleteMojo extends AbstractTiaMojo {
         boolean updateDBTestRunHistory = Boolean.parseBoolean(
                 forkProperties.getProperty(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY));
 
-        completeAndSeal(context, branchFrom(forkProperties, forkPropertiesFile), updateDBMapping,
-                updateDBTestRunHistory);
+        // The test output directory the prepare-agent execution recorded, so completion can tell an
+        // assigned suite that can never run (a helper or abstract class under the test dir) from
+        // one this runner failed to reach.
+        TestSuiteRunnabilityClassifier classifier = TestSuiteRunnabilityClassifier.fromCsv(
+                forkProperties.getProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS));
+
+        completeAndSeal(context, branchFrom(forkProperties, forkPropertiesFile), classifier,
+                updateDBMapping, updateDBTestRunHistory);
     }
 
     /**
@@ -202,6 +209,8 @@ public class TiaDistCompleteMojo extends AbstractTiaMojo {
      * @param context the claimed runner context read from the fork properties file
      * @param branch the branch whose schema this run's rows live in, as recorded in the fork
      *               properties file by the {@code prepare-agent} execution that made the claim
+     * @param classifier classifies the group's unobserved suites against the test output
+     *                   directory recorded in the fork properties file
      * @param updateDBMapping whether this run updates the mapping DB, as recorded in the fork
      *                        properties file
      * @param updateDBTestRunHistory whether this run logs a history row, as recorded in the fork
@@ -211,13 +220,14 @@ public class TiaDistCompleteMojo extends AbstractTiaMojo {
      *                                 which of the three happened
      */
     private void completeAndSeal(final DistributedRunnerContext context, final String branch,
+                                 final TestSuiteRunnabilityClassifier classifier,
                                  final boolean updateDBMapping,
                                  final boolean updateDBTestRunHistory)
             throws MojoExecutionException {
         boolean groupCompleted = false;
         try (DataStore dataStore = buildDataStore(branch)) {
-            groupCompleted = DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping,
-                    updateDBTestRunHistory, System.currentTimeMillis());
+            groupCompleted = DistributedRunCompleter.completeAndSeal(dataStore, context, classifier,
+                    updateDBMapping, updateDBTestRunHistory, System.currentTimeMillis());
         } catch (DistributedRunCompleter.SealFailedAfterCompletionException e) {
             throw new MojoExecutionException("Distributed run '" + context.getRunId()
                     + "': runner '" + context.getRunnerKey() + "' completed group "

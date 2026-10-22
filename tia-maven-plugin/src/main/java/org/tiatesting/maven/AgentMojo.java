@@ -34,6 +34,7 @@ import org.tiatesting.core.persistence.SecretFile;
 import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
 import java.io.IOException;
@@ -237,8 +238,12 @@ public class AgentMojo extends AbstractTiaMojo {
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             // The selection details written for the fork carry the mode, which is how the forked
             // test JVM's seal knows whether to re-seed.
+            // prepare-agent binds to initialize, so on a clean build there are no compiled test
+            // classes yet and the classifier keeps every new test file.
             TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs,
-                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig,
+                    testFilesDirs,
+                    TestSuiteRunnabilityClassifier.fromCsv(getProject().getBuild().getTestOutputDirectory()),
+                    isCheckLocalChanges(), libraryConfig, staticMappingConfig,
                     isTiaUpdateDBMapping(), selectionMode);
             getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
             return testSelectorResult;

@@ -14,6 +14,7 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -158,7 +159,9 @@ class TestSelectorForcedModeTest {
      */
     private TestSelectorResult select(SelectionMode mode) {
         return new TestSelector(dataStore, new File(".")).selectTestsToIgnore(vcsReader, Collections.emptyList(),
-                Collections.emptyList(), false, null, null, true, mode);
+                Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, null, null, true, mode);
     }
 
     /**

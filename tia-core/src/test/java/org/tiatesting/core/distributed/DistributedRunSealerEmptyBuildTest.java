@@ -182,6 +182,31 @@ class DistributedRunSealerEmptyBuildTest {
     }
 
     /**
+     * A build whose every assigned suite was excused as never runnable - a commit that only added
+     * helper or abstract classes under a test dir - expected nothing, so running nothing is not an
+     * empty build: it seals and advances the stored commit past those files. Leaving the commit
+     * behind would make every later build select the same never-runnable files again.
+     */
+    @Test
+    void aBuildWhoseEveryAssignedSuiteWasExcusedAsUnrunnableAdvancesTheStoredCommit() {
+        // given - one group assigned only two helper classes, both excused at completion
+        List<String> helpers = Arrays.asList("com.example.FooApiClient", "com.example.FooFixtures");
+        persistPlan(RUN_ID, Collections.singletonList(helpers));
+        assertNotNull(dataStore.claimNextPendingGroup(RUN_ID, RUNNER_A, 5000L));
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 40L, 0, 0,
+                Collections.<String>emptySet(), 0L));
+        assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L, new HashSet<>(helpers)),
+                "test setup expects the excused group to complete");
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
+
+        // then
+        assertEquals(PLAN_COMMIT, dataStore.getTiaCore().getCommitValue(),
+                "a build that was assigned nothing runnable is not an empty build, so it must seal");
+    }
+
+    /**
      * The run is still retired and still gets its one history row: an empty build that left the
      * barrier state behind would block the next build, and a build with no row at all would be an
      * unexplained gap in the history.
@@ -327,7 +352,8 @@ class DistributedRunSealerEmptyBuildTest {
      * @param runnerKey the identity to claim under
      * @param actualDurationMs the group's measured test-execution time
      * @param suitesRan the number of suites the runner executed
-     * @param suitesObserved the number of its assigned suites the runner saw finish or saw skipped
+     * @param suitesObserved how many of its assigned suites the runner saw finish or saw skipped;
+     *                       the first that many assigned suites are reported observed
      * @param suitesFailed the number of the runner's suites with at least one failed test
      */
     private void completeGroup(final String runId, final int groupNumber, final String runnerKey,
@@ -338,9 +364,10 @@ class DistributedRunSealerEmptyBuildTest {
         assertEquals(groupNumber, claimed.getGroupNumber(),
                 "test setup expects the groups to be claimed in order");
         assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                suitesRan, suitesFailed, suitesObserved, 0L),
+                suitesRan, suitesFailed, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesObserved), 0L),
                 "test setup expects the progress report to be accepted");
-        assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L),
+        assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L,
+                Collections.<String>emptySet()),
                 "test setup expects the completion to be accepted");
     }
 

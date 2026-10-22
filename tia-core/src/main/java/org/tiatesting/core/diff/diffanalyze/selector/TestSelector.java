@@ -28,6 +28,7 @@ import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
 import java.io.IOException;
@@ -84,6 +85,11 @@ public class TestSelector {
      * @param vcsReader the VCS reader
      * @param sourceFilesDirNames the dir names for the source files
      * @param testFilesDirNames the dir names for the test files
+     * @param runnabilityClassifier classifies newly added test files against the compiled test
+     *                              classes, so a new file proven not to be a test (a helper, an
+     *                              abstract base, an interface) is not selected; pass
+     *                              {@link TestSuiteRunnabilityClassifier#disabled()} when no compiled
+     *                              test classes are available, which keeps every new file
      * @param checkLocalChanges should local changes be checked by Tia.
      * @param libraryConfig the library impact analysis config, or {@code null} if not configured.
      * @param staticMappingConfig the static test selection config, or {@code null} if not configured.
@@ -104,7 +110,9 @@ public class TestSelector {
      * @return list of test suites to ignore in the current test run.
      */
     public TestSelectorResult selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
-                                           final List<String> testFilesDirNames, final boolean checkLocalChanges,
+                                           final List<String> testFilesDirNames,
+                                           final TestSuiteRunnabilityClassifier runnabilityClassifier,
+                                           final boolean checkLocalChanges,
                                            final LibraryImpactAnalysisConfig libraryConfig,
                                            final StaticTestSelectionConfig staticMappingConfig,
                                            final boolean updateDBMapping,
@@ -137,7 +145,7 @@ public class TestSelector {
         Map<String, TestSuiteTracker> testSuitesTracked = dataStore.getTestSuitesTracked();
 
         SelectTestsToRunResult runResult = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames,
-                checkLocalChanges, tiaCore.getCommitValue(), testSuitesTracked, libraryConfig);
+                runnabilityClassifier, checkLocalChanges, tiaCore.getCommitValue(), testSuitesTracked, libraryConfig);
         Set<String> testsToRun = runResult.getTestsToRun();
 
         PendingLibrarySelection librarySelection = drainPendingLibraryMethodsIfConfigured(
@@ -522,6 +530,8 @@ public class TestSelector {
      * @param vcsReader the VCS reader used to build the diff contexts
      * @param sourceFilesDirNames the dir names for the source files
      * @param testFilesDirNames the dir names for the test files
+     * @param runnabilityClassifier classifies newly added test files against the compiled test
+     *                              classes
      * @param checkLocalChanges should local changes be checked by Tia
      * @param storedCommitValue the commit the stored mapping was built at (diff baseline)
      * @param testSuitesTracked the tracked test suites (names + stats) keyed by suite name
@@ -531,7 +541,9 @@ public class TestSelector {
      *         the run-history selection breakdown
      */
     private SelectTestsToRunResult selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
-                                         final List<String> testFilesDirNames, final boolean checkLocalChanges,
+                                         final List<String> testFilesDirNames,
+                                         final TestSuiteRunnabilityClassifier runnabilityClassifier,
+                                         final boolean checkLocalChanges,
                                          final String storedCommitValue,
                                          final Map<String, TestSuiteTracker> testSuitesTracked,
                                          final LibraryImpactAnalysisConfig libraryConfig){
@@ -593,7 +605,8 @@ public class TestSelector {
 
         // Add newly added test files to the run list.
         int numNewTestFiles = addNewTestFilesToRunList(
-                groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_ADDED), testsToRun, testFilesDirs);
+                groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_ADDED), testsToRun, testFilesDirs,
+                runnabilityClassifier);
 
         // Re-run tests that failed since the last successful full test run.
         int numPreviouslyFailed = addPreviouslyFailedTests(testsToRun);
@@ -838,19 +851,36 @@ public class TestSelector {
     }
 
     /**
-     * Add newly added test suites to the run list. New test files are always run - they have
-     * no stored mapping yet.
+     * Add newly added test suites to the run list. New test files are always run - they have no
+     * stored mapping yet - unless their compiled class proves they are not a test: an interface, an
+     * abstract class, or a class with no test methods. Those are dropped, since on a distributed run
+     * they would otherwise be assigned to a group that can never observe them, and they inflate the
+     * selection log, the run-history breakdown and the run-time estimate on any run.
+     *
+     * <p>Only a class file that exists can prove that: a new file with no class file is kept, since
+     * at selection time that usually means the tests are not compiled yet. Dropping a real test here
+     * would be worse than keeping a helper - on a distributed run a new suite in no group is in no
+     * runner's ignore list, so every runner would run it. See "Which suites a runner skips" in the
+     * distributed test runs chapter of {@code WIKI.md}.
      *
      * @param sourceFileDiffContexts the added test-file diff contexts
      * @param testsToRun the run set to add the new suites to
      * @param testFilesDirs the configured test file directories
+     * @param runnabilityClassifier classifies the new suites against the compiled test classes
      * @return the number of new test suites added to {@code testsToRun}
      */
     private int addNewTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts,
-                                          Set<String> testsToRun, List<String> testFilesDirs){
+                                          Set<String> testsToRun, List<String> testFilesDirs,
+                                          TestSuiteRunnabilityClassifier runnabilityClassifier){
         Set<String> testSuitesAdded = new HashSet<>();
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
             String testName = getTestNameFromFilePath(sourceFileDiffContext.getNewFilePath(), testFilesDirs);
+            TestSuiteRunnabilityClassifier.Verdict verdict = runnabilityClassifier.classify(testName);
+            if (verdict.isProvenNotATest()) {
+                log.debug("New test file {} skipped: not a runnable test suite ({})", testName,
+                        verdict.getReason());
+                continue;
+            }
             testSuitesAdded.add(testName);
         }
 

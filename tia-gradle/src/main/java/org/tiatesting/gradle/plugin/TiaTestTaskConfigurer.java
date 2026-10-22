@@ -33,6 +33,7 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
@@ -199,9 +200,7 @@ public class TiaTestTaskConfigurer {
                     // (maxParallelForks > 1, forkEvery > 0) would otherwise conclude about every
                     // suite the other forks were given. Identical for every fork of this task, so
                     // the answer no longer depends on how the run was split.
-                    String testClassesDirs = testTask.getTestClassesDirs().getFiles().stream()
-                            .map(File::getAbsolutePath)
-                            .collect(Collectors.joining(","));
+                    String testClassesDirs = joinTestClassesDirs(testTask);
                     if (!testClassesDirs.isEmpty()) {
                         testTask.systemProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS, testClassesDirs);
                     }
@@ -670,6 +669,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
                     .selectTestsToIgnore(workspaceIdentity.openVCSReader(),
                     StringUtil.splitCsv(tiaTaskExtension.getSourceFilesDirs()),
                     StringUtil.splitCsv(tiaTaskExtension.getTestFilesDirs()),
+                    TestSuiteRunnabilityClassifier.fromCsv(joinTestClassesDirs(testTask)),
                     checkLocalChanges, libraryConfig, staticConfig, updateDBMapping, selectionMode);
         }
 
@@ -899,7 +899,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
                     .recordClaim(testTask.getPath(), config.getRunId(), outcome.getRunnerKey(),
                             groupNumber, workspaceIdentity.getBranch(),
                             Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
-                            Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
+                            Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()),
+                            joinTestClassesDirs(testTask));
 
             assignment = DistributedRunnerAssignment.forClaimedRunner(dataStore, config,
                     outcome.getRunnerKey(), groupNumber);
@@ -1088,5 +1089,18 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
             return "forkEvery = " + testTask.getForkEvery();
         }
         return null;
+    }
+
+    /**
+     * Join a test task's compiled test-class dirs into the comma-separated form the
+     * {@code tiaTestClassesDirs} fork property and the distributed claim both carry.
+     *
+     * @param testTask the test task whose dirs to join
+     * @return the absolute dir paths, comma separated; empty when the task has none
+     */
+    static String joinTestClassesDirs(final Test testTask) {
+        return testTask.getTestClassesDirs().getFiles().stream()
+                .map(File::getAbsolutePath)
+                .collect(Collectors.joining(","));
     }
 }

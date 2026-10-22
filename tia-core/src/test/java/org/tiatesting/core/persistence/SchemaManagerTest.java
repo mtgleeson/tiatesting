@@ -10,7 +10,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,6 +67,70 @@ class SchemaManagerTest {
             assertFalse(tableNames.isEmpty());
             for (String tableName : tableNames) {
                 assertTrue(schemaManager.checkTableExists(connection, tableName), tableName + " was not created");
+            }
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
+    void groupSuiteRowsCarryObservedAndUnrunnableFlagsDefaultingToFalse(@TempDir Path dir) throws Exception {
+        // given a freshly bootstrapped database
+        H2ConnectionProvider provider = new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.toString()));
+        SchemaManager schemaManager = new SchemaManager(new H2Dialect(), opening(provider, new AtomicInteger()), provider.jdbcUrl());
+
+        try (Connection connection = provider.get()) {
+            schemaManager.ensureSchema(connection);
+            try (Statement statement = connection.createStatement()) {
+                // when a plan row is inserted naming only the assignment columns, as the plan write does
+                statement.execute("INSERT INTO " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " ("
+                        + TiaSchema.COL_RUN_ID + ", " + TiaSchema.COL_GROUP_NUMBER + ", "
+                        + TiaSchema.COL_TEST_SUITE_NAME + ") VALUES ('run-1', 0, 'com.example.FooTest')");
+
+                // then both completeness flags default to false
+                try (ResultSet resultSet = statement.executeQuery("SELECT " + TiaSchema.COL_OBSERVED + ", "
+                        + TiaSchema.COL_UNRUNNABLE + " FROM " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE)) {
+                    assertTrue(resultSet.next());
+                    assertFalse(resultSet.getBoolean(1));
+                    assertFalse(resultSet.getBoolean(2));
+                }
+            }
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
+    void existingDbMissingTheGroupSuiteFlagsGetsThemAddedOnce(@TempDir Path dir) throws Exception {
+        // given an existing DB whose group-suite table predates the observed/unrunnable flags
+        H2ConnectionProvider provider = new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.toString()));
+        try (Connection connection = provider.get()) {
+            new SchemaManager(new H2Dialect(), opening(provider, new AtomicInteger()), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
+                        + " DROP COLUMN " + TiaSchema.COL_OBSERVED);
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
+                        + " DROP COLUMN " + TiaSchema.COL_UNRUNNABLE);
+            }
+
+            // when two fresh managers (two later JVMs) ensure the schema in turn
+            AtomicInteger openedByFirst = new AtomicInteger();
+            boolean existed = new SchemaManager(new H2Dialect(), opening(provider, openedByFirst), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            AtomicInteger openedBySecond = new AtomicInteger();
+            new SchemaManager(new H2Dialect(), opening(provider, openedBySecond), provider.jdbcUrl())
+                    .ensureSchema(connection);
+
+            // then the first adds both columns on a connection of its own, and the second finds
+            // them already there and opens nothing
+            assertTrue(existed);
+            assertEquals(1, openedByFirst.get());
+            assertEquals(0, openedBySecond.get());
+            try (Statement statement = connection.createStatement();
+                 ResultSet resultSet = statement.executeQuery("SELECT " + TiaSchema.COL_OBSERVED + ", "
+                         + TiaSchema.COL_UNRUNNABLE + " FROM " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE)) {
+                assertFalse(resultSet.next());
             }
         } finally {
             provider.close();

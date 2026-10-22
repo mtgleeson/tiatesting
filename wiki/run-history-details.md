@@ -19,6 +19,10 @@ test-name lists, so the breakdown stays small and safe to keep indefinitely:
 - Five scalar counters, recorded as totals only because they do not name a single trigger the way
   a method or a rule does: `numModifiedTestFiles`, `numNewTestFiles`, `numPreviouslyFailed`,
   `numUnsealedMapping`, `numPendingLibrary`.
+  `numNewTestFiles` leaves out a new file under a test dir whose compiled class proves it is not a
+  test (a helper, an abstract class, an interface) - but only when compiled test classes existed
+  when selection ran: always on Gradle, and on Maven only if the test classes were compiled before
+  `prepare-agent` (see "Which suites a runner skips" in [Distributed test runs](distributed-test-runs.md)).
 
 A trigger's count is a per-trigger contribution, not a partition of the run's suites: a suite
 pulled in by two changed methods is counted under both, so the counts across triggers can sum to

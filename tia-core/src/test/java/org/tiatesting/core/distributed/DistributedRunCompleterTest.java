@@ -22,6 +22,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.testrunner.RunAttempt;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
 import java.time.Instant;
@@ -134,7 +135,8 @@ class DistributedRunCompleterTest {
                         + dataStore.callOrder);
 
         // when
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
 
         // then
@@ -189,14 +191,16 @@ class DistributedRunCompleterTest {
         service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 1, 0),
                 context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
         assertEquals(1, Collections.frequency(dataStore.callOrder, "electSealer"),
                 "test setup expects the first call to have stood for election");
         dataStore.callOrder.clear();
 
         // when / then
-        assertDoesNotThrow(() -> DistributedRunCompleter.completeAndSeal(dataStore, context, true,
+        assertDoesNotThrow(() -> DistributedRunCompleter.completeAndSeal(dataStore, context,
+                        TestSuiteRunnabilityClassifier.disabled(), true,
                         true, System.currentTimeMillis()),
                 "a rejected completion must not be reported as a failure");
         assertEquals(Collections.singletonList("completeGroup"), dataStore.callOrder,
@@ -223,7 +227,8 @@ class DistributedRunCompleterTest {
 
         // when / then
         RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+                () -> DistributedRunCompleter.completeAndSeal(dataStore, context,
+                        TestSuiteRunnabilityClassifier.disabled(), true, true,
                         System.currentTimeMillis()),
                 "a failure completing the group must not be swallowed");
         assertTrue(thrown instanceof IllegalStateException,
@@ -252,7 +257,8 @@ class DistributedRunCompleterTest {
         // when / then
         DistributedRunCompleter.SealFailedAfterCompletionException thrown = assertThrows(
                 DistributedRunCompleter.SealFailedAfterCompletionException.class,
-                () -> DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+                () -> DistributedRunCompleter.completeAndSeal(dataStore, context,
+                        TestSuiteRunnabilityClassifier.disabled(), true, true,
                         System.currentTimeMillis()),
                 "a failure sealing after the group completed must be reported distinctly");
         assertTrue(thrown.getCause() instanceof IllegalStateException,
@@ -411,15 +417,14 @@ class DistributedRunCompleterTest {
          * @param actualDurationMs this call's measured test-execution time, added to the group
          * @param suitesRan number of suites this call's test plan executed, added to the group
          * @param suitesFailed number of suites currently failing, replacing what was stored
-         * @param suitesObserved number of suites observed so far, replacing what was stored with
-         *                       the greater of the two values
+         * @param suitesObserved the group's suites observed so far, each flagged observed
          * @return true when the guarded update applied, false when the claim is no longer live
          */
         @Override
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final int suitesObserved, final long suitesDurationMs) {
+                                           final Set<String> suitesObserved, final long suitesDurationMs) {
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
                     suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
         }
@@ -432,16 +437,18 @@ class DistributedRunCompleterTest {
          * @param groupNumber the group's zero-based index within the run
          * @param runnerKey the calling runner's identity
          * @param completedAtMs UTC epoch millis of the completion
+         * @param unrunnableSuites suites proven never runnable, flagged before the guarded update
          * @return the updated group, or null when the claim is no longer live
          */
         @Override
         public DistributedRunGroup completeGroup(final String runId, final int groupNumber,
-                                                 final String runnerKey, final long completedAtMs) {
+                                                 final String runnerKey, final long completedAtMs,
+                                                 final Set<String> unrunnableSuites) {
             callOrder.add("completeGroup");
             if (failCompleteGroup) {
                 throw new IllegalStateException("the database went away while completing the group");
             }
-            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs);
+            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs, unrunnableSuites);
         }
 
         /**

@@ -10,6 +10,7 @@ import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -127,6 +128,7 @@ public final class ProfileSelectTests {
         TestSelectorResult result = selector.selectTestsToIgnore(stubVcs,
                 Collections.emptyList(),
                 Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 /* checkLocalChanges */ false,
                 /* libraryConfig */ null,
                 /* staticMappingConfig */ null,

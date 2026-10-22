@@ -1,5 +1,6 @@
 package org.tiatesting.core.persistence;
 
+import org.tiatesting.core.distributed.ObservedSuites;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +16,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -192,9 +194,10 @@ class JdbcDataStoreClaimTest {
         persistPlanWithGroups("run-1", 3);
         DistributedRunGroup firstClaim = dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         assertTrue(dataStore.reportGroupProgress("run-1", firstClaim.getGroupNumber(), "runner-a",
-                        1000L, 1, 0, 1, 0L),
+                        1000L, 1, 0, ObservedSuites.firstAssigned(dataStore, "run-1", firstClaim.getGroupNumber(), 1), 0L),
                 "test setup expects the progress report to be accepted");
-        assertNotNull(dataStore.completeGroup("run-1", firstClaim.getGroupNumber(), "runner-a", 6000L),
+        assertNotNull(dataStore.completeGroup("run-1", firstClaim.getGroupNumber(), "runner-a", 6000L,
+                Collections.<String>emptySet()),
                 "test setup expects the completion to be accepted");
 
         // when - the same runner key claims again

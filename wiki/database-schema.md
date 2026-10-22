@@ -180,6 +180,8 @@ erDiagram
         VARCHAR run_id PK
         INT group_number PK
         VARCHAR test_suite_name PK
+        BOOLEAN observed
+        BOOLEAN unrunnable
     }
 
     tia_distributed_run_method_stage {
@@ -298,13 +300,17 @@ rather than needing their own cleanup.)
   the sealing runner's JVM; null on a run planned before the column existed.
 - **tia_distributed_run_group** - one row per group: its `status` (`PENDING` / `CLAIMED` /
   `COMPLETED`), the `runner_key` that claimed it, the planner's `estimated_ms`, and the progress
-  figures each persist reports (`suites_ran` is the distinct suites executed, not a sum per retry). `suites_observed` is the one the completeness guard reads -
-  see the "Distributed test runs" chapter for why it is not `suites_ran`. `suites_duration_ms` is
+  figures each persist reports (`suites_ran` is the distinct suites executed, not a sum per retry). `suites_observed` is the count of the group's suite rows flagged
+  `observed` - what the full-run completeness guard reads; any other run's guard counts the flagged
+  rows directly. See the "Distributed test runs" chapter for why observed, not `suites_ran`. `suites_duration_ms` is
   the share of `actual_duration_ms` that went on named suites; the remainder is the runner's fixed
   per-JVM overhead, which the sealer charges once for the build rather than once per group. Indexed
   on (`run_id`, `status`) for the claim's lowest-`PENDING` lookup.
 - **tia_distributed_run_group_suite** - the plan's assignment: which suite names belong to which
-  group. Also the denominator the completeness guard counts.
+  group. Also the denominator the completeness guard counts. `observed` is set by the runner's
+  test JVM for each assigned suite it saw finish or skip; `unrunnable` is set at completion for an
+  unobserved suite the compiled test classes prove can never run (a helper, an abstract class, an
+  interface, a deleted class). See "The completeness guard" in the "Distributed test runs" chapter.
 - **tia_distributed_run_method_stage** - staged method trackers from every runner, held until the
   sealer rebuilds `tia_source_method` from them. Staged rather than written directly because no
   single runner sees the whole build's methods.

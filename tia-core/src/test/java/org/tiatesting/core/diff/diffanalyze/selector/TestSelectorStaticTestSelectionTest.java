@@ -21,6 +21,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -77,6 +78,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, null, config, false, SelectionMode.SELECTIVE);
 
         // then
@@ -97,6 +99,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, null, config, false, SelectionMode.SELECTIVE);
 
         // then
@@ -113,6 +116,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, null, null, false, SelectionMode.SELECTIVE);
 
         // then
@@ -129,6 +133,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, null, StaticTestSelectionConfig.EMPTY, false, SelectionMode.SELECTIVE);
 
         // then
@@ -150,6 +155,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, null, config, false, SelectionMode.SELECTIVE);
 
         // then
@@ -172,6 +178,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, null, config, false, SelectionMode.SELECTIVE);
 
         // then
@@ -196,6 +203,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, libraryConfig, config, false, SelectionMode.SELECTIVE);
 
         // then
@@ -213,6 +221,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, null, config, false, SelectionMode.SELECTIVE);
 
         // then
