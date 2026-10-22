@@ -295,6 +295,17 @@ A group number that is not in the plan throws, rather than being tolerated: subt
 the union would leave the runner ignoring every planned suite and running none of them, while still
 reporting success.
 
+The same rule is why the plan step is careful about which new test files it selects at all. A file
+added under a configured test dir is selected as a new suite, but `TestSelector` first classifies it
+against the compiled test classes (`TestSuiteRunnabilityClassifier`, see "The completeness guard"
+below) and drops it when its class file exists and proves it is not a test: an interface, an
+abstract class, or a class with no test methods - a helper or API client living in the test tree.
+It only ever drops a file whose class file proves that. A new file with **no** class file is kept,
+since at plan time that usually just means the tests have not been compiled yet - and dropping a
+real test would put it in no group, so by the rule above every runner would run it. When the plan
+step runs before test compilation (Maven `dist-plan` before `test-compile`, say), nothing is
+dropped, and the completion step excuses those suites instead.
+
 ### Surplus runners
 
 A pipeline that fans out to more jobs than the plan has groups produces **surplus runners** - jobs
@@ -523,10 +534,12 @@ The figures it carries fall into three kinds that must not be treated alike, and
   failed. The value is the JVM-wide count of suites whose latest execution failed, not the
   attempt's own failures: a retry that ran only a different suite still reports a suite that failed
   earlier and was not retried. See [Failed-suite tracking](failed-suite-tracking.md).
-- `suites_observed` is written as `GREATEST(COALESCE(column, 0), ?)` - not accumulated, because the
-  set it comes from is *already* cumulative across every test plan in the JVM, so summing would
-  double-count. `GREATEST` rather than a plain replace is what stops a later, smaller report from
-  regressing the stored value.
+- the **observed suites** are not a figure at all. The report names the group's assigned suites the
+  JVM observed, each one's `tia_distributed_run_group_suite` row has its `observed` flag set, and
+  `suites_observed` is then rewritten as the count of flagged rows. A flag only goes from false to
+  true, so a retry re-reporting the same suites changes nothing and the count can never regress.
+  All three writes run in one transaction, guarded on the claim still being live, so a straggler
+  flags nothing.
 
 The status flip is deliberately not made here. A retry is another test plan in the same JVM, so
 completing the group from the persist would release the barrier after the first test plan while the
@@ -534,26 +547,22 @@ runner is still executing tests - and the sealer would then rebuild the catalogu
 missing everything the later test plans covered. Only the build tool knows that no more retries are
 coming, which is precisely why completion is a build-tool step.
 
-`suites_observed` also has a precondition worth knowing: **one JVM works one group end to end**.
-Maven `forkCount > 1` / `reuseForks=false` breaks it, because one `fork.properties` file carrying
-one group number and runner key is read by every Surefire fork for the module, so several
-independent JVMs report against the same group with their own smaller observed sets and `GREATEST`
-converges on the largest single fork's count rather than the true union. That is strictly safer than
-a plain replace, but it does not make multi-fork correct - multi-fork is already unsupported for the
-mapping write itself.
+The figures still have a precondition worth knowing: **one JVM works one group end to end**.
+Because observed suites are flagged per row, the completeness guard is right however many JVMs
+report against a group - their reports add up to the union. `suites_ran` and `suites_duration_ms`
+are still `GREATEST` of per-JVM cumulative figures, though, so with several JVMs per group they
+converge on the largest single JVM's figure rather than the total. Maven `forkCount > 1` /
+`reuseForks=false` produces exactly that, because one `fork.properties` file carrying one group
+number and runner key is read by every Surefire fork for the module - and multi-fork is already
+unsupported for the mapping write itself.
 
-Gradle `maxParallelForks > 1` / `forkEvery > 0` breaks the same precondition, for the same structural
-reason: the claim happens once in the daemon and the resulting run id, runner key and group number
-are forwarded to the test task as system properties, which Gradle hands to every worker JVM. Gradle's
-case is the worse of the two, because Gradle really does split the group's suites across its workers.
-No single worker ever observes the whole group, so `GREATEST` settles on the largest worker's count -
-strictly less than the group's assigned total - the completeness guard never passes, the group never
-completes and the run never seals. What the operator would see is a run stuck in `OPEN` with a group
-still `CLAIMED`, a stored commit value that never advanced, and a **green build**, because
-`completeAndSeal` returning `false` is an ordinary no-op to both build tools. Rather than let that
-happen, the Gradle plugin refuses either setting when the test task starts, with an explanation. The
-check runs in the test task's own action rather than at configuration time, so it reads the final
-value of `maxParallelForks` after everything that configures the task has had its say.
+Gradle `maxParallelForks > 1` / `forkEvery > 0` has the same shape, for the same structural reason:
+the claim happens once in the daemon and the resulting run id, runner key and group number are
+forwarded to the test task as system properties, which Gradle hands to every worker JVM, and Gradle
+really does split the group's suites across its workers. The Gradle plugin refuses either setting
+when the test task starts, with an explanation. The check runs in the test task's own action rather
+than at configuration time, so it reads the final value of `maxParallelForks` after everything that
+configures the task has had its say.
 
 ### Straggler protection
 
@@ -973,15 +982,18 @@ status flip so the check and the flip are atomic:
 ```sql
 UPDATE tia_distributed_run_group SET status = 'COMPLETED', completed_at = ?
  WHERE run_id = ? AND group_number = ? AND status = 'CLAIMED' AND runner_key = ?
-   AND suites_observed >= (SELECT COUNT(*) FROM tia_distributed_run_group_suite
-                            WHERE run_id = ? AND group_number = ?)
+   AND (SELECT COUNT(*) FROM tia_distributed_run_group_suite
+         WHERE run_id = ? AND group_number = ? AND (observed = TRUE OR unrunnable = TRUE))
+       >= (SELECT COUNT(*) FROM tia_distributed_run_group_suite
+            WHERE run_id = ? AND group_number = ?)
 ```
 
-(On a seed run that assigned-count subquery is wrapped in `LEAST(1, ...)`, so the predicate becomes
-`suites_observed >= LEAST(1, assignedCount)` - see "Seed-run completion" above for why.)
+(On a full run - seed or forced - the predicate is instead `suites_observed >= LEAST(1,
+assignedCount)`, where `suites_observed` is the count of rows flagged observed - see "Seed-run
+completion" above for why.)
 
-In words: **a group may only complete once it has observed at least as many suites as the plan
-assigned to it.** Those are the two numbers the status command puts side by side as its `Observed`
+In words: **a group may only complete once every suite the plan assigned to it is accounted for -
+observed by its runner, or proven to be a class no test engine could ever run.** Those are the two numbers the status command puts side by side as its `Observed`
 and `Assigned` columns, since they are what a run's progress actually comes down to. That rule is
 unqualified only for a non-seed run; a seed run's assigned suites come from a disk scan that
 over-includes non-test classes the runner never observes, so its guard is loosened to
@@ -992,21 +1004,91 @@ stands in for the crash protection a JVM shutdown hook used to provide. Without 
 could still have its group completed by the build tool step, and the build would seal on a catalogue
 missing whatever that JVM never got to run.
 
-It reads `suites_observed`, not `suites_ran`, and the distinction is load-bearing. `suites_ran`
+It counts observed suites, not `suites_ran`, and the distinction is load-bearing. `suites_ran`
 counts only suites that **finished**. A class-level `@Disabled` suite, one excluded by a
 Surefire/Gradle filter, or one deleted since the last mapping run never finishes even though the
 planner still assigned it to the group - guarding on `suites_ran` would block that group forever on
-a suite Tia never expected to run. `suites_observed` counts every suite the runner's own JVM saw
-finish **or** saw skipped, so such a group completes correctly. (`>=` rather than `=` because a
-retry's report can run past the originally assigned total.)
+a suite Tia never expected to run. A suite is flagged observed when the runner's own JVM saw it
+finish **or** saw it skipped, so such a group completes correctly.
 
-`suites_observed` is fed from the intersection of the JVM's observed set with **this group's own
-assigned suites**, not from the raw observed set. On Maven, Tia's group-based deselection injects
+The `observed` flags are set per row, from the intersection of the JVM's observed set with **this
+group's own assigned suites**. On Maven, Tia's group-based deselection injects
 `@Disabled`/`@Ignore` onto every suite outside the runner's group; those classes are still
 discovered and loaded, so each fires `executionSkipped` and lands in the observed set exactly like
-one of the group's own suites. A 500-suite project split into 10 groups of 50 would otherwise let
-group 0 see ~450 foreign suites and satisfy `observed >= assigned` on its very first persist.
-Comparing the same set on both sides is what makes the guard exact by construction.
+one of the group's own suites - on a 500-suite project split into 10 groups of 50, group 0 sees
+~450 foreign suites. A flag can only land on one of the group's own rows, so they can never count,
+and narrowing to the assigned set first keeps those names out of the report altogether. Counting
+flagged rows rather than comparing a reported number also means a suite can never count twice, and
+reports from several JVMs against one group add up to their union.
+
+### Suites that can never run
+
+The plan can assign a group a "suite" no test engine will ever discover, and so no runner will ever
+observe:
+
+- a **helper, fixture or API-client class** added under a test source dir. The plan step selects
+  every new file under a test dir as a new suite (see "Which suites a runner skips" above for when
+  it can filter them);
+- an **abstract base class** or an **interface** added there;
+- a class **deleted or renamed** since the plan was made.
+
+Before this was handled, such a suite held its group in `CLAIMED` forever. Worse, it never cleared:
+the stored commit stayed put, so the next build saw the same file as new, assigned it again and
+deadlocked the same way - every later build became a near-full run, and the savings were gone until
+someone forced a run.
+
+So the completion step accounts for them. In `DistributedRunnerPersist.completeGroup`, which runs
+once per runner in the build JVM after every fork and retry, the runner reads the group's rows that
+are still **unobserved** (normally none, in which case nothing more happens) and classifies only
+those with `TestSuiteRunnabilityClassifier`. The classifier reads the compiled test classes with
+ASM - it never loads a class - from the directories the build tool already knows: Maven's test
+output directory, recorded in `fork.properties` as `tiaTestClassesDirs`, and the Gradle test task's
+`testClassesDirs`, recorded on the claim so `tia-dist-complete` never reads the project. Its
+verdicts:
+
+| Verdict | Meaning | Excused? |
+|---|---|---|
+| `NO_CLASS_FILE` | No test-classes dir holds a class file for the suite | Yes |
+| `INTERFACE` | The class is an interface | Yes |
+| `ABSTRACT` | The class is abstract | Yes |
+| `NO_TEST_METHODS` | Nothing in its hierarchy within the test dirs carries a test marker | Yes |
+| `RUNNABLE` | It, or a superclass or interface in the test dirs, carries a test marker, or it extends `spock.lang.Specification` | No |
+| `UNDETERMINED` | A superclass is outside the test dirs and not a JDK class (JUnit 3's `TestCase`, a framework base), or no configured test-classes dir exists | No |
+
+A *test marker* is a class or method annotation from a known test framework package (`org.junit`,
+`org.testng`, `net.jqwik`, `io.cucumber`, `com.tngtech.archunit`, `org.spockframework`, `spock`), or
+an annotation whose own class is in the test dirs and is itself annotated with one - a composed
+annotation such as `@FastTest`.
+
+The excused suites are flagged `unrunnable` **in the same transaction as the guarded update**, only
+on rows not already observed, and rolled back with it if the group is still incomplete - so a suite
+can never be counted twice and a refused completion writes nothing. A WARN names each one and why:
+
+```
+Distributed run 'b-42': group 4: 2 assigned suite(s) are not runnable tests and are counted as
+observed: [com.example.FooApiClient (no test methods), com.example.AbstractFooBase (abstract class)]
+```
+
+This keeps the crash protection. Only suites that were **not observed** are classified, so a
+classifier mistake can at worst excuse the one suite it misjudged; it can never stand in for a
+different suite. A real test the runner never reached carries a test marker, is not excused, and
+keeps the group open. And anything the classifier cannot be sure of is `UNDETERMINED` and never
+excused - a missing or wrong `tiaTestClassesDirs` disables classification entirely rather than
+making every suite look deleted. The one known gap: a test written with a framework whose
+annotations are in none of the listed packages (and are not composed in the test tree) is classified
+`NO_TEST_METHODS`, so it is excused if its runner also crashed before reaching it. The WARN names it
+either way. Full runs classify nothing - their assignment is a disk-scan superset and their guard is
+already loosened.
+
+Classes whose tests are all excluded by a tag filter still carry `@Test`, so they are `RUNNABLE` and
+are not excused; the engine still reports them as observed when it skips them.
+
+The sealer takes the flags into account too. A build whose every assigned suite was excused - a
+commit that only added helper classes under a test dir - runs no suite at all, and the sealer's
+empty-build check would otherwise treat that as a broken build and refuse to advance the stored
+commit, recreating the loop above. `DistributedRunSealer` subtracts `unrunnable` suites from what the
+plan expected before deciding a build ran nothing it should have, so such a build seals like a
+nothing-impacted one.
 
 ### A run stuck in OPEN: what it means and what to do
 
@@ -1039,9 +1121,11 @@ clause. The five clauses it can produce:
   run's assigned count is a disk-scan superset, this case is reported as having observed nothing
   rather than an "N of M assigned" fraction, which would misstate what the superset means. The
   runner has not reported any progress on its group yet.
-- *"this runner has observed only N of M assigned suite(s) so far, so the group is not complete
-  enough to close"* - the completeness guard on a non-seed run. The runner did not get through its
-  group.
+- *"this runner has observed only N of M assigned suite(s) so far (K more are not runnable tests),
+  so the group is not complete enough to close - not observed: [..]"* - the completeness guard on a
+  non-seed run. The runner did not get through its group. The list names the suites still missing -
+  the first 20, then a count - and the bracketed part appears only when some unobserved suites were
+  excused as never runnable (see "Suites that can never run" above).
 - *"the group is now `<STATUS>` under runner '`<key>`', so it is no longer this runner's to
   complete"* - another runner holds it. Usually a runner-key collision or a re-claim.
 - *"the run's group rows are gone, so a newer build's plan write superseded this run"* - a
@@ -1057,6 +1141,16 @@ The plan step clears the stale run's rows outright (warning about it first, nami
 groups), and the build proceeds normally. The only thing worth acting on is the *cause*: a
 `PENDING` group means the fan-out step is reading the group count wrong, and a `CLAIMED` group that
 never completed usually means the completion step is not wired to always run.
+
+That "the next build recovers" assumption has one way to fail: the next build re-selecting the very
+work that cannot complete. That is what new helper and abstract classes under a test dir used to do -
+still new relative to the stored commit, so selected again every build, so every run deadlocked the
+same way. Completion now excuses never-runnable suites, which closes that gap (see "Suites that can
+never run" above). If the same group is refused build after build, read the `not observed:` list in
+the ERROR: a suite that appears there every time and is not a real test the runner failed to reach
+is one the classifier could not prove unrunnable - typically `UNDETERMINED` because it extends a
+class outside the test dirs. One distributed build with `tiaSelectAllTests=true` moves the stored
+commit past it (see [Forced runs and re-seed](forced-runs-and-reseed.md)).
 
 ## Multi-module is not supported
 
@@ -1147,7 +1241,7 @@ onto the group row, and from then on it is a predicate on the writes that follow
 | Operation | Guard |
 |---|---|
 | `reportGroupProgress` | `WHERE run_id = ? AND group_number = ? AND status = 'CLAIMED' AND runner_key = ?` |
-| `completeGroup` | the same predicate, plus the `suites_observed` completeness check |
+| `completeGroup` | the same predicate, plus the completeness check on the group's flagged suite rows |
 
 That is the straggler protection. A runner whose claim is no longer live - superseded, or the run
 replanned underneath it - matches zero rows and writes nothing, instead of overwriting a group some

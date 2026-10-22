@@ -20,6 +20,7 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
 import java.time.Instant;
@@ -203,7 +204,8 @@ class TiaTestExecutionListenerDistributedTest {
                     System.getProperty(ForkSystemProperties.PROP_UPDATE_DB_MAPPING));
             boolean updateDBTestRunHistory = !"false".equalsIgnoreCase(
                     System.getProperty(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY));
-            DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping,
+            DistributedRunCompleter.completeAndSeal(dataStore, context,
+                    TestSuiteRunnabilityClassifier.disabled(), updateDBMapping,
                     updateDBTestRunHistory, System.currentTimeMillis());
         }
     }
