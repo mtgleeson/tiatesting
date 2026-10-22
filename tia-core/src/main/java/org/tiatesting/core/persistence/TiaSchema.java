@@ -114,6 +114,8 @@ final class TiaSchema {
     static final String COL_SUITES_FAILED = "suites_failed";
     static final String COL_SUITES_OBSERVED = "suites_observed";
     static final String COL_SUITES_DURATION_MS = "suites_duration_ms";
+    static final String COL_OBSERVED = "observed";
+    static final String COL_UNRUNNABLE = "unrunnable";
     static final String IDX_DISTRIBUTED_RUN_GROUP_STATUS = "idx_distributed_run_group_status";
     static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
 

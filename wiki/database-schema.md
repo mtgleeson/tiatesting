@@ -180,6 +180,8 @@ erDiagram
         VARCHAR run_id PK
         INT group_number PK
         VARCHAR test_suite_name PK
+        BOOLEAN observed
+        BOOLEAN unrunnable
     }
 
     tia_distributed_run_method_stage {
@@ -304,7 +306,10 @@ rather than needing their own cleanup.)
   per-JVM overhead, which the sealer charges once for the build rather than once per group. Indexed
   on (`run_id`, `status`) for the claim's lowest-`PENDING` lookup.
 - **tia_distributed_run_group_suite** - the plan's assignment: which suite names belong to which
-  group. Also the denominator the completeness guard counts.
+  group. Also the denominator the completeness guard counts. `observed` is set by the runner's
+  test JVM for each assigned suite it saw finish or skip; `unrunnable` is set at completion for an
+  unobserved suite the compiled test classes prove can never run (a helper, an abstract class, an
+  interface, a deleted class). See "The completeness guard" in the "Distributed test runs" chapter.
 - **tia_distributed_run_method_stage** - staged method trackers from every runner, held until the
   sealer rebuilds `tia_source_method` from them. Staged rather than written directly because no
   single runner sees the whole build's methods.

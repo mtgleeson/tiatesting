@@ -450,7 +450,11 @@ class SchemaManager {
 
     /**
      * Build the DDL for the {@code tia_distributed_run_group_suite} table, which records which
-     * suites belong to which group.
+     * suites belong to which group. Each row also carries two completeness flags: {@code observed},
+     * set by the runner's test JVM for each assigned suite it saw finish or skip, and
+     * {@code unrunnable}, set at completion for an unobserved suite the compiled test classes prove
+     * can never run. See "The completeness guard" in the distributed test runs chapter of
+     * {@code WIKI.md}.
      *
      * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the group-suite table
      */
@@ -459,6 +463,8 @@ class SchemaManager {
                 + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
                 + COL_GROUP_NUMBER + " INT NOT NULL, "
                 + COL_TEST_SUITE_NAME + " VARCHAR(500) NOT NULL, "
+                + COL_OBSERVED + " BOOLEAN DEFAULT FALSE NOT NULL, "
+                + COL_UNRUNNABLE + " BOOLEAN DEFAULT FALSE NOT NULL, "
                 + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_TEST_SUITE_NAME + "))";
     }
 
