@@ -25,6 +25,7 @@ import org.tiatesting.core.testrunner.RunAttempt;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
 import java.time.Instant;
@@ -186,12 +187,14 @@ class DistributedRunSealerStatsHistoryTest {
         service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), firstRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
         service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.BTest", "com/example/B.java",
                         202, "com/example/B.b.()V"), lastRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
 
         // then
@@ -691,7 +694,7 @@ class DistributedRunSealerStatsHistoryTest {
                 "test setup expects the first attempt's report to be accepted");
         assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L),
                 "test setup expects the retry's report to be accepted");
-        assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L),
+        assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L, Collections.<String>emptySet()),
                 "test setup expects the completion to be accepted");
         sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
 
@@ -1157,7 +1160,8 @@ class DistributedRunSealerStatsHistoryTest {
         assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
                 suitesRan, suitesFailed, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesRan), suitesDurationMs),
                 "test setup expects the progress report to be accepted");
-        assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L),
+        assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L,
+                Collections.<String>emptySet()),
                 "test setup expects the completion to be accepted");
     }
 

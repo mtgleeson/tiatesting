@@ -27,6 +27,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.testrunner.RunAttempt;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
 import java.time.Instant;
@@ -548,7 +549,8 @@ class DistributedRunSealerTest {
         service.persistTestRunData(true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), firstRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner, true, false,
+        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner,
+                TestSuiteRunnabilityClassifier.disabled(), true, false,
                 System.currentTimeMillis());
 
         // then - nothing has been sealed yet, because a group is still running
@@ -563,7 +565,8 @@ class DistributedRunSealerTest {
         service.persistTestRunData(true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.BTest", "com/example/B.java",
                         202, "com/example/B.b.()V"), lastRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner, true, false,
+        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner,
+                TestSuiteRunnabilityClassifier.disabled(), true, false,
                 System.currentTimeMillis());
 
         // then - both groups' methods are in the catalogue, including the last group's
@@ -601,12 +604,14 @@ class DistributedRunSealerTest {
         service.persistTestRunData(true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), firstRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner, true, false,
+        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner,
+                TestSuiteRunnabilityClassifier.disabled(), true, false,
                 System.currentTimeMillis());
         service.persistTestRunData(true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.BTest", "com/example/B.java",
                         202, "com/example/B.b.()V"), lastRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner, true, false,
+        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner,
+                TestSuiteRunnabilityClassifier.disabled(), true, false,
                 System.currentTimeMillis());
 
         // then
@@ -644,7 +649,8 @@ class DistributedRunSealerTest {
         service.persistTestRunData(true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, false,
+        DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true, false,
                 System.currentTimeMillis());
 
         // then
@@ -806,7 +812,8 @@ class DistributedRunSealerTest {
         int groupNumber = context.getGroupNumber().intValue();
         assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, 1000L, 1, 0, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, 1), 0L),
                 "test setup expects the progress report to be accepted");
-        assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L),
+        assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L,
+                Collections.<String>emptySet()),
                 "test setup expects the completion to be accepted");
     }
 
@@ -1068,13 +1075,15 @@ class DistributedRunSealerTest {
          * @param groupNumber the group's zero-based index within the run
          * @param runnerKey the calling runner's identity
          * @param completedAtMs UTC epoch millis of the completion
+         * @param unrunnableSuites suites proven never runnable, flagged before the guarded update
          * @return the updated group, or null when the claim is no longer live
          */
         @Override
         public DistributedRunGroup completeGroup(final String runId, final int groupNumber,
-                                                 final String runnerKey, final long completedAtMs) {
+                                                 final String runnerKey, final long completedAtMs,
+                                                 final Set<String> unrunnableSuites) {
             callOrder.add("completeGroup");
-            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs);
+            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs, unrunnableSuites);
         }
     }
 }

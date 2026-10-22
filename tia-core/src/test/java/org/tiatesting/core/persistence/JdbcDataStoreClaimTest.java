@@ -16,6 +16,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -195,7 +196,8 @@ class JdbcDataStoreClaimTest {
         assertTrue(dataStore.reportGroupProgress("run-1", firstClaim.getGroupNumber(), "runner-a",
                         1000L, 1, 0, ObservedSuites.firstAssigned(dataStore, "run-1", firstClaim.getGroupNumber(), 1), 0L),
                 "test setup expects the progress report to be accepted");
-        assertNotNull(dataStore.completeGroup("run-1", firstClaim.getGroupNumber(), "runner-a", 6000L),
+        assertNotNull(dataStore.completeGroup("run-1", firstClaim.getGroupNumber(), "runner-a", 6000L,
+                Collections.<String>emptySet()),
                 "test setup expects the completion to be accepted");
 
         // when - the same runner key claims again

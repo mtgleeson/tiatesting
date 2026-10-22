@@ -256,6 +256,32 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         }
 
         /**
+         * Not exercised by this test.
+         *
+         * @param runId ignored
+         * @param groupNumber ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public List<String> readUnobservedGroupSuites(String runId, int groupNumber) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Not exercised by this test.
+         *
+         * @param runId ignored
+         * @param groupNumber ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public List<String> readUnrunnableGroupSuites(String runId, int groupNumber) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
          * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
          *
          * @return never returns
@@ -331,12 +357,13 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
          * @param groupNumber ignored
          * @param runnerKey ignored
          * @param completedAtMs ignored
+         * @param unrunnableSuites ignored
          * @return never returns
          * @throws UnsupportedOperationException always
          */
         @Override
         public DistributedRunGroup completeGroup(String runId, int groupNumber, String runnerKey,
-                                                 long completedAtMs) {
+                                                 long completedAtMs, Set<String> unrunnableSuites) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

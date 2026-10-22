@@ -4,6 +4,8 @@ import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.objectweb.asm.Opcodes;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
@@ -13,8 +15,16 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.testrunner.ClassFileFixture;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.PrintStream;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -23,6 +33,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -146,7 +157,7 @@ class DistributedRunnerPersistTest {
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
         assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L));
-        assertNotNull(runnerPersist.completeGroup(6000L));
+        assertNotNull(runnerPersist.completeGroup(6000L, TestSuiteRunnabilityClassifier.disabled()));
 
         // when
         boolean live = persistFor(0).claimIsLive();
@@ -170,7 +181,8 @@ class DistributedRunnerPersistTest {
         persistPlan("run-2", 1);
 
         // when
-        DistributedRunGroup completed = runnerPersist.completeGroup(6000L);
+        DistributedRunGroup completed = runnerPersist.completeGroup(6000L,
+                TestSuiteRunnabilityClassifier.disabled());
 
         // then
         assertNull(completed, "a completion whose claim died must report it rather than appear to succeed");
@@ -213,7 +225,7 @@ class DistributedRunnerPersistTest {
         persistPlan("run-2", 1);
 
         // when
-        String description = persistFor(0).describeRejectedCompletion();
+        String description = persistFor(0).describeRejectedCompletion(Collections.<String>emptySet());
 
         // then
         assertTrue(description.contains("superseded"),
@@ -231,7 +243,7 @@ class DistributedRunnerPersistTest {
         dataStore.claimNextPendingGroup(RUN_ID, "runner-b", 5000L);
 
         // when
-        String description = persistFor(0).describeRejectedCompletion();
+        String description = persistFor(0).describeRejectedCompletion(Collections.<String>emptySet());
 
         // then
         assertTrue(description.contains("runner-b"),
@@ -251,10 +263,10 @@ class DistributedRunnerPersistTest {
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
         assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L));
-        assertNotNull(runnerPersist.completeGroup(6000L));
+        assertNotNull(runnerPersist.completeGroup(6000L, TestSuiteRunnabilityClassifier.disabled()));
 
         // when
-        String description = persistFor(0).describeRejectedCompletion();
+        String description = persistFor(0).describeRejectedCompletion(Collections.<String>emptySet());
 
         // then
         assertTrue(description.contains("already"),
@@ -277,11 +289,11 @@ class DistributedRunnerPersistTest {
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertNull(runnerPersist.completeGroup(6000L),
+        assertNull(runnerPersist.completeGroup(6000L, TestSuiteRunnabilityClassifier.disabled()),
                 "test setup expects the completion to be rejected as incomplete");
 
         // when
-        String description = runnerPersist.describeRejectedCompletion();
+        String description = runnerPersist.describeRejectedCompletion(Collections.<String>emptySet());
 
         // then
         assertTrue(description.contains("0 of 1"),
@@ -291,6 +303,168 @@ class DistributedRunnerPersistTest {
                 "a group this runner still holds was not superseded, was: " + description);
         assertFalse(description.contains("already"),
                 "a group never completed was not completed twice, was: " + description);
+    }
+
+    /**
+     * <b>The case this completion step exists for.</b> A group assigned three real suites and one
+     * helper class that a new file added under the test dir - with no test methods, so the engine
+     * never discovers it - observes the three. The helper is classified as never runnable, named in
+     * the WARN, and the group completes.
+     *
+     * @param classesDir the temp test-classes dir the classifier reads
+     * @throws Exception if a fixture class file cannot be written
+     */
+    @Test
+    void completesWhenTheOnlyUnobservedSuiteIsAHelperWithNoTestMethods(@TempDir Path classesDir)
+            throws Exception {
+        // given - 3 real suites observed, plus a helper the engine never discovers
+        persistSingleGroupPlan(RUN_ID, SelectionMode.SELECTIVE, Arrays.asList("com.example.FooApiClient",
+                "com.example.Suite0Test", "com.example.Suite1Test", "com.example.Suite2Test"));
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 3, 0, suites(0, 3), 0L));
+        ClassFileFixture.classIn(classesDir, "com.example.FooApiClient").method("fetch", null).write();
+
+        // when
+        String[] log = new String[1];
+        DistributedRunGroup completed = captureLog(log, () -> runnerPersist.completeGroup(6000L,
+                classifierOver(classesDir)));
+
+        // then
+        assertNotNull(completed, "the only suite not observed can never run, so the group is complete");
+        assertTrue(log[0].contains("1 assigned suite(s) are not runnable tests and are counted as observed: "
+                        + "[com.example.FooApiClient (no test methods)]"),
+                "the WARN must name the excused suite and why, was: " + log[0]);
+    }
+
+    /**
+     * <b>Crash safety is kept.</b> A real test that was never observed - its runner died before
+     * reaching it - is not excused, so the group stays open, and the ERROR names the missing suite.
+     *
+     * @param classesDir the temp test-classes dir the classifier reads
+     * @throws Exception if a fixture class file cannot be written
+     */
+    @Test
+    void refusesAndNamesTheMissingSuiteWhenARealTestWasNotObserved(@TempDir Path classesDir)
+            throws Exception {
+        // given - 3 real suites, 2 observed; the third has a @Test method
+        persistSingleGroupPlan(RUN_ID, SelectionMode.SELECTIVE, new ArrayList<>(suites(0, 3)));
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, suites(0, 2), 0L));
+        ClassFileFixture.classIn(classesDir, "com.example.Suite2Test")
+                .method("works", "org.junit.jupiter.api.Test").write();
+
+        // when
+        String[] log = new String[1];
+        DistributedRunGroup completed = captureLog(log, () -> runnerPersist.completeGroup(6000L,
+                classifierOver(classesDir)));
+
+        // then
+        assertNull(completed, "a real test the runner never reached must keep the group open");
+        assertTrue(log[0].contains("not observed: [com.example.Suite2Test]"),
+                "the ERROR must name the missing suite, was: " + log[0]);
+    }
+
+    /**
+     * With some suites excused and a real one still missing, the refusal reports both, so a reader
+     * sees that the excused ones were not the problem.
+     *
+     * @param classesDir the temp test-classes dir the classifier reads
+     * @throws Exception if a fixture class file cannot be written
+     */
+    @Test
+    void aRefusalNamesTheExcusedCountApartFromTheMissingSuites(@TempDir Path classesDir) throws Exception {
+        // given - an abstract base excused, a real test missing
+        persistSingleGroupPlan(RUN_ID, SelectionMode.SELECTIVE, Arrays.asList("com.example.AbstractBase",
+                "com.example.Suite0Test", "com.example.Suite1Test"));
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        ClassFileFixture.classIn(classesDir, "com.example.AbstractBase").access(Opcodes.ACC_ABSTRACT).write();
+        ClassFileFixture.classIn(classesDir, "com.example.Suite1Test")
+                .method("works", "org.junit.jupiter.api.Test").write();
+
+        // when
+        String[] log = new String[1];
+        DistributedRunGroup completed = captureLog(log, () -> runnerPersist.completeGroup(6000L,
+                classifierOver(classesDir)));
+
+        // then
+        assertNull(completed);
+        assertTrue(log[0].contains("[com.example.AbstractBase (abstract class)]"),
+                "the WARN must still name the excused suite, was: " + log[0]);
+        assertTrue(log[0].contains("observed only 1 of 3 assigned suite(s) so far (1 more are not runnable "
+                        + "tests), so the group is not complete enough to close - not observed: "
+                        + "[com.example.Suite1Test]"),
+                "the ERROR must count the excused suite apart from the missing one, was: " + log[0]);
+    }
+
+    /**
+     * A disabled classifier excuses nothing: the helper that would have been excused keeps the group
+     * open, so an unknown answer never completes a group.
+     */
+    @Test
+    void refusesWhenTheClassifierIsDisabled() {
+        // given - the same helper-only gap as the completing case
+        persistSingleGroupPlan(RUN_ID, SelectionMode.SELECTIVE, Arrays.asList("com.example.FooApiClient",
+                "com.example.Suite0Test"));
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+
+        // when
+        DistributedRunGroup completed = runnerPersist.completeGroup(6000L,
+                TestSuiteRunnabilityClassifier.disabled());
+
+        // then
+        assertNull(completed);
+    }
+
+    /**
+     * A full run classifies nothing - its assignment is a disk-scan superset and its guard is already
+     * loosened - so it never reads a class file. The unobserved suite's class file here is corrupt,
+     * which would throw if it were read.
+     *
+     * @param classesDir the temp test-classes dir the classifier would read
+     * @throws Exception if the fixture file cannot be written
+     */
+    @Test
+    void aFullRunCompletesWithoutClassifyingAnything(@TempDir Path classesDir) throws Exception {
+        // given - a seed run with 2 suites, 1 observed, the other's class file corrupt
+        persistSingleGroupPlan(RUN_ID, SelectionMode.SEED, new ArrayList<>(suites(0, 2)));
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        Path corrupt = classesDir.resolve("com/example/Suite1Test.class");
+        Files.createDirectories(corrupt.getParent());
+        Files.write(corrupt, new byte[]{1, 2, 3});
+
+        // when
+        DistributedRunGroup completed = runnerPersist.completeGroup(6000L, classifierOver(classesDir));
+
+        // then
+        assertNotNull(completed, "a full run's loosened guard needs only one observed suite");
+    }
+
+    /**
+     * A refusal on a group missing many suites names the first 20 and counts the rest, so the log
+     * line stays readable.
+     */
+    @Test
+    void aRefusalNamesAtMostTwentyMissingSuites() {
+        // given - 25 assigned, none observed
+        persistSingleGroupPlan(RUN_ID, SelectionMode.SELECTIVE, new ArrayList<>(suites(0, 25)));
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+
+        // when
+        String description = runnerPersist.describeRejectedCompletion(Collections.<String>emptySet());
+
+        // then
+        assertTrue(description.endsWith(" and 5 more"), "was: " + description);
+        assertEquals(20, description.split("com\\.example\\.Suite").length - 1,
+                "exactly 20 suites are named, was: " + description);
     }
 
     /**
@@ -304,11 +478,11 @@ class DistributedRunnerPersistTest {
         persistSeedPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertNull(runnerPersist.completeGroup(6000L),
+        assertNull(runnerPersist.completeGroup(6000L, TestSuiteRunnabilityClassifier.disabled()),
                 "a seed group that observed nothing must be rejected as incomplete");
 
         // when
-        String description = runnerPersist.describeRejectedCompletion();
+        String description = runnerPersist.describeRejectedCompletion(Collections.<String>emptySet());
 
         // then
         assertTrue(description.contains("seed run"),
@@ -396,6 +570,56 @@ class DistributedRunnerPersistTest {
             }
         }
         throw new IllegalStateException("no group " + groupNumber + " in run " + runId);
+    }
+
+    /**
+     * Build and persist a single-group plan assigning the given suites under the given selection
+     * mode, for completion tests that need exact suite names.
+     *
+     * @param runId the run identifier to plan under
+     * @param mode the run's selection mode; a full-run mode loosens the completeness guard
+     * @param suiteNames the suites to assign to group 0
+     */
+    private void persistSingleGroupPlan(final String runId, final SelectionMode mode,
+                                        final List<String> suiteNames) {
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, suiteNames);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open(runId, "main", "plan-commit", 1, 1, null, 1000L, 1234L, mode, null),
+                Collections.singletonList(DistributedRunGroup.pending(runId, 0, 1000L)), suites, null));
+    }
+
+    /**
+     * Build a classifier over one test-classes dir.
+     *
+     * @param classesDir the dir to read class files from
+     * @return the classifier
+     */
+    private static TestSuiteRunnabilityClassifier classifierOver(final Path classesDir) {
+        return TestSuiteRunnabilityClassifier.forDirs(Collections.singletonList(classesDir.toString()));
+    }
+
+    /**
+     * Run an action while capturing everything logged to stderr (where slf4j-simple writes), so a
+     * test can assert on the WARN and ERROR lines the action produced.
+     *
+     * @param captured receives the captured log text at index 0
+     * @param action the action to run
+     * @param <T> the action's result type
+     * @return the action's result
+     */
+    private static <T> T captureLog(final String[] captured, final Supplier<T> action) {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(buffer, true, StandardCharsets.UTF_8.name()));
+            return action.get();
+        } catch (UnsupportedEncodingException e) {
+            throw new IllegalStateException(e);
+        } finally {
+            System.setErr(originalErr);
+            captured[0] = new String(buffer.toByteArray(), StandardCharsets.UTF_8);
+        }
     }
 
     /**

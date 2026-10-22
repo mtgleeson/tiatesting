@@ -90,6 +90,10 @@ public final class DistributedClaimRegistry {
      *                        persisted
      * @param updateDBTestRunHistory whether this test task records test-run history - the seal
      *                               needs this for the same reason
+     * @param testClassesDirsCsv the test task's compiled test-class dirs, comma separated, or null
+     *                           when it has none - recorded so the finalizer can tell an assigned
+     *                           suite that can never run from one the runner did not reach, without
+     *                           reading the project while it executes
      * @return the recorded claim
      * @throws IllegalStateException if this build already recorded a claim under a different test
      *                                task path, naming both test tasks and stating that a
@@ -97,7 +101,8 @@ public final class DistributedClaimRegistry {
      */
     public synchronized Claim recordClaim(final String testTaskPath, final String runId,
             final String runnerKey, final Integer groupNumber, final String branch,
-            final boolean updateDBMapping, final boolean updateDBTestRunHistory) {
+            final boolean updateDBMapping, final boolean updateDBTestRunHistory,
+            final String testClassesDirsCsv) {
         for (Map.Entry<String, Claim> existing : claimsByTaskPath.entrySet()) {
             if (!existing.getKey().equals(testTaskPath)) {
                 throw new IllegalStateException("Distributed test run '" + existing.getValue().getRunId()
@@ -113,7 +118,7 @@ public final class DistributedClaimRegistry {
         }
 
         Claim claim = new Claim(runId, runnerKey, groupNumber, branch, updateDBMapping,
-                updateDBTestRunHistory);
+                updateDBTestRunHistory, testClassesDirsCsv);
         claimsByTaskPath.put(testTaskPath, claim);
         return claim;
     }
@@ -141,6 +146,7 @@ public final class DistributedClaimRegistry {
         private final String branch;
         private final boolean updateDBMapping;
         private final boolean updateDBTestRunHistory;
+        private final String testClassesDirsCsv;
 
         /**
          * Store the claim's fields. Private so instances only come from {@link
@@ -152,16 +158,18 @@ public final class DistributedClaimRegistry {
          * @param branch the branch whose schema the claim was made in
          * @param updateDBMapping whether this test task updates the mapping database
          * @param updateDBTestRunHistory whether this test task records test-run history
+         * @param testClassesDirsCsv the test task's compiled test-class dirs, comma separated, or null
          */
         private Claim(final String runId, final String runnerKey, final Integer groupNumber,
                 final String branch, final boolean updateDBMapping,
-                final boolean updateDBTestRunHistory) {
+                final boolean updateDBTestRunHistory, final String testClassesDirsCsv) {
             this.runId = runId;
             this.runnerKey = runnerKey;
             this.groupNumber = groupNumber;
             this.branch = branch;
             this.updateDBMapping = updateDBMapping;
             this.updateDBTestRunHistory = updateDBTestRunHistory;
+            this.testClassesDirsCsv = testClassesDirsCsv;
         }
 
         /** @return the distributed run id the claim was made against */
@@ -197,6 +205,15 @@ public final class DistributedClaimRegistry {
         /** @return whether this test task records test-run history */
         public boolean isUpdateDBTestRunHistory() {
             return updateDBTestRunHistory;
+        }
+
+        /**
+         * @return the test task's compiled test-class dirs, comma separated, as recorded when the
+         *         claim was made; null when the task had none. The finalizer classifies the group's
+         *         unobserved suites against these
+         */
+        public String getTestClassesDirsCsv() {
+            return testClassesDirsCsv;
         }
     }
 }

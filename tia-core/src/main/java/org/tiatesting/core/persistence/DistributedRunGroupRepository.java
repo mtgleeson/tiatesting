@@ -94,6 +94,65 @@ class DistributedRunGroupRepository extends JdbcRepository {
     }
 
     /**
+     * Implements {@link DataStore#readUnobservedGroupSuites}.
+     *
+     * @param runId the run identifier
+     * @param groupNumber the group's zero-based index within the run
+     * @return the group's suite names not yet flagged {@code observed}, in name order; empty if the
+     *         group is unknown or every suite was observed
+     */
+    List<String> readUnobservedGroupSuites(final String runId, final int groupNumber) {
+        return readGroupSuitesWithFlag(runId, groupNumber, COL_OBSERVED, false);
+    }
+
+    /**
+     * Implements {@link DataStore#readUnrunnableGroupSuites}.
+     *
+     * @param runId the run identifier
+     * @param groupNumber the group's zero-based index within the run
+     * @return the group's suite names flagged {@code unrunnable}, in name order; empty if there are
+     *         none
+     */
+    List<String> readUnrunnableGroupSuites(final String runId, final int groupNumber) {
+        return readGroupSuitesWithFlag(runId, groupNumber, COL_UNRUNNABLE, true);
+    }
+
+    /**
+     * Read a group's suite names whose given flag column holds the given value, in name order.
+     * Calls {@link SchemaManager#ensureSchema(Connection)} before querying, like every other read
+     * here.
+     *
+     * @param runId the run identifier
+     * @param groupNumber the group's zero-based index within the run
+     * @param flagColumn the flag column to filter on
+     * @param flagValue the value the flag must hold
+     * @return the matching suite names in name order; empty if none match
+     */
+    private List<String> readGroupSuitesWithFlag(final String runId, final int groupNumber,
+                                                 final String flagColumn, final boolean flagValue) {
+        String sql = "SELECT " + COL_TEST_SUITE_NAME + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
+                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND " + flagColumn
+                + " = ? ORDER BY " + COL_TEST_SUITE_NAME;
+        List<String> suiteNames = new ArrayList<>();
+        try (Connection connection = getConnection()) {
+            schemaManager.ensureSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, runId);
+                statement.setInt(2, groupNumber);
+                statement.setBoolean(3, flagValue);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        suiteNames.add(resultSet.getString(COL_TEST_SUITE_NAME));
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+        return suiteNames;
+    }
+
+    /**
      * Implements {@link DataStore#claimNextPendingGroup}.
      *
      * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before the first read, since claiming can be the
@@ -340,7 +399,7 @@ class DistributedRunGroupRepository extends JdbcRepository {
                     return false;
                 }
 
-                setGroupSuiteFlag(connection, runId, groupNumber, COL_OBSERVED, suitesObserved);
+                setGroupSuiteFlag(connection, runId, groupNumber, COL_OBSERVED, suitesObserved, false);
                 try (PreparedStatement statement = connection.prepareStatement(observedCountSql)) {
                     statement.setString(1, runId);
                     statement.setInt(2, groupNumber);
@@ -372,17 +431,22 @@ class DistributedRunGroupRepository extends JdbcRepository {
      * @param groupNumber the group whose rows to flag
      * @param flagColumn the flag column to set
      * @param suiteNames the suites to flag; may be empty, which issues no statement
+     * @param onlyUnobserved true to also skip rows already flagged {@code observed}, so a suite
+     *                       that was observed can never be flagged a second way and counted twice
      * @throws SQLException if an update fails
      */
     private void setGroupSuiteFlag(final Connection connection, final String runId, final int groupNumber,
-                                   final String flagColumn, final Collection<String> suiteNames)
+                                   final String flagColumn, final Collection<String> suiteNames,
+                                   final boolean onlyUnobserved)
             throws SQLException {
         List<String> names = new ArrayList<>(suiteNames);
         for (int start = 0; start < names.size(); start += IN_CLAUSE_CHUNK_SIZE) {
             List<String> chunk = names.subList(start, Math.min(names.size(), start + IN_CLAUSE_CHUNK_SIZE));
             String sql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " SET " + flagColumn
                     + " = TRUE WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND "
-                    + flagColumn + " = FALSE AND " + COL_TEST_SUITE_NAME + " IN ("
+                    + flagColumn + " = FALSE AND "
+                    + (onlyUnobserved ? COL_OBSERVED + " = FALSE AND " : "")
+                    + COL_TEST_SUITE_NAME + " IN ("
                     + String.join(", ", Collections.nCopies(chunk.size(), "?")) + ")";
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, runId);
@@ -432,8 +496,16 @@ class DistributedRunGroupRepository extends JdbcRepository {
      * forever. A group assigned real suites must therefore have observed at least one; a group
      * assigned nothing completes with nothing observed.
      *
-     * <p>Row count 0 returns {@code null} without reading anything back, since there is by
-     * definition nothing this runner wrote to return. Row count 1 re-reads the row through
+     * <p>On a non-full run the {@code unrunnable} flag is first set on the named suites' rows -
+     * only rows still not {@code observed} - in the same transaction as the guarded update, so the
+     * guard counts them and a suite can never be counted both ways. The caller passes only suites
+     * it has proven can never run; see {@link
+     * org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier}. A full run ignores them, since
+     * its guard is already loosened.
+     *
+     * <p>Row count 0 rolls the transaction back - including any {@code unrunnable} flag just set -
+     * and returns {@code null} without reading anything back, since there is by definition nothing
+     * this runner wrote to return. Row count 1 re-reads the row through
      * {@link #mapGroupRow} rather than reconstructing it, so the returned group carries the stored
      * claim timestamp, estimate and the figures {@link #reportGroupProgress} accumulated rather
      * than only this call's inputs.
@@ -446,17 +518,20 @@ class DistributedRunGroupRepository extends JdbcRepository {
      * @param groupNumber the group's zero-based index within the run
      * @param runnerKey the calling runner's stable identity
      * @param completedAtMs UTC epoch millis to record as the completion time
+     * @param unrunnableSuites assigned suites the runner never observed that are proven never
+     *                         runnable, to flag {@code unrunnable}; may be empty
      * @return the updated group, or {@code null} when this runner's claim is no longer live or the
      *         group has not reported enough progress to close
      */
     DistributedRunGroup completeGroup(final String runId, final int groupNumber, final String runnerKey,
-                                             final long completedAtMs) {
+                                             final long completedAtMs, final Set<String> unrunnableSuites) {
         String assignedCountSubquery = "(SELECT COUNT(*) FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
                 + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?)";
         String groupByNumberSql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
                 + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?";
 
         try (Connection connection = getConnection()) {
+            // H2 implicitly commits on DDL, so this must run before setAutoCommit(false).
             schemaManager.ensureSchema(connection);
 
             // A full run's (seed or forced) assigned suite names come from a raw disk scan that
@@ -478,36 +553,57 @@ class DistributedRunGroupRepository extends JdbcRepository {
                     + COL_COMPLETED_AT + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND "
                     + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ? AND " + completenessGuard;
 
-            int rowsUpdated;
-            try (PreparedStatement statement = connection.prepareStatement(completeSql)) {
-                statement.setString(1, DistributedRunGroupStatus.COMPLETED.name());
-                statement.setLong(2, completedAtMs);
-                statement.setString(3, runId);
-                statement.setInt(4, groupNumber);
-                statement.setString(5, DistributedRunGroupStatus.CLAIMED.name());
-                statement.setString(6, runnerKey);
-                statement.setString(7, runId);
-                statement.setInt(8, groupNumber);
+            boolean previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
                 if (!fullRun) {
-                    statement.setString(9, runId);
-                    statement.setInt(10, groupNumber);
+                    // Flagged in the same transaction as the guard reads them, and only on rows still
+                    // unobserved, so an observed suite wrongly passed in cannot be counted twice and a
+                    // refused completion leaves no flag behind.
+                    setGroupSuiteFlag(connection, runId, groupNumber, COL_UNRUNNABLE, unrunnableSuites, true);
                 }
-                rowsUpdated = statement.executeUpdate();
-            }
 
-            if (rowsUpdated == 0) {
-                // Either this runner's claim is no longer live, or the group has not yet reported
-                // enough progress to be considered finished. The caller must now write nothing.
-                return null;
-            }
-
-            try (PreparedStatement statement = connection.prepareStatement(groupByNumberSql)) {
-                statement.setString(1, runId);
-                statement.setInt(2, groupNumber);
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    resultSet.next();
-                    return mapGroupRow(resultSet);
+                int rowsUpdated;
+                try (PreparedStatement statement = connection.prepareStatement(completeSql)) {
+                    statement.setString(1, DistributedRunGroupStatus.COMPLETED.name());
+                    statement.setLong(2, completedAtMs);
+                    statement.setString(3, runId);
+                    statement.setInt(4, groupNumber);
+                    statement.setString(5, DistributedRunGroupStatus.CLAIMED.name());
+                    statement.setString(6, runnerKey);
+                    statement.setString(7, runId);
+                    statement.setInt(8, groupNumber);
+                    if (!fullRun) {
+                        statement.setString(9, runId);
+                        statement.setInt(10, groupNumber);
+                    }
+                    rowsUpdated = statement.executeUpdate();
                 }
+
+                if (rowsUpdated == 0) {
+                    // Either this runner's claim is no longer live, or the group is still missing a
+                    // suite that could have run. The caller must now write nothing, so the unrunnable
+                    // flags go too.
+                    connection.rollback();
+                    return null;
+                }
+
+                DistributedRunGroup completed;
+                try (PreparedStatement statement = connection.prepareStatement(groupByNumberSql)) {
+                    statement.setString(1, runId);
+                    statement.setInt(2, groupNumber);
+                    try (ResultSet resultSet = statement.executeQuery()) {
+                        resultSet.next();
+                        completed = mapGroupRow(resultSet);
+                    }
+                }
+                connection.commit();
+                return completed;
+            } catch (SQLException | RuntimeException e) {
+                connection.rollback();
+                throw e;
+            } finally {
+                connection.setAutoCommit(previousAutoCommit);
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);

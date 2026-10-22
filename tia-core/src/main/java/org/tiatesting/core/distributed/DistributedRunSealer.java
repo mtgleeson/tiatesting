@@ -451,7 +451,13 @@ public final class DistributedRunSealer {
      * empty assignment. A <em>seed run</em> expected to run everything, so executing nothing makes it
      * empty. A <em>nothing-impacted</em> build - a real selection that chose no suites - expected to
      * run nothing, so executing nothing is Tia working as intended and its stats and savings are
-     * recorded as usual. Any build with suites assigned to a group expected those suites.
+     * recorded as usual. Any build with suites assigned to a group expected those suites - except
+     * the ones its completion flagged {@code unrunnable}, which no engine could ever run. A build
+     * whose every assigned suite was excused that way (only helper or abstract classes were added
+     * under a test dir, say) expected nothing, and seals like a nothing-impacted build; treating it
+     * as empty would leave the stored commit behind those files, so every later build would select
+     * them again. See "The completeness guard" in the distributed test runs chapter of
+     * {@code WIKI.md}.
      *
      * @param run the run row this seal already read, carrying the planner's selection mode
      * @param assignedSuitesByGroup the suite names the plan assigned each group
@@ -465,19 +471,27 @@ public final class DistributedRunSealer {
             return false;
         }
 
-        return run.isFullRun() || assignedAnySuite(assignedSuitesByGroup);
+        return run.isFullRun() || assignedAnyRunnableSuite(assignedSuitesByGroup);
     }
 
     /**
-     * Whether the plan assigned any suite to any group, which is what separates a build that expected
-     * to run named suites from one that was assigned nothing at all.
+     * Whether the plan assigned any group a suite its completion did not excuse as never runnable,
+     * which is what separates a build that expected to run named suites from one that was assigned
+     * nothing it could run. Reads each assigning group's {@code unrunnable} suites, and is only ever
+     * called when the build ran no suite at all, so a normal seal reads nothing extra.
      *
      * @param assignedSuitesByGroup the suite names the plan assigned each group
-     * @return true when at least one group was assigned at least one suite
+     * @return true when at least one group was assigned at least one suite not flagged unrunnable
      */
-    private boolean assignedAnySuite(final Map<Integer, Set<String>> assignedSuitesByGroup) {
-        for (Set<String> groupSuites : assignedSuitesByGroup.values()) {
-            if (!groupSuites.isEmpty()) {
+    private boolean assignedAnyRunnableSuite(final Map<Integer, Set<String>> assignedSuitesByGroup) {
+        for (Map.Entry<Integer, Set<String>> group : assignedSuitesByGroup.entrySet()) {
+            if (group.getValue().isEmpty()) {
+                continue;
+            }
+            Set<String> runnable = new HashSet<>(group.getValue());
+            runnable.removeAll(dataStore.readUnrunnableGroupSuites(context.getRunId(),
+                    group.getKey().intValue()));
+            if (!runnable.isEmpty()) {
                 return true;
             }
         }

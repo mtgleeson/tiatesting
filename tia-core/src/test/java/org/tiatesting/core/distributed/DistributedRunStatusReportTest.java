@@ -217,7 +217,8 @@ class DistributedRunStatusReportTest {
         // given - a seed run whose runner has claimed its group and run three suites
         persistPlan("build-1", "commit-abc", singleGroup(Collections.<String>emptyList()), true);
         dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
-        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 3, 0, Collections.<String>emptySet(), 4_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 3, 0,
+                Collections.<String>emptySet(), 4_000L);
 
         // when
         String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
@@ -556,7 +557,8 @@ class DistributedRunStatusReportTest {
                         + claimed.getGroupNumber());
         assertTrue(dataStore.reportGroupProgress(runId, expectedGroupNumber, runnerKey, durationMs,
                 suiteCount, 0, ObservedSuites.firstAssigned(dataStore, runId, expectedGroupNumber, suiteCount), durationMs));
-        assertNotNull(dataStore.completeGroup(runId, expectedGroupNumber, runnerKey, NOW_MS - 80_000L),
+        assertNotNull(dataStore.completeGroup(runId, expectedGroupNumber, runnerKey, NOW_MS - 80_000L,
+                Collections.<String>emptySet()),
                 "expected group " + expectedGroupNumber + " to complete");
     }
 

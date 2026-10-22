@@ -20,6 +20,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -256,7 +257,8 @@ class JdbcDataStoreCompletionTest {
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 7, 2, suites(0, 1), 0L));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed);
@@ -283,7 +285,8 @@ class JdbcDataStoreCompletionTest {
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-b", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-b", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNull(completed);
@@ -355,7 +358,8 @@ class JdbcDataStoreCompletionTest {
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 1000L, 2, 0, suites(2, 4), 0L));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed, "the union of the two reports covers every assigned suite");
@@ -379,7 +383,7 @@ class JdbcDataStoreCompletionTest {
         // then
         assertEquals(1, storedGroup("run-1", 0).getSuitesObserved());
         assertEquals(Arrays.asList("com.example.Suite1Test"), unobservedSuites("run-1", 0));
-        assertNull(dataStore.completeGroup("run-1", 0, "runner-a", 9000L));
+        assertNull(dataStore.completeGroup("run-1", 0, "runner-a", 9000L, Collections.<String>emptySet()));
     }
 
     /**
@@ -396,11 +400,89 @@ class JdbcDataStoreCompletionTest {
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 1000L, 1, 0, suites(0, 1), 0L));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNull(completed, "Suite1Test was never observed");
         assertEquals(1, storedGroup("run-1", 0).getSuitesObserved());
+    }
+
+    /**
+     * A suite never observed but proven never runnable is flagged {@code unrunnable} in the
+     * completion's own transaction and counted by the guard, so the group completes.
+     */
+    @Test
+    void shouldCompleteWhenEveryUnobservedSuiteIsPassedAsUnrunnable() {
+        // given - 4 assigned, 3 observed
+        persistPlanWithOneGroupOfSuites("run-1", 4);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 1000L, 3, 0, suites(0, 3), 0L));
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.singleton("com.example.Suite3Test"));
+
+        // then
+        assertNotNull(completed, "the one unobserved suite was excused as never runnable");
+    }
+
+    /**
+     * Excusing only some of the missing suites is not enough, and the refused completion rolls its
+     * {@code unrunnable} flag back, so a later attempt with an empty set is refused too.
+     */
+    @Test
+    void shouldRefuseAndKeepNoUnrunnableFlagWhenAnotherSuiteIsStillMissing() {
+        // given - 4 assigned, 2 observed
+        persistPlanWithOneGroupOfSuites("run-1", 4);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 1000L, 2, 0, suites(0, 2), 0L));
+
+        // when - only one of the two missing suites is excused
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.singleton("com.example.Suite3Test"));
+
+        // then
+        assertNull(completed, "Suite2Test could have run and was not observed");
+        assertNull(dataStore.completeGroup("run-1", 0, "runner-a", 9000L, Collections.<String>emptySet()),
+                "the refused completion must not have left Suite3Test flagged");
+    }
+
+    /**
+     * A suite that was observed and is also passed as unrunnable counts once, so it cannot stand in
+     * for a different suite that is genuinely missing.
+     */
+    @Test
+    void shouldNotDoubleCountASuiteThatWasBothObservedAndPassedAsUnrunnable() {
+        // given - 2 assigned, Suite0 observed, Suite1 missing
+        persistPlanWithOneGroupOfSuites("run-1", 2);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 1000L, 1, 0, suites(0, 1), 0L));
+
+        // when - the observed suite is wrongly passed as unrunnable
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.singleton("com.example.Suite0Test"));
+
+        // then
+        assertNull(completed, "Suite1Test is still missing");
+    }
+
+    /**
+     * The unobserved read lists exactly the assigned suites no report has flagged, in name order -
+     * the only suites completion needs to classify.
+     */
+    @Test
+    void readUnobservedGroupSuitesListsOnlyUnflaggedRowsInNameOrder() {
+        // given
+        persistPlanWithOneGroupOfSuites("run-1", 3);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 1000L, 1, 0, suites(1, 2), 0L));
+
+        // when
+        List<String> unobserved = dataStore.readUnobservedGroupSuites("run-1", 0);
+
+        // then
+        assertEquals(Arrays.asList("com.example.Suite0Test", "com.example.Suite2Test"), unobserved);
     }
 
     /**
@@ -467,10 +549,11 @@ class JdbcDataStoreCompletionTest {
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 7, 2, suites(0, 1), 0L);
-        dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        dataStore.completeGroup("run-1", 0, "runner-a", 9000L, Collections.<String>emptySet());
 
         // when
-        DistributedRunGroup secondCompletion = dataStore.completeGroup("run-1", 0, "runner-a", 9999L);
+        DistributedRunGroup secondCompletion = dataStore.completeGroup("run-1", 0, "runner-a", 9999L,
+                Collections.<String>emptySet());
 
         // then
         assertNull(secondCompletion);
@@ -492,7 +575,7 @@ class JdbcDataStoreCompletionTest {
 
         // when
         DistributedRunGroup completed = dataStore.completeGroup("run-does-not-exist", 0, "runner-a",
-                9000L);
+                9000L, Collections.<String>emptySet());
 
         // then
         assertNull(completed);
@@ -511,7 +594,7 @@ class JdbcDataStoreCompletionTest {
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         dataStore.claimNextPendingGroup("run-1", "runner-b", 5100L);
         dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0, suites(0, 1), 0L);
-        dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        dataStore.completeGroup("run-1", 0, "runner-a", 9000L, Collections.<String>emptySet());
 
         // when
         boolean elected = dataStore.electSealer("run-1", "runner-a", 9500L);
@@ -534,9 +617,9 @@ class JdbcDataStoreCompletionTest {
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         dataStore.claimNextPendingGroup("run-1", "runner-b", 5100L);
         dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0, suites(0, 1), 0L);
-        dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        dataStore.completeGroup("run-1", 0, "runner-a", 9000L, Collections.<String>emptySet());
         dataStore.reportGroupProgress("run-1", 1, "runner-b", 200L, 1, 0, suites(1, 2), 0L);
-        dataStore.completeGroup("run-1", 1, "runner-b", 9100L);
+        dataStore.completeGroup("run-1", 1, "runner-b", 9100L, Collections.<String>emptySet());
 
         // when
         boolean elected = dataStore.electSealer("run-1", "runner-b", 9500L);
@@ -560,9 +643,9 @@ class JdbcDataStoreCompletionTest {
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         dataStore.claimNextPendingGroup("run-1", "runner-b", 5100L);
         dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0, suites(0, 1), 0L);
-        dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        dataStore.completeGroup("run-1", 0, "runner-a", 9000L, Collections.<String>emptySet());
         dataStore.reportGroupProgress("run-1", 1, "runner-b", 200L, 1, 0, suites(1, 2), 0L);
-        dataStore.completeGroup("run-1", 1, "runner-b", 9100L);
+        dataStore.completeGroup("run-1", 1, "runner-b", 9100L, Collections.<String>emptySet());
         dataStore.electSealer("run-1", "runner-a", 9500L);
 
         // when
@@ -587,7 +670,8 @@ class JdbcDataStoreCompletionTest {
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 50, 0, suites(0, 50), 0L));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed, "a group that ran every assigned suite must complete");
@@ -611,7 +695,8 @@ class JdbcDataStoreCompletionTest {
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 49, 0, suites(0, 50), 0L));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed, "a group that observed every assigned suite must complete even "
@@ -637,7 +722,8 @@ class JdbcDataStoreCompletionTest {
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 50, 3, suites(0, 50), 0L));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed, "attempt 1 already satisfied the completeness guard, so a dead "
@@ -658,7 +744,8 @@ class JdbcDataStoreCompletionTest {
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNull(completed, "a group with no reported progress must not be completable");
@@ -677,7 +764,8 @@ class JdbcDataStoreCompletionTest {
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 24_000L, 30, 0, suites(0, 30), 0L));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNull(completed, "a group that has reported only part of its assigned suites must not "
@@ -698,7 +786,8 @@ class JdbcDataStoreCompletionTest {
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed, "a group with zero assigned suites must complete on 0 >= 0");
@@ -718,7 +807,8 @@ class JdbcDataStoreCompletionTest {
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 1, 0, suites(0, 1), 0L));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed, "a seed group that observed at least one suite must complete");
@@ -738,7 +828,8 @@ class JdbcDataStoreCompletionTest {
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 1, 0, suites(0, 1), 0L));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed, "a forced group that observed at least one suite must complete");
@@ -756,7 +847,8 @@ class JdbcDataStoreCompletionTest {
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 1, 0, suites(0, 1), 0L));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed, "a re-seed group that observed at least one suite must complete");
@@ -776,7 +868,8 @@ class JdbcDataStoreCompletionTest {
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNull(completed, "a seed group that observed no suite must not complete");
@@ -795,7 +888,8 @@ class JdbcDataStoreCompletionTest {
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed, "a seed group assigned nothing must complete without observing anything");
@@ -883,7 +977,8 @@ class JdbcDataStoreCompletionTest {
         for (int i = 0; i < runnerCount; i++) {
             DistributedRunGroup claimed = storedGroup(runId, i);
             assertTrue(dataStore.reportGroupProgress(runId, i, claimed.getRunnerKey(), 100L, 1, 0, suites(i, i + 1), 0L));
-            assertNotNull(dataStore.completeGroup(runId, i, claimed.getRunnerKey(), 9000L));
+            assertNotNull(dataStore.completeGroup(runId, i, claimed.getRunnerKey(), 9000L,
+                    Collections.<String>emptySet()));
         }
 
         ExecutorService executor = Executors.newFixedThreadPool(runnerCount);

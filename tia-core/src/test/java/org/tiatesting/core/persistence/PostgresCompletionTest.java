@@ -21,6 +21,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -211,7 +212,7 @@ class PostgresCompletionTest {
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-complete-1", 0, "runner-a",
-                9000L);
+                9000L, Collections.<String>emptySet());
 
         // then
         assertNotNull(completed);
@@ -237,7 +238,8 @@ class PostgresCompletionTest {
         assertTrue(postgresStore.reportGroupProgress("pg-union-1", 0, "runner-a", 1000L, 2, 0, suites(2, 4), 0L));
 
         // when
-        DistributedRunGroup completed = postgresStore.completeGroup("pg-union-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = postgresStore.completeGroup("pg-union-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed);
@@ -261,7 +263,85 @@ class PostgresCompletionTest {
         // then
         assertFalse(applied);
         assertEquals(0, storedGroup("pg-straggler-1", 0).getSuitesObserved());
-        assertNull(postgresStore.completeGroup("pg-straggler-1", 0, "runner-b", 9000L));
+        assertNull(postgresStore.completeGroup("pg-straggler-1", 0, "runner-b", 9000L,
+                Collections.<String>emptySet()));
+    }
+
+    /**
+     * A suite never observed but proven never runnable is flagged {@code unrunnable} in the
+     * completion's own transaction and counted by the guard, so the group completes.
+     */
+    @Test
+    void shouldCompleteWhenEveryUnobservedSuiteIsPassedAsUnrunnableOnPostgres() {
+        // given - 4 assigned, 3 observed
+        persistPlanWithOneGroupOfSuites("pg-unrunnable-1", 4);
+        postgresStore.claimNextPendingGroup("pg-unrunnable-1", "runner-a", 5000L);
+        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", 1000L, 3, 0, suites(0, 3), 0L));
+
+        // when
+        DistributedRunGroup completed = postgresStore.completeGroup("pg-unrunnable-1", 0, "runner-a", 9000L,
+                Collections.singleton("com.example.Suite3Test"));
+
+        // then
+        assertNotNull(completed, "the one unobserved suite was excused as never runnable");
+    }
+
+    /**
+     * Excusing only some of the missing suites is not enough, and the refused completion rolls its
+     * {@code unrunnable} flag back, so a later attempt with an empty set is refused too.
+     */
+    @Test
+    void shouldRefuseAndKeepNoUnrunnableFlagWhenAnotherSuiteIsStillMissingOnPostgres() {
+        // given - 4 assigned, 2 observed
+        persistPlanWithOneGroupOfSuites("pg-unrunnable-1", 4);
+        postgresStore.claimNextPendingGroup("pg-unrunnable-1", "runner-a", 5000L);
+        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", 1000L, 2, 0, suites(0, 2), 0L));
+
+        // when - only one of the two missing suites is excused
+        DistributedRunGroup completed = postgresStore.completeGroup("pg-unrunnable-1", 0, "runner-a", 9000L,
+                Collections.singleton("com.example.Suite3Test"));
+
+        // then
+        assertNull(completed, "Suite2Test could have run and was not observed");
+        assertNull(postgresStore.completeGroup("pg-unrunnable-1", 0, "runner-a", 9000L, Collections.<String>emptySet()),
+                "the refused completion must not have left Suite3Test flagged");
+    }
+
+    /**
+     * A suite that was observed and is also passed as unrunnable counts once, so it cannot stand in
+     * for a different suite that is genuinely missing.
+     */
+    @Test
+    void shouldNotDoubleCountASuiteThatWasBothObservedAndPassedAsUnrunnableOnPostgres() {
+        // given - 2 assigned, Suite0 observed, Suite1 missing
+        persistPlanWithOneGroupOfSuites("pg-unrunnable-1", 2);
+        postgresStore.claimNextPendingGroup("pg-unrunnable-1", "runner-a", 5000L);
+        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", 1000L, 1, 0, suites(0, 1), 0L));
+
+        // when - the observed suite is wrongly passed as unrunnable
+        DistributedRunGroup completed = postgresStore.completeGroup("pg-unrunnable-1", 0, "runner-a", 9000L,
+                Collections.singleton("com.example.Suite0Test"));
+
+        // then
+        assertNull(completed, "Suite1Test is still missing");
+    }
+
+    /**
+     * The unobserved read lists exactly the assigned suites no report has flagged, in name order -
+     * the only suites completion needs to classify.
+     */
+    @Test
+    void readUnobservedGroupSuitesListsOnlyUnflaggedRowsInNameOrderOnPostgres() {
+        // given
+        persistPlanWithOneGroupOfSuites("pg-unrunnable-1", 3);
+        postgresStore.claimNextPendingGroup("pg-unrunnable-1", "runner-a", 5000L);
+        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", 1000L, 1, 0, suites(1, 2), 0L));
+
+        // when
+        List<String> unobserved = postgresStore.readUnobservedGroupSuites("pg-unrunnable-1", 0);
+
+        // then
+        assertEquals(Arrays.asList("com.example.Suite0Test", "com.example.Suite2Test"), unobserved);
     }
 
     /**
@@ -277,7 +357,7 @@ class PostgresCompletionTest {
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-complete-2", 0, "runner-b",
-                9000L);
+                9000L, Collections.<String>emptySet());
 
         // then
         assertNull(completed);
@@ -367,7 +447,8 @@ class PostgresCompletionTest {
         assertTrue(postgresStore.reportGroupProgress("pg-guard-1", 0, "runner-a", 24_000L, 30, 0, suites(0, 30), 0L));
 
         // when
-        DistributedRunGroup completed = postgresStore.completeGroup("pg-guard-1", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = postgresStore.completeGroup("pg-guard-1", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNull(completed, "a group that observed only part of its assigned suites must not "
@@ -389,7 +470,8 @@ class PostgresCompletionTest {
         assertTrue(postgresStore.reportGroupProgress("pg-guard-2", 0, "runner-a", 40_000L, 49, 0, suites(0, 50), 0L));
 
         // when
-        DistributedRunGroup completed = postgresStore.completeGroup("pg-guard-2", 0, "runner-a", 9000L);
+        DistributedRunGroup completed = postgresStore.completeGroup("pg-guard-2", 0, "runner-a", 9000L,
+                Collections.<String>emptySet());
 
         // then
         assertNotNull(completed, "a group that observed every assigned suite must complete even "
@@ -410,7 +492,7 @@ class PostgresCompletionTest {
         postgresStore.claimNextPendingGroup("pg-seal-1", "runner-a", 5000L);
         postgresStore.claimNextPendingGroup("pg-seal-1", "runner-b", 5100L);
         postgresStore.reportGroupProgress("pg-seal-1", 0, "runner-a", 100L, 1, 0, suites(0, 1), 0L);
-        postgresStore.completeGroup("pg-seal-1", 0, "runner-a", 9000L);
+        postgresStore.completeGroup("pg-seal-1", 0, "runner-a", 9000L, Collections.<String>emptySet());
 
         // when
         boolean elected = postgresStore.electSealer("pg-seal-1", "runner-a", 9500L);
@@ -431,9 +513,9 @@ class PostgresCompletionTest {
         postgresStore.claimNextPendingGroup("pg-seal-2", "runner-a", 5000L);
         postgresStore.claimNextPendingGroup("pg-seal-2", "runner-b", 5100L);
         postgresStore.reportGroupProgress("pg-seal-2", 0, "runner-a", 100L, 1, 0, suites(0, 1), 0L);
-        postgresStore.completeGroup("pg-seal-2", 0, "runner-a", 9000L);
+        postgresStore.completeGroup("pg-seal-2", 0, "runner-a", 9000L, Collections.<String>emptySet());
         postgresStore.reportGroupProgress("pg-seal-2", 1, "runner-b", 200L, 1, 0, suites(1, 2), 0L);
-        postgresStore.completeGroup("pg-seal-2", 1, "runner-b", 9100L);
+        postgresStore.completeGroup("pg-seal-2", 1, "runner-b", 9100L, Collections.<String>emptySet());
 
         // when
         boolean firstAttempt = postgresStore.electSealer("pg-seal-2", "runner-a", 9500L);

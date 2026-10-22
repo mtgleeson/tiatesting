@@ -154,6 +154,24 @@ class TiaDistCompleteMojoDistributedTest {
     private void writeForkProperties(final String runId, final String runnerKey,
                                      final Integer groupNumber, final boolean updateDBMapping)
             throws IOException {
+        writeForkProperties(runId, runnerKey, groupNumber, updateDBMapping, null);
+    }
+
+    /**
+     * Write a fork properties file as {@link #writeForkProperties(String, String, Integer, boolean)}
+     * does, also carrying the {@code tiaTestClassesDirs} the {@code prepare-agent} execution records.
+     *
+     * @param runId the run id to write
+     * @param runnerKey the runner key to write
+     * @param groupNumber the claimed group number, or null to write no group (a surplus runner)
+     * @param updateDBMapping the mapping-update flag to write
+     * @param testClassesDirs the test output directory to record, or null to record none
+     * @throws IOException if the file cannot be written
+     */
+    private void writeForkProperties(final String runId, final String runnerKey,
+                                     final Integer groupNumber, final boolean updateDBMapping,
+                                     final String testClassesDirs)
+            throws IOException {
         Map<String, String> props = new LinkedHashMap<>();
         props.put("tiaDistributed", "true");
         props.put("tiaRunId", runId);
@@ -164,6 +182,9 @@ class TiaDistCompleteMojoDistributedTest {
         props.put("tiaBranch", BRANCH);
         props.put("tiaUpdateDBMapping", String.valueOf(updateDBMapping));
         props.put("tiaUpdateDBTestRunHistory", String.valueOf(updateDBMapping));
+        if (testClassesDirs != null) {
+            props.put(ForkSystemProperties.PROP_TEST_CLASSES_DIRS, testClassesDirs);
+        }
         ForkSystemProperties.write(props, new File(buildDir, "fork.properties"));
     }
 
@@ -255,6 +276,56 @@ class TiaDistCompleteMojoDistributedTest {
     }
 
     /**
+     * The test output directory recorded in the fork properties reaches the completion's
+     * classifier: a group whose only assigned suite was never observed and has no class file there -
+     * a class deleted since planning - is excused, so the group completes and the build seals.
+     *
+     * @throws Exception if the fixture file cannot be written or the goal fails
+     */
+    @Test
+    void shouldCompleteAGroupWhoseOnlyUnobservedSuiteHasNoClassFile() throws Exception {
+        // given - group 0's one suite was never observed, and the recorded dir holds no class for it
+        persistPlan("run-10", 1);
+        try (DataStore dataStore = openStore()) {
+            dataStore.claimNextPendingGroup("run-10", "runner-a", 5000L);
+        }
+        File testClassesDir = new File(tempDir, "test-classes");
+        assertTrue(testClassesDir.mkdirs());
+        writeForkProperties("run-10", "runner-a", 0, true, testClassesDir.getAbsolutePath());
+
+        // when
+        mojo().execute();
+
+        // then
+        assertEquals(DistributedRunGroupStatus.COMPLETED, readGroupZero("run-10").getStatus());
+        try (DataStore dataStore = openStore()) {
+            assertEquals(PLAN_COMMIT, dataStore.getTiaCore().getCommitValue());
+        }
+    }
+
+    /**
+     * Without a recorded test output directory nothing is excused, so the same unobserved suite
+     * keeps the group open.
+     *
+     * @throws Exception if the fixture file cannot be written or the goal fails
+     */
+    @Test
+    void shouldLeaveTheGroupOpenWhenNoTestClassesDirWasRecorded() throws Exception {
+        // given
+        persistPlan("run-11", 1);
+        try (DataStore dataStore = openStore()) {
+            dataStore.claimNextPendingGroup("run-11", "runner-a", 5000L);
+        }
+        writeForkProperties("run-11", "runner-a", 0, true, null);
+
+        // when
+        mojo().execute();
+
+        // then
+        assertEquals(DistributedRunGroupStatus.CLAIMED, readGroupZero("run-11").getStatus());
+    }
+
+    /**
      * Verify the goal completes the group under the runner key resolved from the fork properties
      * file, not one this build's own {@code -D} parameters (or a freshly re-derived value) would
      * supply. The claim was recorded under {@code runner-file}; the mojo's own {@code
@@ -297,7 +368,7 @@ class TiaDistCompleteMojoDistributedTest {
         persistPlan("run-3", 1);
         claimAndObserveGroupZero("run-3", "runner-a");
         try (DataStore dataStore = openStore()) {
-            dataStore.completeGroup("run-3", 0, "runner-a", 6000L);
+            dataStore.completeGroup("run-3", 0, "runner-a", 6000L, Collections.<String>emptySet());
         }
         writeForkProperties("run-3", "runner-a", 0, true);
 

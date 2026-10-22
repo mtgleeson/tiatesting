@@ -538,6 +538,24 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * {@inheritDoc}
+     * <p>Delegates to {@link DistributedRunGroupRepository#readUnobservedGroupSuites}.
+     */
+    @Override
+    public List<String> readUnobservedGroupSuites(final String runId, final int groupNumber) {
+        return distributedRunGroupRepository.readUnobservedGroupSuites(runId, groupNumber);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link DistributedRunGroupRepository#readUnrunnableGroupSuites}.
+     */
+    @Override
+    public List<String> readUnrunnableGroupSuites(final String runId, final int groupNumber) {
+        return distributedRunGroupRepository.readUnrunnableGroupSuites(runId, groupNumber);
+    }
+
+    /**
+     * {@inheritDoc}
      * <p>Delegates to {@link DistributedRunRepository#readAllDistributedRuns}.
      */
     @Override
@@ -591,8 +609,9 @@ public class JdbcDataStore implements DataStore {
      */
     @Override
     public DistributedRunGroup completeGroup(final String runId, final int groupNumber, final String runnerKey,
-                                             final long completedAtMs) {
-        return distributedRunGroupRepository.completeGroup(runId, groupNumber, runnerKey, completedAtMs);
+                                             final long completedAtMs, final Set<String> unrunnableSuites) {
+        return distributedRunGroupRepository.completeGroup(runId, groupNumber, runnerKey, completedAtMs,
+                unrunnableSuites);
     }
 
     /**

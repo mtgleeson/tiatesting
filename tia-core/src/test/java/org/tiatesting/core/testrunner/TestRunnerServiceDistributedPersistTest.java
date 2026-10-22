@@ -249,7 +249,8 @@ class TestRunnerServiceDistributedPersistTest {
         // when
         service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
 
         // then
@@ -292,7 +293,8 @@ class TestRunnerServiceDistributedPersistTest {
         // when
         service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), partialResult, context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
 
         // then
@@ -321,7 +323,8 @@ class TestRunnerServiceDistributedPersistTest {
         // when
         service.persistTestRunData(true, true, "new-commit", "main", runStart,
                 makeResult(), context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
 
         // then
@@ -410,7 +413,8 @@ class TestRunnerServiceDistributedPersistTest {
 
         // when
         service.persistTestRunData(true, true, "new-commit", "main", runStart, result, context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
 
         // then
@@ -545,7 +549,8 @@ class TestRunnerServiceDistributedPersistTest {
         // when
         service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), resultWithForeignSuites, context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());
 
         // then
@@ -1018,13 +1023,15 @@ class TestRunnerServiceDistributedPersistTest {
          * @param groupNumber the group's zero-based index within the run
          * @param runnerKey the calling runner's identity
          * @param completedAtMs UTC epoch millis of the completion
+         * @param unrunnableSuites suites proven never runnable, flagged before the guarded update
          * @return the updated group, or null when the claim is no longer live
          */
         @Override
         public DistributedRunGroup completeGroup(final String runId, final int groupNumber,
-                                                 final String runnerKey, final long completedAtMs) {
+                                                 final String runnerKey, final long completedAtMs,
+                                                 final Set<String> unrunnableSuites) {
             callOrder.add("completeGroup");
-            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs);
+            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs, unrunnableSuites);
         }
 
         /**

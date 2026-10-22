@@ -15,7 +15,7 @@ import java.util.List;
  * exact access flags, hierarchy and annotations of each class without compiling fixture sources.
  * Also lets a test craft shapes javac cannot produce, such as an interface hierarchy cycle.
  */
-final class ClassFileFixture {
+public final class ClassFileFixture {
 
     private final Path dir;
     private final String internalName;
@@ -43,7 +43,7 @@ final class ClassFileFixture {
      * @param binaryName the class's binary name, e.g. {@code com.example.FooTest}
      * @return the builder
      */
-    static ClassFileFixture classIn(final Path dir, final String binaryName) {
+    public static ClassFileFixture classIn(final Path dir, final String binaryName) {
         return new ClassFileFixture(dir, binaryName);
     }
 
@@ -53,7 +53,7 @@ final class ClassFileFixture {
      * @param flags the flags to OR into the class's access
      * @return this builder
      */
-    ClassFileFixture access(final int flags) {
+    public ClassFileFixture access(final int flags) {
         this.access |= flags;
         return this;
     }
@@ -64,7 +64,7 @@ final class ClassFileFixture {
      * @param binaryName the superclass binary name
      * @return this builder
      */
-    ClassFileFixture extending(final String binaryName) {
+    public ClassFileFixture extending(final String binaryName) {
         this.superName = binaryName.replace('.', '/');
         return this;
     }
@@ -75,7 +75,7 @@ final class ClassFileFixture {
      * @param binaryName the interface binary name
      * @return this builder
      */
-    ClassFileFixture implementing(final String binaryName) {
+    public ClassFileFixture implementing(final String binaryName) {
         this.interfaces.add(binaryName.replace('.', '/'));
         return this;
     }
@@ -86,7 +86,7 @@ final class ClassFileFixture {
      * @param annotationBinaryName the annotation type's binary name
      * @return this builder
      */
-    ClassFileFixture annotatedWith(final String annotationBinaryName) {
+    public ClassFileFixture annotatedWith(final String annotationBinaryName) {
         this.classAnnotations.add(descriptor(annotationBinaryName));
         return this;
     }
@@ -99,7 +99,7 @@ final class ClassFileFixture {
      * @param annotationBinaryName the annotation type's binary name, or null for none
      * @return this builder
      */
-    ClassFileFixture method(final String name, final String annotationBinaryName) {
+    public ClassFileFixture method(final String name, final String annotationBinaryName) {
         this.methods.add(new String[]{name,
                 annotationBinaryName == null ? null : descriptor(annotationBinaryName)});
         return this;
@@ -111,7 +111,7 @@ final class ClassFileFixture {
      *
      * @throws IOException if the file cannot be written
      */
-    void write() throws IOException {
+    public void write() throws IOException {
         ClassWriter writer = new ClassWriter(0);
         writer.visit(Opcodes.V1_8, access, internalName, null, superName,
                 interfaces.toArray(new String[0]));

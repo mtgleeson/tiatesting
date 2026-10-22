@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.tiatesting.core.distributed.DistributedRunCompleter;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 /**
  * Gradle task that closes out one runner's share of a distributed test run: completes its claimed
@@ -149,6 +150,7 @@ public class TiaDistCompleteTask extends DefaultTask {
         // note this task can therefore run on a machine with no repository.
         try (DataStore dataStore = plugin.buildDistributedDataStore(claim.getBranch())) {
             groupCompleted = DistributedRunCompleter.completeAndSeal(dataStore, context,
+                    TestSuiteRunnabilityClassifier.fromCsv(claim.getTestClassesDirsCsv()),
                     claim.isUpdateDBMapping(), claim.isUpdateDBTestRunHistory(),
                     System.currentTimeMillis());
         } catch (DistributedRunCompleter.SealFailedAfterCompletionException e) {

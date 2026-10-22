@@ -273,8 +273,22 @@ class TiaDistCompleteTaskTest {
          * @param groupNumber the claimed group, or null for a surplus runner
          */
         void recordClaim(final String runId, final String runnerKey, final Integer groupNumber) {
+            recordClaim(runId, runnerKey, groupNumber, null);
+        }
+
+        /**
+         * Seed the claim registry as {@link #recordClaim(String, String, Integer)} does, also
+         * recording the test task's compiled test-class dirs on the claim.
+         *
+         * @param runId the distributed run id the claim was made against
+         * @param runnerKey the runner identity the claim was recorded under
+         * @param groupNumber the claimed group, or null for a surplus runner
+         * @param testClassesDirsCsv the test-class dirs to record, comma separated, or null
+         */
+        void recordClaim(final String runId, final String runnerKey, final Integer groupNumber,
+                         final String testClassesDirsCsv) {
             DistributedClaimRegistry.forBuild(project.getGradle()).recordClaim(TEST_TASK_PATH, runId,
-                    runnerKey, groupNumber, BRANCH, true, true);
+                    runnerKey, groupNumber, BRANCH, true, true, testClassesDirsCsv);
         }
 
         /**
@@ -305,6 +319,79 @@ class TiaDistCompleteTaskTest {
         TestPlugin plugin = (TestPlugin) project.getPlugins().apply(TestPlugin.class);
         plugin.setDbDir(dbDir);
         return new Fixture(project, plugin);
+    }
+
+    /**
+     * Persist a single-group plan assigning the given suites, so a test can complete a group whose
+     * suites the runner never observed.
+     *
+     * @param dbDir the H2 database directory
+     * @param runId the run identifier to plan under
+     * @param suites the suites to assign to group 0
+     */
+    private static void persistPlanAssigning(final File dbDir, final String runId, final List<String> suites) {
+        Map<Integer, List<String>> suitesByGroup = new HashMap<>();
+        suitesByGroup.put(0, suites);
+        DistributedRun run = DistributedRun.open(runId, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L,
+                SelectionMode.SELECTIVE, null);
+        try (DataStore dataStore = openStore(dbDir, BRANCH)) {
+            dataStore.persistDistributedRunPlan(new DistributedRunPlan(run,
+                    Collections.singletonList(DistributedRunGroup.pending(runId, 0, 1000L)), suitesByGroup, null));
+        }
+    }
+
+    /**
+     * The test-class dirs recorded on the claim reach the completion's classifier: a group whose only
+     * assigned suite has no class file in those dirs - a class deleted since planning, which no
+     * runner can ever observe - is excused and the group completes.
+     *
+     * @param projectDir a temp directory to root the Gradle project and database at
+     */
+    @Test
+    void completesAGroupWhoseOnlyUnobservedSuiteHasNoClassFileInTheRecordedDirs(@TempDir File projectDir) {
+        // given a group assigned one suite that is not in the recorded (existing) test-classes dir
+        File dbDir = newDbDir(projectDir);
+        File testClassesDir = new File(projectDir, "build/classes/java/test");
+        assertTrue(testClassesDir.mkdirs());
+        persistPlanAssigning(dbDir, "run-8", Collections.singletonList("com.example.DeletedTest"));
+        DistributedRunnerAssignment assignment = claim(dbDir, "run-8", "runner-a");
+        Fixture fixture = projectWithPlugin(projectDir, dbDir);
+        fixture.recordClaim("run-8", assignment.getRunnerKey(), assignment.getGroupNumber(),
+                testClassesDir.getAbsolutePath());
+
+        // when
+        fixture.runCompleteTask();
+
+        // then
+        try (DataStore dataStore = openStore(dbDir, BRANCH)) {
+            assertEquals(DistributedRunGroupStatus.COMPLETED,
+                    dataStore.readDistributedRunGroups("run-8").get(0).getStatus());
+        }
+    }
+
+    /**
+     * Without recorded test-class dirs the classifier is disabled and excuses nothing, so the same
+     * group stays open: an unknown answer must never complete a group.
+     *
+     * @param projectDir a temp directory to root the Gradle project and database at
+     */
+    @Test
+    void leavesTheGroupOpenWhenNoTestClassesDirsWereRecorded(@TempDir File projectDir) {
+        // given the same unobserved suite, but no dirs on the claim
+        File dbDir = newDbDir(projectDir);
+        persistPlanAssigning(dbDir, "run-9", Collections.singletonList("com.example.DeletedTest"));
+        DistributedRunnerAssignment assignment = claim(dbDir, "run-9", "runner-a");
+        Fixture fixture = projectWithPlugin(projectDir, dbDir);
+        fixture.recordClaim("run-9", assignment.getRunnerKey(), assignment.getGroupNumber(), null);
+
+        // when
+        fixture.runCompleteTask();
+
+        // then
+        try (DataStore dataStore = openStore(dbDir, BRANCH)) {
+            assertEquals(DistributedRunGroupStatus.CLAIMED,
+                    dataStore.readDistributedRunGroups("run-9").get(0).getStatus());
+        }
     }
 
     /**
