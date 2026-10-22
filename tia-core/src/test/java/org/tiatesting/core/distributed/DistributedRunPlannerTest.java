@@ -32,6 +32,7 @@ import java.sql.Connection;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1459,7 +1460,8 @@ class DistributedRunPlannerTest {
                 DistributedRunGroup.pending("run-sealed", 0, 1000L));
 
         // when
-        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(sealedRun, groups);
+        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(sealedRun, groups,
+                Collections.<Integer, List<String>>emptyMap(), Collections.<Integer, Integer>emptyMap());
 
         // then
         assertNull(result, "a sealed run should need no warning at all");
@@ -1484,7 +1486,8 @@ class DistributedRunPlannerTest {
                 "runner-2", 1L, 2L, 1000L, 950L, 4, 0, 4, 0L));
 
         // when
-        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(unsealedRun, groups);
+        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(unsealedRun, groups,
+                Collections.<Integer, List<String>>emptyMap(), Collections.<Integer, Integer>emptyMap());
 
         // then - warned about (non-null), but with nothing incomplete to name
         assertTrue(result != null && result.isEmpty(),
@@ -1507,12 +1510,109 @@ class DistributedRunPlannerTest {
         groups.add(DistributedRunGroup.pending("run-incomplete", 1, 1000L));
 
         // when
-        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(openRun, groups);
+        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(openRun, groups,
+                Collections.<Integer, List<String>>emptyMap(), Collections.<Integer, Integer>emptyMap());
 
         // then
         assertEquals(1, result.size());
         assertTrue(result.get(0).contains("group 1"), "should name the incomplete group: " + result);
         assertTrue(result.get(0).contains("PENDING"), "should name its status: " + result);
+    }
+
+    /**
+     * A CLAIMED group of a non-full run is described with its observed-of-assigned count and the
+     * suites it never observed, so the plan step's WARN - the last trace of the run before its rows
+     * are deleted - says what held the run up.
+     */
+    @Test
+    void incompleteGroupsToWarnAbout_claimedGroupOfANonFullRun_namesItsUnobservedSuites() {
+        // given - an open selective run whose group 0 observed 1 of 3 suites
+        DistributedRun openRun = new DistributedRun("run-claimed", "main", "commit-1",
+                DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SELECTIVE, null);
+        List<DistributedRunGroup> groups = Collections.singletonList(new DistributedRunGroup("run-claimed", 0,
+                DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 1, 0, 1, 0L));
+        Map<Integer, List<String>> unobserved = Collections.singletonMap(0,
+                Arrays.asList("com.example.BarTest", "com.example.FooTest"));
+        Map<Integer, Integer> assigned = Collections.singletonMap(0, 3);
+
+        // when
+        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(openRun, groups,
+                unobserved, assigned);
+
+        // then
+        assertEquals(Collections.singletonList("group 0 (CLAIMED, observed 1 of 3, not observed: "
+                + "[com.example.BarTest, com.example.FooTest])"), result);
+    }
+
+    /**
+     * A PENDING group ran nothing, so it is still described by its status alone - listing every
+     * assigned suite would be noise, not information.
+     */
+    @Test
+    void incompleteGroupsToWarnAbout_pendingGroup_staysUnnamed() {
+        // given - an open selective run with one PENDING group; the caller reads nothing for it
+        DistributedRun openRun = new DistributedRun("run-pending", "main", "commit-1",
+                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        groups.add(new DistributedRunGroup("run-pending", 0, DistributedRunGroupStatus.COMPLETED,
+                "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5, 0L));
+        groups.add(DistributedRunGroup.pending("run-pending", 1, 1000L));
+
+        // when
+        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(openRun, groups,
+                Collections.<Integer, List<String>>emptyMap(), Collections.<Integer, Integer>emptyMap());
+
+        // then
+        assertEquals(Collections.singletonList("group 1 (PENDING)"), result);
+    }
+
+    /**
+     * A full run's CLAIMED group is described by its status alone: its assignment is a disk-scan
+     * superset that is never fully observed, so naming the unobserved suites would mislead.
+     */
+    @Test
+    void incompleteGroupsToWarnAbout_claimedGroupOfAFullRun_staysUnnamed() {
+        // given - an open seed run; the caller reads nothing for a full run
+        DistributedRun seedRun = new DistributedRun("run-seed", "main", "commit-1",
+                DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SEED, null);
+        List<DistributedRunGroup> groups = Collections.singletonList(new DistributedRunGroup("run-seed", 0,
+                DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 1, 0, 1, 0L));
+
+        // when
+        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(seedRun, groups,
+                Collections.<Integer, List<String>>emptyMap(), Collections.<Integer, Integer>emptyMap());
+
+        // then
+        assertEquals(Collections.singletonList("group 0 (CLAIMED)"), result);
+    }
+
+    /**
+     * A group missing many suites names the first 20 and counts the rest, so the WARN stays
+     * readable.
+     */
+    @Test
+    void incompleteGroupsToWarnAbout_moreThanTwentyUnobserved_namesTwentyAndCountsTheRest() {
+        // given - 25 unobserved suites, zero-padded so name order is numeric
+        DistributedRun openRun = new DistributedRun("run-many", "main", "commit-1",
+                DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SELECTIVE, null);
+        List<DistributedRunGroup> groups = Collections.singletonList(new DistributedRunGroup("run-many", 0,
+                DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 0, 0, 0, 0L));
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < 25; i++) {
+            names.add(String.format("com.example.Suite%02dTest", i));
+        }
+
+        // when
+        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(openRun, groups,
+                Collections.singletonMap(0, names), Collections.singletonMap(0, 25));
+
+        // then
+        String description = result.get(0);
+        assertTrue(description.startsWith("group 0 (CLAIMED, observed 0 of 25, not observed: [com.example.Suite00Test"),
+                description);
+        assertTrue(description.contains("com.example.Suite19Test"), description);
+        assertFalse(description.contains("com.example.Suite20Test"), description);
+        assertTrue(description.endsWith(" and 5 more)"), description);
     }
 
 }

@@ -58,8 +58,10 @@ import java.util.Set;
 public final class DistributedRunnerPersist {
 
     private static final Logger log = LoggerFactory.getLogger(DistributedRunnerPersist.class);
-    // How many suite names a rejection message lists before summarising the rest as a count.
-    private static final int MAX_SUITES_NAMED = 20;
+    // How many suite names a message lists before summarising the rest as a count. Shared with the
+    // planner's supersession WARN and the status report, so every place that names a group's
+    // missing suites caps the list the same way.
+    static final int MAX_SUITES_NAMED = 20;
 
     private final DataStore dataStore;
     private final DistributedRunnerContext context;

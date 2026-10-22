@@ -181,6 +181,67 @@ class DistributedRunStatusReportTest {
     }
 
     /**
+     * A claimed group of an ordinary run names the assigned suites its runner has not observed, on
+     * the line under its progress figure, so the reader does not have to diff the assigned list
+     * against the runner logs to find what is missing.
+     */
+    @Test
+    void shouldNameAClaimedGroupsUnobservedSuitesUnderItsProgressLine() {
+        // given - runner-b has observed ATest of group 0's ATest and BTest
+        persistPlan("build-1", "commit-abc", twoGroups(), false);
+        dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 1, 0,
+                ObservedSuites.firstAssigned(dataStore, "build-1", 0, 1), 4_000L);
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
+
+        // then
+        assertTrue(report.contains("observed 1 of 2 assigned suite(s)." + LINE_SEP
+                + "    not observed: [com.example.BTest]"), report);
+    }
+
+    /**
+     * A claimed group that has observed everything prints no {@code not observed} line - its runner
+     * may still be working, or waiting on its completion step, and an empty list says nothing.
+     */
+    @Test
+    void shouldNotPrintANotObservedLineWhenEverySuiteWasObserved() {
+        // given - runner-b has observed both of group 0's suites but not completed the group
+        persistPlan("build-1", "commit-abc", twoGroups(), false);
+        dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 2, 0,
+                ObservedSuites.firstAssigned(dataStore, "build-1", 0, 2), 4_000L);
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
+
+        // then
+        assertTrue(report.contains("observed 2 of 2 assigned suite(s)"), report);
+        assertFalse(report.contains("not observed"), report);
+    }
+
+    /**
+     * A full run's claimed group names nothing: its assignment comes from a disk scan that is never
+     * fully observed, so the unobserved suites would mislead rather than inform.
+     */
+    @Test
+    void shouldNotNameUnobservedSuitesOnAFullRun() {
+        // given - a split seed run whose runner has observed one of group 0's two suites
+        persistPlan("build-1", "commit-abc", twoGroups(), true);
+        dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 1, 0,
+                ObservedSuites.firstAssigned(dataStore, "build-1", 0, 1), 4_000L);
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
+
+        // then
+        assertTrue(report.contains("observed 1 of 2 assigned suite(s)"), report);
+        assertFalse(report.contains("not observed"), report);
+    }
+
+    /**
      * Verify a seed run's group reports its assigned suites as {@code all}, not {@code 0}. The plan
      * of a seed run deliberately carries no suite names - there is no stored mapping to draw them
      * from - while its runner executes every suite it discovers. Rendering the raw zero would repeat
