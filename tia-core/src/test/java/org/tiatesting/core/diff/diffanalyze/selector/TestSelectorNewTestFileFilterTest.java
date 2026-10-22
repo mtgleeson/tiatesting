@@ -124,6 +124,21 @@ class TestSelectorNewTestFileFilterTest {
         assertEquals(new HashSet<>(Arrays.asList(NEW_TEST, NEW_HELPER, NEW_BASE)), result.getTestsToRun());
     }
 
+    @Test
+    void aNewFileWhoseClassFileCannotBeReadIsKeptRatherThanFailingSelection() throws IOException {
+        // given - the helper's class file is corrupt (an interrupted compile, or a too-new Java version)
+        Path corrupt = testClassesDir.resolve(NEW_HELPER.replace('.', '/') + ".class");
+        Files.createDirectories(corrupt.getParent());
+        Files.write(corrupt, new byte[]{1, 2, 3});
+
+        // when
+        TestSelectorResult result = select(TestSuiteRunnabilityClassifier.forDirs(
+                Collections.singletonList(testClassesDir.toString())));
+
+        // then - selection completes, and a file Tia cannot judge is kept
+        assertEquals(new HashSet<>(Arrays.asList(NEW_TEST, NEW_HELPER, NEW_BASE)), result.getTestsToRun());
+    }
+
     /**
      * Run a selective selection over a diff that adds the three new test files.
      *

@@ -1053,7 +1053,12 @@ verdicts:
 | `ABSTRACT` | The class is abstract | Yes |
 | `NO_TEST_METHODS` | Nothing in its hierarchy within the test dirs carries a test marker | Yes |
 | `RUNNABLE` | It, or a superclass or interface in the test dirs, carries a test marker, or it extends `spock.lang.Specification` | No |
-| `UNDETERMINED` | A superclass is outside the test dirs and not a JDK class (JUnit 3's `TestCase`, a framework base), or no configured test-classes dir exists | No |
+| `UNDETERMINED` | A superclass is outside the test dirs and not a JDK class (JUnit 3's `TestCase`, a framework base), the suite's own class file or a superclass or interface in the test dirs cannot be read, or no configured test-classes dir exists | No |
+
+A class file that exists but cannot be read - truncated by an interrupted compile, or compiled for a
+Java version newer than the bundled ASM parses (it reads up to Java 23, the same ceiling as the
+bundled JaCoCo) - is logged once at WARN as `Could not read test class file ...` and treated as
+unknown, never as an error: the plan step keeps the new file, and completion does not excuse it.
 
 A *test marker* is a class or method annotation from a known test framework package (`org.junit`,
 `org.testng`, `net.jqwik`, `io.cucumber`, `com.tngtech.archunit`, `org.spockframework`, `spock`), or
@@ -1131,6 +1136,33 @@ clause. The five clauses it can produce:
 - *"the run's group rows are gone, so a newer build's plan write superseded this run"* - a
   concurrent primary build on the same branch planned over this one.
 
+That ERROR is in the runner's own log, which a pipeline may never publish: many CI setups keep
+runner logs only for jobs that failed, and a runner whose tests passed but whose completion was
+refused returns normally. So the two places a pipeline is most likely to keep say the same thing.
+The plan step's supersession WARN - the one log every pipeline keeps, and the last trace of the run
+before the plan write deletes its rows - names each `CLAIMED` group's observed-of-assigned count
+and the assigned suites it never observed:
+
+```
+Distributed run 'b-41' is being superseded before completing - this group did not reach COMPLETED:
+[group 4 (CLAIMED, observed 49 of 50, not observed: [com.example.FooTest])]
+```
+
+The status command's Outstanding block prints the same names under each claimed group:
+
+```
+  Group 4: CLAIMED by 'runner-4' (running for 12m) - observed 49 of 50 assigned suite(s).
+    not observed: [com.example.FooTest]
+```
+
+**Read those names first.** A suite that shows up there build after build is usually one that was
+renamed, deleted or excluded by a tag filter, or one the completion step could not prove unrunnable
+(see "Suites that can never run" above). In the WARN, an empty `not observed: []` means the runner
+observed everything and its completion step never ran - see "Maven: the completion must be its own
+always-run step" above. Both places cap the list at 20 names, then a count. Neither names suites for
+a `PENDING` group (nothing in it ran) or for a full run (its disk-scan assignment is never fully
+observed).
+
 **The guard is deliberately conservative.** It would rather leave a run unsealed than seal a
 catalogue built from a partial edge set, because the first costs a rebuild and the second silently
 stops selecting tests. So there is no "force complete" and no override.
@@ -1146,8 +1178,8 @@ That "the next build recovers" assumption has one way to fail: the next build re
 work that cannot complete. That is what new helper and abstract classes under a test dir used to do -
 still new relative to the stored commit, so selected again every build, so every run deadlocked the
 same way. Completion now excuses never-runnable suites, which closes that gap (see "Suites that can
-never run" above). If the same group is refused build after build, read the `not observed:` list in
-the ERROR: a suite that appears there every time and is not a real test the runner failed to reach
+never run" above). If the same group is refused build after build, read the `not observed:` list -
+in the plan step's supersession WARN, the status command, or the `dist-complete` ERROR: a suite that appears there every time and is not a real test the runner failed to reach
 is one the classifier could not prove unrunnable - typically `UNDETERMINED` because it extends a
 class outside the test dirs. One distributed build with `tiaSelectAllTests=true` moves the stored
 commit past it (see [Forced runs and re-seed](forced-runs-and-reseed.md)).

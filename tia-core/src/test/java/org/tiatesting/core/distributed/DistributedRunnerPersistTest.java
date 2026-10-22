@@ -424,7 +424,7 @@ class DistributedRunnerPersistTest {
     /**
      * A full run classifies nothing - its assignment is a disk-scan superset and its guard is already
      * loosened - so it never reads a class file. The unobserved suite's class file here is corrupt,
-     * which would throw if it were read.
+     * so reading it would log the classifier's "Could not read" WARN.
      *
      * @param classesDir the temp test-classes dir the classifier would read
      * @throws Exception if the fixture file cannot be written
@@ -441,10 +441,44 @@ class DistributedRunnerPersistTest {
         Files.write(corrupt, new byte[]{1, 2, 3});
 
         // when
-        DistributedRunGroup completed = runnerPersist.completeGroup(6000L, classifierOver(classesDir));
+        String[] log = new String[1];
+        DistributedRunGroup completed = captureLog(log, () -> runnerPersist.completeGroup(6000L,
+                classifierOver(classesDir)));
 
         // then
         assertNotNull(completed, "a full run's loosened guard needs only one observed suite");
+        assertFalse(log[0].contains("Could not read test class file"),
+                "a full run must not read any class file, was: " + log[0]);
+    }
+
+    /**
+     * An unobserved suite whose class file cannot be read - truncated, or compiled for a Java
+     * version the classifier cannot parse - is not excused: the classifier cannot tell it is not a
+     * real test the runner never reached, so the group stays open and the refusal names it.
+     *
+     * @param classesDir the temp test-classes dir the classifier reads
+     * @throws Exception if the fixture file cannot be written
+     */
+    @Test
+    void anUnobservedSuiteWithAnUnreadableClassFileIsNotExcused(@TempDir Path classesDir) throws Exception {
+        // given - 2 suites, 1 observed, the other's class file corrupt
+        persistSingleGroupPlan(RUN_ID, SelectionMode.SELECTIVE, new ArrayList<>(suites(0, 2)));
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        Path corrupt = classesDir.resolve("com/example/Suite1Test.class");
+        Files.createDirectories(corrupt.getParent());
+        Files.write(corrupt, new byte[]{1, 2, 3});
+
+        // when
+        String[] log = new String[1];
+        DistributedRunGroup completed = captureLog(log, () -> runnerPersist.completeGroup(6000L,
+                classifierOver(classesDir)));
+
+        // then
+        assertNull(completed, "an unreadable suite may be a real test, so it must not be excused");
+        assertTrue(log[0].contains("Could not read test class file"), "was: " + log[0]);
+        assertTrue(log[0].contains("not observed: [com.example.Suite1Test]"), "was: " + log[0]);
     }
 
     /**

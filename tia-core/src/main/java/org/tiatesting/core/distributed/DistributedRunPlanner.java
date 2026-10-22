@@ -506,7 +506,14 @@ public final class DistributedRunPlanner {
      *
      * <p>An unsealed run is warned about in one of two ways: when at least one group never reached
      * {@code COMPLETED}, the group numbers are named explicitly, since this log line is the only
-     * trace that abandoned work leaves once the persist below clears the rows; when every group
+     * trace that abandoned work leaves once the persist below clears the rows - and for each
+     * {@code CLAIMED} group of a non-full run, so are its observed-of-assigned count and the assigned
+     * suites its runner never observed, read here because nothing is left to read them from once
+     * the rows are gone. This is the log every pipeline keeps, where a runner whose tests passed but
+     * whose completion was refused may never have its own log published. A {@code PENDING} group ran
+     * nothing, and a full run's disk-scan assignment is never fully observed, so neither is read or
+     * named. The reads happen only when an unsealed previous run exists, and only in the plan step;
+     * when every group
      * did reach {@code COMPLETED} but the run itself is still not {@code SEALED}, the sealer died
      * after the last group finished - the build still failed and its rows are still being deleted,
      * so it is warned about too, distinctly, since there are no incomplete groups to name.
@@ -514,7 +521,22 @@ public final class DistributedRunPlanner {
     private void warnAboutIncompletePreviousRuns() {
         for (DistributedRun previousRun : dataStore.readAllDistributedRuns()) {
             List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups(previousRun.getRunId());
-            List<String> incomplete = incompleteGroupsToWarnAbout(previousRun, groups);
+            Map<Integer, List<String>> unobservedSuitesByGroup = new HashMap<>();
+            Map<Integer, Integer> assignedCountByGroup = new HashMap<>();
+            if (previousRun.getStatus() != DistributedRunStatus.SEALED && !previousRun.isFullRun()) {
+                for (DistributedRunGroup group : groups) {
+                    if (group.getStatus() == DistributedRunGroupStatus.CLAIMED) {
+                        Integer groupNumber = Integer.valueOf(group.getGroupNumber());
+                        unobservedSuitesByGroup.put(groupNumber, dataStore.readUnobservedGroupSuites(
+                                previousRun.getRunId(), group.getGroupNumber()));
+                        assignedCountByGroup.put(groupNumber, Integer.valueOf(dataStore
+                                .readDistributedRunGroupSuites(previousRun.getRunId(), group.getGroupNumber())
+                                .size()));
+                    }
+                }
+            }
+            List<String> incomplete = incompleteGroupsToWarnAbout(previousRun, groups,
+                    unobservedSuitesByGroup, assignedCountByGroup);
             if (incomplete == null) {
                 continue;
             }
@@ -541,23 +563,46 @@ public final class DistributedRunPlanner {
      * unit-testable directly against the three cases that matter - sealed, unsealed with
      * incomplete groups, and unsealed with every group complete - without a log-capture harness.
      *
+     * <p>A group with entries in both maps - a {@code CLAIMED} group of a non-full run, the only
+     * kind the caller reads them for - is described as {@code "group N (CLAIMED, observed K of M,
+     * not observed: [..])"}, naming at most {@link DistributedRunnerPersist#MAX_SUITES_NAMED}
+     * suites. An empty list is still printed: it says the runner observed everything and its
+     * completion step never ran. Every other group stays {@code "group N (STATUS)"}. The reads are
+     * passed in rather than made here so the method stays testable without a store.
+     *
      * @param previousRun the previous run being read before this build's plan clears it
      * @param groups the previous run's groups
+     * @param unobservedSuitesByGroup the assigned suites each group never observed, keyed by group
+     *                                number; holds entries only for groups to be named
+     * @param assignedCountByGroup each group's assigned suite count, keyed by group number; holds
+     *                             entries only for groups to be named
      * @return {@code null} if {@code previousRun} reached {@code SEALED} and needs no warning at
-     *         all, since it completed cleanly; otherwise the {@code "group N (STATUS)"}
-     *         description of each group that did not reach {@code COMPLETED}, in group order - an
-     *         empty (non-null) list means every group completed but the run itself never sealed,
-     *         which still warrants a warning
+     *         all, since it completed cleanly; otherwise the description of each group that did not
+     *         reach {@code COMPLETED}, in group order - an empty (non-null) list means every group
+     *         completed but the run itself never sealed, which still warrants a warning
      */
     static List<String> incompleteGroupsToWarnAbout(DistributedRun previousRun,
-                                                     List<DistributedRunGroup> groups) {
+                                                     List<DistributedRunGroup> groups,
+                                                     Map<Integer, List<String>> unobservedSuitesByGroup,
+                                                     Map<Integer, Integer> assignedCountByGroup) {
         if (previousRun.getStatus() == DistributedRunStatus.SEALED) {
             return null;
         }
         List<String> incomplete = new ArrayList<>();
         for (DistributedRunGroup group : groups) {
-            if (group.getStatus() != DistributedRunGroupStatus.COMPLETED) {
+            if (group.getStatus() == DistributedRunGroupStatus.COMPLETED) {
+                continue;
+            }
+            Integer groupNumber = Integer.valueOf(group.getGroupNumber());
+            List<String> unobserved = unobservedSuitesByGroup.get(groupNumber);
+            Integer assigned = assignedCountByGroup.get(groupNumber);
+            if (unobserved == null || assigned == null) {
                 incomplete.add("group " + group.getGroupNumber() + " (" + group.getStatus() + ")");
+            } else {
+                incomplete.add("group " + group.getGroupNumber() + " (" + group.getStatus()
+                        + ", observed " + group.getSuitesObserved() + " of " + assigned
+                        + ", not observed: " + DistributedRunnerPersist.nameAtMost(unobserved,
+                        DistributedRunnerPersist.MAX_SUITES_NAMED) + ")");
             }
         }
         return incomplete;

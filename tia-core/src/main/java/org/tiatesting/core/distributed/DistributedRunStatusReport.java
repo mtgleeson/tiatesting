@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -98,6 +99,7 @@ public final class DistributedRunStatusReport {
 
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups(run.getRunId());
         List<List<String>> assignedSuites = readAssignedSuites(dataStore, run, groups);
+        List<List<String>> unobservedSuites = readUnobservedSuites(dataStore, run, groups);
 
         StringBuilder report = new StringBuilder();
         appendHeader(report, run, groups, assignedSuites, nowMs, lineSep);
@@ -105,10 +107,10 @@ public final class DistributedRunStatusReport {
         if (groups.isEmpty()) {
             // A plan with no groups selected nothing, so there is no table, progress or suite
             // listing to show - an empty table and its legend would only read as missing data.
-            appendNoGroups(report, run, groups, assignedSuites, nowMs, lineSep);
+            appendNoGroups(report, run, groups, assignedSuites, unobservedSuites, nowMs, lineSep);
         } else {
             appendGroupTable(report, run, groups, assignedSuites, nowMs, lineSep);
-            appendOutstanding(report, run, groups, assignedSuites, nowMs, lineSep);
+            appendOutstanding(report, run, groups, assignedSuites, unobservedSuites, nowMs, lineSep);
             if (includeSuiteNames) {
                 appendSuiteNames(report, run, groups, assignedSuites, lineSep);
             }
@@ -204,6 +206,30 @@ public final class DistributedRunStatusReport {
             assigned.add(dataStore.readDistributedRunGroupSuites(run.getRunId(), group.getGroupNumber()));
         }
         return assigned;
+    }
+
+    /**
+     * Read, for each {@code CLAIMED} group of a non-full run, the assigned suites its runner has not
+     * yet reported observed, so the Outstanding block can name them rather than leave the reader to
+     * diff the assigned list against the runner logs. Every other group - pending, completed, or any
+     * group of a full run, whose disk-scan assignment is never fully observed - gets an empty list
+     * without a read.
+     *
+     * @param dataStore the datastore to read from
+     * @param run the run being reported on
+     * @param groups the run's groups, in group-number order
+     * @return one list of unobserved suite names per group, positionally matching {@code groups}
+     */
+    private static List<List<String>> readUnobservedSuites(final DataStore dataStore,
+                                                            final DistributedRun run,
+                                                            final List<DistributedRunGroup> groups) {
+        List<List<String>> unobserved = new ArrayList<>(groups.size());
+        for (DistributedRunGroup group : groups) {
+            unobserved.add(!run.isFullRun() && group.getStatus() == DistributedRunGroupStatus.CLAIMED
+                    ? dataStore.readUnobservedGroupSuites(run.getRunId(), group.getGroupNumber())
+                    : Collections.<String>emptyList());
+        }
+        return unobserved;
     }
 
     /**
@@ -387,16 +413,18 @@ public final class DistributedRunStatusReport {
      * @param run the run being reported on
      * @param groups the run's groups; empty
      * @param assignedSuites each group's assigned suite names; empty
+     * @param unobservedSuites each group's unobserved suite names; empty
      * @param nowMs the epoch millis to measure an unsealed run's age against
      * @param lineSep the line separator to join lines with
      */
     private static void appendNoGroups(final StringBuilder report, final DistributedRun run,
                                        final List<DistributedRunGroup> groups,
-                                       final List<List<String>> assignedSuites, final long nowMs,
+                                       final List<List<String>> assignedSuites,
+                                       final List<List<String>> unobservedSuites, final long nowMs,
                                        final String lineSep) {
         report.append("Groups: none - nothing was selected to run, so no runner jobs were ")
                 .append("needed and the plan step seals the run itself.");
-        appendOutstanding(report, run, groups, assignedSuites, nowMs, lineSep);
+        appendOutstanding(report, run, groups, assignedSuites, unobservedSuites, nowMs, lineSep);
     }
 
     /**
@@ -456,16 +484,25 @@ public final class DistributedRunStatusReport {
      * still working and is worth saying out loud rather than leaving the reader to infer from an
      * empty outstanding list.
      *
+     * <p>A claimed group of a non-full run also names, on the line under its progress figure, the
+     * assigned suites its runner has not observed - at most {@link
+     * DistributedRunnerPersist#MAX_SUITES_NAMED} of them, the same cap the plan step's supersession
+     * WARN and the completion step's refusal use. The line is left out when nothing is unobserved.
+     *
      * @param report the buffer to append to
      * @param run the run being reported on
      * @param groups the run's groups, in group-number order
      * @param assignedSuites each group's assigned suite names, positionally matching {@code groups}
+     * @param unobservedSuites each group's unobserved suite names, positionally matching {@code
+     *                         groups}; empty for every group that is not a claimed group of a
+     *                         non-full run
      * @param nowMs the epoch millis to measure a claimed group's elapsed time against
      * @param lineSep the line separator to join lines with
      */
     private static void appendOutstanding(final StringBuilder report, final DistributedRun run,
                                           final List<DistributedRunGroup> groups,
-                                          final List<List<String>> assignedSuites, final long nowMs,
+                                          final List<List<String>> assignedSuites,
+                                          final List<List<String>> unobservedSuites, final long nowMs,
                                           final String lineSep) {
         if (run.getStatus() == DistributedRunStatus.SEALED) {
             return;
@@ -511,6 +548,11 @@ public final class DistributedRunStatusReport {
                 } else {
                     report.append(" - observed ").append(group.getSuitesObserved()).append(" of ")
                             .append(assignedSuites.get(i).size()).append(" assigned suite(s).");
+                    List<String> notObserved = unobservedSuites.get(i);
+                    if (!notObserved.isEmpty()) {
+                        report.append(lineSep).append("    not observed: ").append(DistributedRunnerPersist
+                                .nameAtMost(notObserved, DistributedRunnerPersist.MAX_SUITES_NAMED));
+                    }
                 }
             }
         }
