@@ -19,6 +19,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -225,6 +226,7 @@ class DatastoreEquivalenceTest {
         TestSelector selector = new TestSelector(store, new File("."));
         VCSReader stubVcs = new SyntheticFooDiffVCSReader();
         return selector.selectTestsToIgnore(stubVcs, Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
                 false, null, null, false, SelectionMode.SELECTIVE);
     }
 

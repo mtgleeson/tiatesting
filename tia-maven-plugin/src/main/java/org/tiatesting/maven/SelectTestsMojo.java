@@ -14,6 +14,7 @@ import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.TestClassScanner;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
@@ -55,7 +56,9 @@ public class SelectTestsMojo extends AbstractTiaMojo {
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             // Read-only preview: no mapping writes (updateDBMapping=false).
             TestSelectorResult result = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
-                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false,
+                    testFilesDirs,
+                    TestSuiteRunnabilityClassifier.fromCsv(getProject().getBuild().getTestOutputDirectory()),
+                    isCheckLocalChanges(), libraryConfig, staticMappingConfig, false,
                     getSelectionMode());
             Set<String> testsToRun = result.getTestsToRun();
             System.out.println("Selected tests to run: ");

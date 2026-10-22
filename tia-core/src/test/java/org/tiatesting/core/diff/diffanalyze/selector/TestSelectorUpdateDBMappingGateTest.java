@@ -33,6 +33,7 @@ import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -101,7 +102,9 @@ class TestSelectorUpdateDBMappingGateTest {
 
         TestSelector testSelector = new TestSelector(dataStore, new File("."));
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.emptyList(),
-                Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
         assertTrue(dataStore.readTrackedLibraries().isEmpty(),
                 "Non-primary build must not insert tia_library rows.");
@@ -116,7 +119,9 @@ class TestSelectorUpdateDBMappingGateTest {
 
         TestSelector testSelector = new TestSelector(dataStore, new File("."));
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.emptyList(),
-                Collections.emptyList(), false, libraryConfig, null, true, SelectionMode.SELECTIVE);
+                Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, libraryConfig, null, true, SelectionMode.SELECTIVE);
 
         assertTrue(dataStore.readTrackedLibraries().containsKey("com.example:lib"),
                 "Primary build must insert the declared library on reconcile.");
@@ -135,7 +140,9 @@ class TestSelectorUpdateDBMappingGateTest {
 
         TestSelector testSelector = new TestSelector(dataStore, new File("."));
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.emptyList(),
-                Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
         assertTrue(dataStore.readTrackedLibraries().containsKey("com.example:gone"),
                 "Non-primary build must not delete tia_library rows even when config drops a library.");
@@ -159,7 +166,9 @@ class TestSelectorUpdateDBMappingGateTest {
 
         TestSelector testSelector = new TestSelector(counting, new File("."));
         testSelector.selectTestsToIgnore(libraryDiffVcsReader(), Collections.emptyList(),
-                Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
         assertEquals(0, counting.persistPendingCalls.get(),
                 "Non-primary build must not call persistPendingLibraryImpactedMethods.");
@@ -194,7 +203,9 @@ class TestSelectorUpdateDBMappingGateTest {
 
         TestSelector testSelector = new TestSelector(counting, new File("."));
         TestSelectorResult result = testSelector.selectTestsToIgnore(emptyDiffsVcsReader(),
-                Collections.emptyList(), Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(), Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
         assertTrue(result.getTestsToRun().contains("com.example.LibTest"),
                 "Preview must surface tests resolved from drained pending batches.");

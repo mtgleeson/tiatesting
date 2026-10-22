@@ -33,6 +33,7 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
@@ -668,6 +669,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
                     .selectTestsToIgnore(workspaceIdentity.openVCSReader(),
                     StringUtil.splitCsv(tiaTaskExtension.getSourceFilesDirs()),
                     StringUtil.splitCsv(tiaTaskExtension.getTestFilesDirs()),
+                    TestSuiteRunnabilityClassifier.fromCsv(joinTestClassesDirs(testTask)),
                     checkLocalChanges, libraryConfig, staticConfig, updateDBMapping, selectionMode);
         }
 

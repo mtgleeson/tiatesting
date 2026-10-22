@@ -17,6 +17,7 @@ import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.TestClassScanner;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
@@ -98,7 +99,9 @@ public class TiaDistPlanMojo extends AbstractTiaMojo {
             // is not updating the mapping and selecting against the local workspace is exactly what
             // was asked for. When tiaUpdateDBMapping is on it has already been guaranteed false.
             TestSelectorResult selection = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
-                    testFilesDirs, isTiaCheckLocalChanges(), libraryConfig, staticMappingConfig,
+                    testFilesDirs,
+                    TestSuiteRunnabilityClassifier.fromCsv(getProject().getBuild().getTestOutputDirectory()),
+                    isTiaCheckLocalChanges(), libraryConfig, staticMappingConfig,
                     isTiaUpdateDBMapping(), selectionMode);
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);

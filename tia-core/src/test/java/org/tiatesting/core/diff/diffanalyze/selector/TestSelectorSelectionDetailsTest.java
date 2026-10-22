@@ -20,6 +20,7 @@ import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -88,7 +89,9 @@ class TestSelectorSelectionDetailsTest {
 
         // when
         IllegalStateException e = assertThrows(IllegalStateException.class,
-                () -> selector.selectTestsToIgnore(vcsReader, Collections.emptyList(), null, false, null, null,
+                () -> selector.selectTestsToIgnore(vcsReader, Collections.emptyList(), null,
+                        TestSuiteRunnabilityClassifier.disabled(),
+                        false, null, null,
                         false, SelectionMode.SELECTIVE));
 
         // then
@@ -115,7 +118,9 @@ class TestSelectorSelectionDetailsTest {
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(vcsReader, Collections.emptyList(),
-                Collections.emptyList(), false, null, staticConfig, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, null, staticConfig, false, SelectionMode.SELECTIVE);
 
         // then
         TestRunSelectionDetails details = result.getSelectionDetails();
@@ -141,7 +146,9 @@ class TestSelectorSelectionDetailsTest {
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(vcsReader, Collections.emptyList(),
-                Collections.emptyList(), false, null, null, false, SelectionMode.SELECTIVE);
+                Collections.emptyList(),
+                TestSuiteRunnabilityClassifier.disabled(),
+                false, null, null, false, SelectionMode.SELECTIVE);
 
         // then - equivalent to TestRunSelectionDetails.empty() by field value (the type has no
         // equals/hashCode override, so reference comparison would not be meaningful here)
