@@ -12,6 +12,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
 import java.text.DecimalFormat;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -48,7 +49,7 @@ public class HtmlTestSuiteReport {
 
     /**
      * Write the single test-suites index page: one table row per tracked suite with its run stats
-     * and impacted-method count. Renders through {@link FastTextEscaper#reportConfig()} so text and
+     * and catalogued impacted-method count. Renders through {@link FastTextEscaper#reportConfig()} so text and
      * attribute escaping use the report's fast, allocation-light escaper.
      *
      * @param tiaData the Tia data from the DB
@@ -92,9 +93,8 @@ public class HtmlTestSuiteReport {
                                                             td(getAvgSuccess(testSuiteTracker.getTestStats())),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getNumFailRuns())),
                                                             td(getAvgFail(testSuiteTracker.getTestStats())),
-                                                            td(String.valueOf(testSuiteTracker.getClassesImpacted().stream().reduce(0,
-                                                                    (sub, classImpactTracker) -> sub + classImpactTracker.getMethodsImpacted().size(),
-                                                                    Integer::sum)))
+                                                            td(String.valueOf(countCataloguedMethods(testSuiteTracker,
+                                                                    tiaData.getMethodsTracked())))
                                                     )
                                             ))
                                     )
@@ -108,6 +108,23 @@ public class HtmlTestSuiteReport {
         }
 
         log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
+    /**
+     * Count the source methods a suite impacts that are in the method catalogue. An unsealed
+     * suite's edges can name methods the seal has not yet added to the catalogue; the suite's
+     * drill-down page leaves those out, so the index count leaves them out too.
+     *
+     * @param testSuiteTracker the suite whose impacted methods are counted
+     * @param methodsTracked the method catalogue, keyed by method id
+     * @return the number of catalogued methods the suite impacts
+     */
+    private static long countCataloguedMethods(TestSuiteTracker testSuiteTracker,
+                                               Map<Integer, MethodImpactTracker> methodsTracked) {
+        return testSuiteTracker.getClassesImpacted().stream()
+                .flatMap(classImpactTracker -> classImpactTracker.getMethodsImpacted().stream())
+                .filter(methodsTracked::containsKey)
+                .count();
     }
 
     private void generateSourceMethodReport(TiaData tiaData) {
@@ -135,8 +152,12 @@ public class HtmlTestSuiteReport {
         int lastDot = fullName.lastIndexOf('.');
         String shortName = lastDot >= 0 ? fullName.substring(lastDot + 1) : fullName;
 
+        // An unsealed suite's edges can name methods the seal has not yet added to the catalogue;
+        // those have no name to show or page to link to, so they are left out.
+        Map<Integer, MethodImpactTracker> methodsTracked = tiaData.getMethodsTracked();
         Set<Integer> methodIds = testSuiteTracker.getClassesImpacted().stream()
                 .flatMap(classImpactTracker -> classImpactTracker.getMethodsImpacted().stream())
+                .filter(methodsTracked::containsKey)
                 .collect(Collectors.toSet());
 
         try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
@@ -169,7 +190,7 @@ public class HtmlTestSuiteReport {
                                     table(attrs("#tiaSourceMethodTable"),
                                             thead(tr(th("Name"))),
                                             tbody(each(methodIds, methodId -> {
-                                                MethodImpactTracker method = tiaData.getMethodsTracked().get(methodId);
+                                                MethodImpactTracker method = methodsTracked.get(methodId);
                                                 return tr(td(a(method.getShortNameForDisplay())
                                                         .withHref(ROOT_REL + METHODS_FOLDER + "/" + methodId + ".html")
                                                         .attr("title", method.getNameForDisplay())));

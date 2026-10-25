@@ -356,13 +356,24 @@ public class HtmlSourceMethodReport {
      * Convert to a map containing a list of test suites for each impacted method. Used for
      * convenience lookup when finding the list of test suites to ignore for previously tracked
      * methods that have been changed in the diff.
+     *
+     * <p>Only methods in the catalogue are indexed. An unsealed suite's edges can name methods
+     * the seal has not yet added to {@code tia_source_method}; with no catalogue entry they have
+     * no name or lines to report, so they are skipped.
+     *
+     * @param tiaData the Tia data from the DB
+     * @return the covering suites for each catalogued method, keyed by method id
      */
     private Map<Integer, ClassTestSuite> buildMethodToTestSuiteMap(TiaData tiaData){
         Map<Integer, ClassTestSuite> methodTestSuites = new HashMap<>();
+        Map<Integer, MethodImpactTracker> methodsTracked = tiaData.getMethodsTracked();
 
         tiaData.getTestSuitesTracked().forEach((testSuiteName, testSuiteTracker) -> {
             for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
                 for (Integer methodTrackedHashCode : classImpacted.getMethodsImpacted()) {
+                    if (!methodsTracked.containsKey(methodTrackedHashCode)) {
+                        continue;
+                    }
                     ClassTestSuite classTestSuite = methodTestSuites.get(methodTrackedHashCode);
 
                     if (classTestSuite == null) {
