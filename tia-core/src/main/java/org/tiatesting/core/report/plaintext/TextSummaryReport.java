@@ -62,6 +62,15 @@ public class TextSummaryReport {
         reportOutputDir.mkdirs();
     }
 
+    /**
+     * Append the test class mapping section: for each tracked suite, in name order, the source
+     * methods it impacts with their line spans. Edges to methods missing from the method catalogue
+     * (an unsealed suite's coverage of methods the seal has not catalogued yet) are skipped.
+     *
+     * @param reportBuilder the report text being built
+     * @param tiaData the Tia data from the DB
+     * @throws IOException declared for the report writers; not thrown by this section
+     */
     private void writeTestSuiteMapping(StringBuilder reportBuilder, TiaData tiaData) throws IOException {
         String lineSep = System.lineSeparator();
         Map<Integer, MethodImpactTracker> methodImpactTrackers = tiaData.getMethodsTracked();
@@ -78,6 +87,10 @@ public class TextSummaryReport {
             for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()){
                 for (Integer methodId : classImpacted.getMethodsImpacted()){
                     MethodImpactTracker methodImpactTracker = methodImpactTrackers.get(methodId);
+                    if (methodImpactTracker == null){
+                        // An unsealed suite's edge to a method the seal has not catalogued yet.
+                        continue;
+                    }
                     fileTestEntry += lineSep + "\t" + methodImpactTracker.getMethodName() +
                             " " + lineSpan(methodImpactTracker);
                 }
