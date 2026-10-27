@@ -24,6 +24,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionResolver;
 import org.tiatesting.core.staticselection.StaticTestSelectionResult;
 import org.tiatesting.core.staticselection.pom.PomChangeAnalyzer;
 import org.tiatesting.core.staticselection.pom.PomChangeClassifier;
+import org.tiatesting.core.vcs.MissingUpstreamChanges;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.persistence.DataStore;
@@ -585,17 +586,37 @@ public class TestSelector {
         // path, so they are never content-loaded.
         List<SourceFileDiffContext> trackedModifiedSourceDiffs =
                 filterToTrackedFiles(modifiedSourceDiffs, methodsTrackedByFile, sourceFilesDirs);
-        vcsReader.loadContentForDiffs(trackedModifiedSourceDiffs, storedCommitValue, checkLocalChanges);
+
+        // A locally changed file that is missing upstream changes can't be matched to tracked
+        // methods by line number, so all of its tracked methods are treated as impacted instead.
+        // Its content isn't needed for that, so it is left out of the content load.
+        List<SourceFileDiffContext> diffsMissingUpstreamChanges = checkLocalChanges
+                ? findDiffsMissingUpstreamChanges(vcsReader, storedCommitValue, trackedModifiedSourceDiffs,
+                        methodsTrackedByFile, sourceFilesDirs)
+                : Collections.emptyList();
+        List<SourceFileDiffContext> lineMatchedDiffs = trackedModifiedSourceDiffs;
+        if (!diffsMissingUpstreamChanges.isEmpty()) {
+            Set<SourceFileDiffContext> excluded = Collections.newSetFromMap(new IdentityHashMap<>());
+            excluded.addAll(diffsMissingUpstreamChanges);
+            lineMatchedDiffs = new ArrayList<>();
+            for (SourceFileDiffContext diff : trackedModifiedSourceDiffs) {
+                if (!excluded.contains(diff)) {
+                    lineMatchedDiffs.add(diff);
+                }
+            }
+        }
+        vcsReader.loadContentForDiffs(lineMatchedDiffs, storedCommitValue, checkLocalChanges);
 
         // Partition source diffs: library diffs are excluded (stamped at publish time by the
         // library's own build), source-project diffs go to immediate selection.
-        List<SourceFileDiffContext> sourceProjectDiffs = trackedModifiedSourceDiffs;
+        List<SourceFileDiffContext> sourceProjectDiffs = lineMatchedDiffs;
         if (shouldPartitionLibraryDiffs(libraryConfig, checkLocalChanges)) {
-            sourceProjectDiffs = partitionOutLibraryDiffs(trackedModifiedSourceDiffs);
+            sourceProjectDiffs = partitionOutLibraryDiffs(lineMatchedDiffs);
         }
 
         // Find all test suites that execute the source code methods that have changed
         Set<Integer> impactedMethods = findMethodsImpacted(sourceProjectDiffs, methodsTrackedByFile, sourceFilesDirs);
+        impactedMethods.addAll(allTrackedMethodIds(diffsMissingUpstreamChanges, methodsTrackedByFile, sourceFilesDirs));
         SourceMethodTriggerResult methodResult = findTestSuitesForImpactedMethods(impactedMethods, methodsTrackedByFile);
         Set<String> testsToRun = methodResult.getTestsToRun();
 
@@ -748,6 +769,93 @@ public class TestSelector {
             }
         }
         return tracked;
+    }
+
+    /**
+     * In local-changes mode, find the tracked locally changed files whose stored method line
+     * ranges can't be trusted because the file is missing upstream changes: the commit the
+     * stored mapping was built at has changes to it that the workspace version doesn't. Tia
+     * matches a local diff to tracked methods by line number, and those line numbers were recorded
+     * from the newer version of the file, so they may not line up with the workspace copy and the
+     * changed methods could be missed. When the stored commit isn't in the local repository at
+     * all, the workspace is almost certainly behind it and the files can't be checked, so every
+     * file is treated this way. Each affected file is logged at WARN with the reason, because all
+     * of its tracked methods are treated as impacted and that widens the selection.
+     *
+     * <p>See the "Local changes and a workspace behind the mapping" chapter in {@code WIKI.md}.
+     *
+     * @param vcsReader the VCS reader used to look up the upstream changes
+     * @param storedCommitValue the commit the stored mapping was built at
+     * @param trackedModifiedSourceDiffs the tracked modified source files from the local diff
+     * @param methodsTrackedByFile the tracked methods for the changed files, keyed by mapping key
+     * @param sourceFilesDirs the configured source root directories (used for key normalization)
+     * @return the diffs whose tracked methods should all be treated as impacted; empty when none
+     */
+    private List<SourceFileDiffContext> findDiffsMissingUpstreamChanges(
+            final VCSReader vcsReader, final String storedCommitValue,
+            final List<SourceFileDiffContext> trackedModifiedSourceDiffs,
+            final Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
+            final List<String> sourceFilesDirs){
+        if (trackedModifiedSourceDiffs.isEmpty()){
+            return Collections.emptyList();
+        }
+
+        MissingUpstreamChanges missing = vcsReader.findMissingUpstreamChanges(storedCommitValue,
+                trackedModifiedSourceDiffs);
+        List<SourceFileDiffContext> affected = new ArrayList<>();
+        StringBuilder fileLines = new StringBuilder();
+        for (SourceFileDiffContext diff : trackedModifiedSourceDiffs){
+            List<String> changes = missing.getChangesByFetchKey().get(diff.getVcsFetchKey());
+            if (missing.isBaselineFound() && changes == null){
+                continue;
+            }
+            affected.add(diff);
+            String mappingKey = SourceFilenameUtil.normalizeToMappingKey(diff.getOldFilePath(), sourceFilesDirs);
+            fileLines.append(System.lineSeparator()).append("  ").append(mappingKey)
+                    .append(" (").append(methodsTrackedByFile.get(mappingKey).size()).append(" tracked methods");
+            if (changes != null){
+                fileLines.append("; missing upstream change(s): ").append(String.join(", ", changes));
+            }
+            fileLines.append(")");
+        }
+
+        if (affected.isEmpty()){
+            return affected;
+        }
+
+        String cause = missing.isBaselineFound()
+                ? "These files have changes in the commit the Tia mapping was built at (" + storedCommitValue
+                        + ") that the version in your workspace doesn't have - your workspace is behind for them."
+                : "The commit the Tia mapping was built at (" + storedCommitValue + ") isn't in your local"
+                        + " repository, so your workspace is probably behind it (fetch to bring it in) and Tia"
+                        + " can't check which of your changed files are affected.";
+        log.warn("Treating every tracked method in {} locally changed file(s) as impacted, so all of their tests"
+                + " will run:{}{}Why: {} Tia finds the methods you changed by matching the line numbers of your"
+                + " edits against the method line numbers stored in the mapping, and those were recorded from the"
+                + " newer version of each file, so they may not line up with your copy. Treating every method in"
+                + " these files as impacted makes sure no affected test is skipped. Sync to the latest and resolve"
+                + " these files to get a precise selection.",
+                affected.size(), fileLines, System.lineSeparator(), cause);
+        return affected;
+    }
+
+    /**
+     * Collect the ids of every tracked method in the given diffs' files.
+     *
+     * @param diffs the changed-file diff contexts
+     * @param methodsTrackedByFile the tracked methods for the changed files, keyed by mapping key
+     * @param sourceFilesDirs the configured source root directories (used for key normalization)
+     * @return the tracked method ids across the diffs' files
+     */
+    private Set<Integer> allTrackedMethodIds(final List<SourceFileDiffContext> diffs,
+                                             final Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
+                                             final List<String> sourceFilesDirs){
+        Set<Integer> methodIds = new HashSet<>();
+        for (SourceFileDiffContext diff : diffs){
+            String mappingKey = SourceFilenameUtil.normalizeToMappingKey(diff.getOldFilePath(), sourceFilesDirs);
+            methodIds.addAll(methodsTrackedByFile.get(mappingKey).keySet());
+        }
+        return methodIds;
     }
 
     /**

@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MissingUpstreamChanges;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -69,6 +70,20 @@ public class GitReader implements VCSReader {
     public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
                                                          final boolean checkLocalChanges) {
         return gitDiffAnalyzer.loadFileContents(gitContext, paths, baseChangeNum, checkLocalChanges);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The workspace is behind when the stored commit is not an ancestor of {@code HEAD}. Each
+     * file is then checked for commits that touched it between the merge base of {@code HEAD} and
+     * the stored commit, and the stored commit itself. A stored commit missing from the local
+     * repository (not fetched yet) gives {@link MissingUpstreamChanges#baselineNotFound()}.
+     */
+    @Override
+    public MissingUpstreamChanges findMissingUpstreamChanges(final String baseChangeNum,
+                                                             final Collection<SourceFileDiffContext> localDiffs) {
+        return gitDiffAnalyzer.findMissingUpstreamChanges(gitContext, baseChangeNum, localDiffs);
     }
 
     @Override

@@ -8,6 +8,7 @@ import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MissingUpstreamChanges;
 import org.tiatesting.core.vcs.VCSReader;
 
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -328,6 +329,19 @@ class TiaTestTaskConfigurerSchemaSuffixTest {
         }
 
         /** No resource to release. */
+        /**
+         * No locally changed file is missing an upstream change.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MissingUpstreamChanges#none()}
+         */
+        @Override
+        public MissingUpstreamChanges findMissingUpstreamChanges(String baseChangeNum,
+                Collection<SourceFileDiffContext> localDiffs) {
+            return MissingUpstreamChanges.none();
+        }
+
         @Override
         public void close() {
         }

@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MissingUpstreamChanges;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
 
@@ -322,6 +323,62 @@ public class P4DiffAnalyzer {
             return Collections.emptyMap();
         }
         return printDepotFilesAtRevision(p4Connection, existingDepotPaths, revision, "content by path at " + revision);
+    }
+
+    /**
+     * For locally opened files, find the submitted changelists each one is missing: revisions
+     * after the one the workspace has synced ({@code #have}) up to the stored changelist. One
+     * batched {@code p4 files -a <depotPath>#>have,@<baseCl>} call covers every file. The check
+     * is per file rather than against the workspace head changelist, so it also catches a single
+     * file synced to an older revision than the rest of the workspace.
+     *
+     * <p>The command is sent with {@code execMapCmdList} and explicit argv, as {@code p4 print}
+     * is (see {@link #loadFileSpecsContentIntoDiffContext}), so the {@code #>have,@cl} range
+     * reaches the server verbatim instead of being parsed into a p4java file spec.
+     *
+     * @param p4Context the Perforce context (connection + head CL).
+     * @param baseCl the changelist the stored mapping was built at.
+     * @param localDiffs the locally opened files to check; their fetch keys are depot paths.
+     * @return the missing changelist numbers (oldest first) keyed by depot path.
+     */
+    MissingUpstreamChanges findMissingUpstreamChanges(final P4Context p4Context, final String baseCl,
+                                                      final Collection<SourceFileDiffContext> localDiffs) {
+        if (localDiffs.isEmpty()) {
+            return MissingUpstreamChanges.none();
+        }
+
+        List<String> argv = new ArrayList<>(localDiffs.size() + 1);
+        argv.add("-a");
+        for (SourceFileDiffContext diff : localDiffs) {
+            argv.add(diff.getVcsFetchKey() + "#>have," + atChangelist(baseCl));
+        }
+
+        List<Map<String, Object>> results;
+        try {
+            results = p4Context.getP4Connection().getServer().execMapCmdList("files",
+                    argv.toArray(new String[0]), null);
+        } catch (P4JavaException e) {
+            throw new VCSAnalyzerException(e);
+        }
+
+        // Files with no newer revision come back as "no revision(s) after that revision" entries,
+        // which carry no depotFile/change and are skipped.
+        Map<String, TreeSet<Integer>> changesByDepotPath = new LinkedHashMap<>();
+        if (results != null) {
+            for (Map<String, Object> result : results) {
+                Object depotFile = result.get("depotFile");
+                Object change = result.get("change");
+                if (depotFile != null && change != null) {
+                    changesByDepotPath.computeIfAbsent(depotFile.toString(), key -> new TreeSet<>())
+                            .add(Integer.parseInt(change.toString()));
+                }
+            }
+        }
+
+        Map<String, List<String>> missingChanges = new LinkedHashMap<>();
+        changesByDepotPath.forEach((depotPath, changes) -> missingChanges.put(depotPath,
+                changes.stream().map(String::valueOf).collect(Collectors.toList())));
+        return MissingUpstreamChanges.of(missingChanges);
     }
 
     /**

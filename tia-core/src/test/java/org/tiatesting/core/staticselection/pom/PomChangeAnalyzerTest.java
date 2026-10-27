@@ -3,6 +3,7 @@ package org.tiatesting.core.staticselection.pom;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MissingUpstreamChanges;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.ArrayList;
@@ -174,6 +175,19 @@ class PomChangeAnalyzerTest {
                 }
             }
             return loaded;
+        }
+
+        /**
+         * No locally changed file is missing an upstream change.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MissingUpstreamChanges#none()}
+         */
+        @Override
+        public MissingUpstreamChanges findMissingUpstreamChanges(String baseChangeNum,
+                Collection<SourceFileDiffContext> localDiffs) {
+            return MissingUpstreamChanges.none();
         }
 
         /**

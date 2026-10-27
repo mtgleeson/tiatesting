@@ -7,6 +7,7 @@ import org.tiatesting.core.staticselection.pom.PomChangeAnalyzer;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.staticselection.pom.PomChangeClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MissingUpstreamChanges;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.Arrays;
@@ -430,6 +431,19 @@ class StaticTestSelectionResolverPomRuleTest {
                 loaded.put(path, contents.containsKey(path) ? contents.get(path) : new FileContentPair(null, null));
             }
             return loaded;
+        }
+
+        /**
+         * No locally changed file is missing an upstream change.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MissingUpstreamChanges#none()}
+         */
+        @Override
+        public MissingUpstreamChanges findMissingUpstreamChanges(String baseChangeNum,
+                Collection<SourceFileDiffContext> localDiffs) {
+            return MissingUpstreamChanges.none();
         }
 
         /**

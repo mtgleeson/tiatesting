@@ -87,6 +87,19 @@ public class StubVCSReaderProvider implements VCSReaderProvider {
                 throw new UnsupportedOperationException("loadFileContents is not used by this test");
             }
 
+            /**
+             * No locally changed file is missing an upstream change.
+             *
+             * @param baseChangeNum ignored
+             * @param localDiffs ignored
+             * @return {@link MissingUpstreamChanges#none()}
+             */
+            @Override
+            public MissingUpstreamChanges findMissingUpstreamChanges(final String baseChangeNum,
+                                                                     final Collection<SourceFileDiffContext> localDiffs) {
+                return MissingUpstreamChanges.none();
+            }
+
             @Override
             public void close() {
             }

@@ -6,6 +6,7 @@ import org.apache.maven.project.MavenProject;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MissingUpstreamChanges;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.Arrays;
@@ -237,6 +238,19 @@ class TiaDistPlanMojoDistributedTest {
         public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
                                                              final boolean checkLocalChanges) {
             throw new UnsupportedOperationException("loadFileContents is not used by this test");
+        }
+
+        /**
+         * No locally changed file is missing an upstream change.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MissingUpstreamChanges#none()}
+         */
+        @Override
+        public MissingUpstreamChanges findMissingUpstreamChanges(String baseChangeNum,
+                Collection<SourceFileDiffContext> localDiffs) {
+            return MissingUpstreamChanges.none();
         }
 
         /**

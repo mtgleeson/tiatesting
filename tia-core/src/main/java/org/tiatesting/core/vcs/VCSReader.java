@@ -86,7 +86,8 @@ public interface VCSReader {
      *
      * <p>For the commit range the "before" side is the file at {@code baseChangeNum} and the
      * "after" side is the file at head. For local changes the "before" side is the file at the
-     * workspace head and the "after" side is the working-copy file on disk. A side is
+     * workspace's base revision (Git {@code HEAD}, Perforce {@code #have}) and the "after" side is
+     * the working-copy file on disk. A side is
      * {@code null} when the file does not exist there.
      *
      * @param paths the repo-relative, forward-slash-normalised paths to load, in the same form
@@ -99,6 +100,27 @@ public interface VCSReader {
      */
     Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
                                                   final boolean checkLocalChanges);
+
+    /**
+     * For locally changed files, find the upstream changes each one is missing: changes to the
+     * file that are in {@code baseChangeNum} (the commit the stored mapping was built at) but not
+     * in the version the local edit is based on. This happens when the workspace, or the file
+     * itself, is behind the stored mapping commit. For such a file the stored method line ranges
+     * describe a different version of the file than the one the local diff is taken against, so
+     * the local diff can't be reliably matched to tracked methods by line number.
+     *
+     * <p>Only called in local-changes mode, with the tracked modified source files of the local
+     * diff. Implementations should cost at most one VCS round trip for the whole set.
+     *
+     * @param baseChangeNum the current commit number stored in the mapping.
+     * @param localDiffs the locally changed files to check, as produced by {@link #getDiffFiles}
+     *                   with {@code checkLocalChanges} set; may be empty.
+     * @return the files missing upstream changes, keyed by their {@code vcsFetchKey}, or
+     *         {@link MissingUpstreamChanges#baselineNotFound()} when {@code baseChangeNum} is not
+     *         in the local repository; never {@code null}.
+     */
+    MissingUpstreamChanges findMissingUpstreamChanges(final String baseChangeNum,
+                                                      final Collection<SourceFileDiffContext> localDiffs);
 
     /**
      * Do any clean up action when no further interactions with the VCS are needed.

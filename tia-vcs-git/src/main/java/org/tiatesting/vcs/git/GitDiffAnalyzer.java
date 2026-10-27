@@ -8,15 +8,20 @@ import org.eclipse.jgit.lib.*;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.FileTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
+import org.eclipse.jgit.treewalk.filter.AndTreeFilter;
+import org.eclipse.jgit.treewalk.filter.PathFilter;
+import org.eclipse.jgit.treewalk.filter.TreeFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MissingUpstreamChanges;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 
 import java.io.ByteArrayOutputStream;
@@ -34,6 +39,9 @@ import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXT;
 public class GitDiffAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(GitDiffAnalyzer.class);
+
+    /** Length of the abbreviated commit ids reported for upstream changes. */
+    private static final int ABBREVIATED_COMMIT_LENGTH = 8;
 
     /**
      * Build the list of files that have changes either since the previously stored commit, or from local uncommited changes.
@@ -493,6 +501,104 @@ public class GitDiffAnalyzer {
         } else {
             sourceFileDiffContexts.get(fileRelativePath).setSourceContentNew(fileContent);
         }
+    }
+
+    /**
+     * For locally changed files, find the commits each one is missing: commits that touched the
+     * file and are reachable from the stored commit but not from {@code HEAD}. The workspace is
+     * behind only when the stored commit is not an ancestor of {@code HEAD}, so the common case
+     * (at or ahead of the stored commit) costs one ancestry check. When it is behind, each file is
+     * looked up in the commits from the merge base of {@code HEAD} and the stored commit up to the
+     * stored commit. That covers a workspace with its own unpushed commits on an older base too.
+     *
+     * @param gitContext the Git context (repository + head).
+     * @param commitFrom the commit the stored mapping was built at.
+     * @param localDiffs the locally changed files to check; their fetch keys are repo-relative paths.
+     * @return the abbreviated ids of the missing commits (oldest first) keyed by fetch key, or
+     *         {@link MissingUpstreamChanges#baselineNotFound()} when the stored commit is not in
+     *         the local repository.
+     */
+    MissingUpstreamChanges findMissingUpstreamChanges(final GitContext gitContext, final String commitFrom,
+                                                      final Collection<SourceFileDiffContext> localDiffs) {
+        if (localDiffs.isEmpty()) {
+            return MissingUpstreamChanges.none();
+        }
+
+        Repository repository = gitContext.getRepository();
+        try (RevWalk walk = new RevWalk(repository)) {
+            ObjectId storedObjectId = getObjectId(gitContext, commitFrom);
+            if (storedObjectId == null || !repository.getObjectDatabase().has(storedObjectId)) {
+                return MissingUpstreamChanges.baselineNotFound();
+            }
+
+            RevCommit stored = walk.parseCommit(storedObjectId);
+            RevCommit head = walk.parseCommit(gitContext.getHeadObjectId());
+            if (walk.isMergedInto(stored, head)) {
+                // HEAD already contains everything in the stored commit.
+                return MissingUpstreamChanges.none();
+            }
+
+            RevCommit mergeBase = findMergeBase(repository, stored, head);
+            Map<String, List<String>> changesByPath = new LinkedHashMap<>();
+            for (SourceFileDiffContext diff : localDiffs) {
+                String path = diff.getVcsFetchKey();
+                List<String> commits = findCommitsTouchingPath(repository, stored, mergeBase, path);
+                if (!commits.isEmpty()) {
+                    changesByPath.put(path, commits);
+                }
+            }
+            return MissingUpstreamChanges.of(changesByPath);
+        } catch (IOException e) {
+            throw new VCSAnalyzerException(e);
+        }
+    }
+
+    /**
+     * Find the merge base (best common ancestor) of two commits.
+     *
+     * @param repository the Git repository.
+     * @param first one commit.
+     * @param second the other commit.
+     * @return the merge base, or {@code null} when the commits share no history.
+     * @throws IOException if the repository can't be read.
+     */
+    private RevCommit findMergeBase(final Repository repository, final RevCommit first, final RevCommit second)
+            throws IOException {
+        try (RevWalk walk = new RevWalk(repository)) {
+            walk.setRevFilter(RevFilter.MERGE_BASE);
+            walk.markStart(walk.parseCommit(first));
+            walk.markStart(walk.parseCommit(second));
+            return walk.next();
+        }
+    }
+
+    /**
+     * List the commits that changed a path, reachable from {@code tip} but not from
+     * {@code exclude} - the equivalent of {@code git log --reverse exclude..tip -- path}.
+     *
+     * @param repository the Git repository.
+     * @param tip the newest commit in the range.
+     * @param exclude the commit whose history is excluded; {@code null} to include all of
+     *                {@code tip}'s history.
+     * @param path the repo-relative path.
+     * @return the abbreviated ids of the matching commits, oldest first.
+     * @throws IOException if the repository can't be read.
+     */
+    private List<String> findCommitsTouchingPath(final Repository repository, final RevCommit tip,
+                                                 final RevCommit exclude, final String path) throws IOException {
+        List<String> commits = new ArrayList<>();
+        try (RevWalk walk = new RevWalk(repository)) {
+            walk.markStart(walk.parseCommit(tip));
+            if (exclude != null) {
+                walk.markUninteresting(walk.parseCommit(exclude));
+            }
+            walk.setTreeFilter(AndTreeFilter.create(PathFilter.create(path), TreeFilter.ANY_DIFF));
+            for (RevCommit commit : walk) {
+                commits.add(commit.abbreviate(ABBREVIATED_COMMIT_LENGTH).name());
+            }
+        }
+        Collections.reverse(commits);
+        return commits;
     }
 
     private ObjectId getObjectId(GitContext gitContext, String commit){

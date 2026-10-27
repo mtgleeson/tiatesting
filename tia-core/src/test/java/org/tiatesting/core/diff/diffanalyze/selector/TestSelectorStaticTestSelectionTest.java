@@ -23,6 +23,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MissingUpstreamChanges;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
@@ -346,6 +347,19 @@ class TestSelectorStaticTestSelectionTest {
                 loaded.put(path, contents.containsKey(path) ? contents.get(path) : new FileContentPair(null, null));
             }
             return loaded;
+        }
+
+        /**
+         * No locally changed file is missing an upstream change.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MissingUpstreamChanges#none()}
+         */
+        @Override
+        public MissingUpstreamChanges findMissingUpstreamChanges(String baseChangeNum,
+                java.util.Collection<SourceFileDiffContext> localDiffs) {
+            return MissingUpstreamChanges.none();
         }
 
         @Override
