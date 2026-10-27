@@ -27,8 +27,8 @@ is split by other members also store exact line ranges - see
 For each changed file the VCS provider supplies the original content and the new content. For
 committed changes the original is the file at the stored commit; for local workspace changes it is
 the file at the workspace's base revision (Git `HEAD`, Perforce `#have`); see
-[Local changes and a workspace behind the mapping](local-changes-behind-mapping.md) for what happens
-when that base is older than the stored commit. `MethodImpactAnalyzer` diffs them with java-diff-utils, with no context lines, and reads
+[Local changes and a workspace out of step with the mapping](local-changes-mapping-drift.md) for what happens
+when that base differs from the file at the stored commit. `MethodImpactAnalyzer` diffs them with java-diff-utils, with no context lines, and reads
 only the **original-side** line numbers of each hunk (`-N,M`), so they share the stored lines'
 coordinate space. A hunk covers original lines N to N+M-1. A pure insertion (`-N,0`) puts its lines
 before original line N; start-end matching treats it as line N.

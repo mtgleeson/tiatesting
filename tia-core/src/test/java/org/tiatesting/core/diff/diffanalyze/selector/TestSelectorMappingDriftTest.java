@@ -17,7 +17,7 @@ import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.vcs.FileContentPair;
-import org.tiatesting.core.vcs.MissingUpstreamChanges;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
@@ -37,11 +37,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies that in local-changes mode a locally changed file missing upstream changes has every
- * tracked method treated as impacted, instead of matching its diff to tracked methods by line
- * number. See the "Local changes and a workspace behind the mapping" chapter in {@code WIKI.md}.
+ * Verifies that in local-changes mode a locally changed file that has drifted from its mapped
+ * version (behind or ahead of it) has every tracked method treated as impacted, instead of matching
+ * its diff to tracked methods by line number. See the "Local changes and a workspace out of step
+ * with the mapping" chapter in {@code WIKI.md}.
  */
-class TestSelectorMissingUpstreamChangesTest {
+class TestSelectorMappingDriftTest {
 
     private static final String FOO_KEY = "com/example/Foo.java";
     private static final String BAR_KEY = "com/example/Bar.java";
@@ -57,7 +58,7 @@ class TestSelectorMissingUpstreamChangesTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        tempDir = File.createTempFile("tia-missing-upstream-", "");
+        tempDir = File.createTempFile("tia-mapping-drift-", "");
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(),
@@ -79,10 +80,10 @@ class TestSelectorMissingUpstreamChangesTest {
     }
 
     @Test
-    void fileMissingUpstreamChangesHasAllTrackedMethodsImpacted() {
-        // given - Foo and Bar are both edited on line 5; Foo is missing an upstream change
+    void fileBehindTheMappingHasAllTrackedMethodsImpacted() {
+        // given - Foo and Bar are both edited on line 5; the mapping has changes to Foo the workspace doesn't
         StubVCSReader reader = new StubVCSReader(
-                MissingUpstreamChanges.of(Collections.singletonMap(FOO_KEY, Arrays.asList("16", "18"))),
+                driftOf(FOO_KEY, new MappingDrift.FileDrift(Arrays.asList("16", "18"), Collections.emptyList())),
                 modifiedDiff(FOO_KEY), modifiedDiff(BAR_KEY));
         TestSelector selector = new TestSelector(dataStore, new File("."));
 
@@ -92,7 +93,7 @@ class TestSelectorMissingUpstreamChangesTest {
         // then - both Foo methods' suites run, though the edit only touches the top method's lines
         assertTrue(result.getTestsToRun().contains(FOO_TOP_SUITE));
         assertTrue(result.getTestsToRun().contains(FOO_BOTTOM_SUITE),
-                "every tracked method in a file missing upstream changes must be treated as impacted");
+                "every tracked method in a drifted file must be treated as impacted");
         assertTrue(result.getTestsToRun().contains(BAR_SUITE), "Bar is still matched by line");
 
         // and - Foo's content is not loaded, because its line numbers aren't used
@@ -101,9 +102,25 @@ class TestSelectorMissingUpstreamChangesTest {
     }
 
     @Test
-    void fileWithNoMissingUpstreamChangesIsMatchedByLine() {
-        // given - Foo is edited on line 5 and the workspace has every upstream change
-        StubVCSReader reader = new StubVCSReader(MissingUpstreamChanges.none(), modifiedDiff(FOO_KEY));
+    void fileAheadOfTheMappingHasAllTrackedMethodsImpacted() {
+        // given - Foo is edited on line 5; the workspace has a change to Foo the mapping doesn't
+        StubVCSReader reader = new StubVCSReader(
+                driftOf(FOO_KEY, new MappingDrift.FileDrift(Collections.emptyList(), Collections.singletonList("19"))),
+                modifiedDiff(FOO_KEY));
+        TestSelector selector = new TestSelector(dataStore, new File("."));
+
+        // when
+        TestSelectorResult result = selectLocal(selector, reader);
+
+        // then - both Foo methods' suites run and Foo's content is not loaded
+        assertTrue(result.getTestsToRun().containsAll(Arrays.asList(FOO_TOP_SUITE, FOO_BOTTOM_SUITE)));
+        assertTrue(reader.contentLoadedForKeys().isEmpty());
+    }
+
+    @Test
+    void fileWithNoMappingDriftIsMatchedByLine() {
+        // given - Foo is edited on line 5 and the workspace version of Foo is the mapped version
+        StubVCSReader reader = new StubVCSReader(MappingDrift.none(), modifiedDiff(FOO_KEY));
         TestSelector selector = new TestSelector(dataStore, new File("."));
 
         // when
@@ -118,7 +135,7 @@ class TestSelectorMissingUpstreamChangesTest {
     @Test
     void baselineNotFoundTreatsEveryLocallyChangedFileAsImpacted() {
         // given - the stored mapping commit is not in the local repository
-        StubVCSReader reader = new StubVCSReader(MissingUpstreamChanges.baselineNotFound(),
+        StubVCSReader reader = new StubVCSReader(MappingDrift.baselineNotFound(),
                 modifiedDiff(FOO_KEY), modifiedDiff(BAR_KEY));
         TestSelector selector = new TestSelector(dataStore, new File("."));
 
@@ -131,10 +148,10 @@ class TestSelectorMissingUpstreamChangesTest {
     }
 
     @Test
-    void commitRangeModeDoesNotCheckForMissingUpstreamChanges() {
-        // given - a reader that would report Foo as missing upstream changes
+    void commitRangeModeDoesNotCheckForMappingDrift() {
+        // given - a reader that would report Foo as drifted
         StubVCSReader reader = new StubVCSReader(
-                MissingUpstreamChanges.of(Collections.singletonMap(FOO_KEY, Collections.singletonList("16"))),
+                driftOf(FOO_KEY, new MappingDrift.FileDrift(Collections.singletonList("16"), Collections.emptyList())),
                 modifiedDiff(FOO_KEY));
         TestSelector selector = new TestSelector(dataStore, new File("."));
 
@@ -148,6 +165,29 @@ class TestSelectorMissingUpstreamChangesTest {
         assertTrue(reader.checkedKeys().isEmpty());
         assertTrue(result.getTestsToRun().contains(FOO_TOP_SUITE));
         assertFalse(result.getTestsToRun().contains(FOO_BOTTOM_SUITE));
+    }
+
+    @Test
+    void gitCommitIdIsAbbreviatedAndChangelistIsNot() {
+        // given
+        String gitCommit = "0123456789abcdef0123456789abcdef01234567";
+
+        // when
+        String abbreviatedGit = TestSelector.abbreviateCommit(gitCommit);
+        String changelist = TestSelector.abbreviateCommit("1234");
+
+        // then
+        assertEquals("01234567", abbreviatedGit);
+        assertEquals("1234", changelist);
+    }
+
+    /**
+     * @param fetchKey the drifted file's fetch key
+     * @param fileDrift its drift
+     * @return a drift result for that one file
+     */
+    private static MappingDrift driftOf(String fetchKey, MappingDrift.FileDrift fileDrift) {
+        return MappingDrift.of(Collections.singletonMap(fetchKey, fileDrift));
     }
 
     /**
@@ -222,22 +262,22 @@ class TestSelectorMissingUpstreamChangesTest {
     }
 
     /**
-     * Stub reader returning a fixed diff set and a fixed missing-upstream-changes result. It
+     * Stub reader returning a fixed diff set and a fixed mapping drift result. It
      * records the files the check and the content load are asked about. Loaded content changes
      * line 5, inside the 2-8 range of the top method in each file.
      */
     private static final class StubVCSReader implements VCSReader {
-        private final MissingUpstreamChanges missingUpstreamChanges;
+        private final MappingDrift drift;
         private final Set<SourceFileDiffContext> diffs;
         private final List<String> checkedKeys = new ArrayList<>();
         private final List<String> contentLoadedKeys = new ArrayList<>();
 
         /**
-         * @param missingUpstreamChanges the result to return from the check
+         * @param drift the result to return from the check
          * @param diffs the local diff
          */
-        StubVCSReader(MissingUpstreamChanges missingUpstreamChanges, SourceFileDiffContext... diffs) {
-            this.missingUpstreamChanges = missingUpstreamChanges;
+        StubVCSReader(MappingDrift drift, SourceFileDiffContext... diffs) {
+            this.drift = drift;
             this.diffs = new HashSet<>(Arrays.asList(diffs));
         }
 
@@ -287,17 +327,16 @@ class TestSelectorMissingUpstreamChangesTest {
          * @return the fixed result
          */
         @Override
-        public MissingUpstreamChanges findMissingUpstreamChanges(String baseChangeNum,
-                                                                 Collection<SourceFileDiffContext> localDiffs) {
+        public MappingDrift findMappingDrift(String baseChangeNum, Collection<SourceFileDiffContext> localDiffs) {
             for (SourceFileDiffContext diff : localDiffs) {
                 checkedKeys.add(diff.getVcsFetchKey());
             }
-            return missingUpstreamChanges;
+            return drift;
         }
 
         @Override public void close() { }
 
-        /** @return the fetch keys of the files checked for missing upstream changes */
+        /** @return the fetch keys of the files checked for mapping drift */
         List<String> checkedKeys() { return checkedKeys; }
 
         /** @return the fetch keys of the files whose content was loaded, sorted */

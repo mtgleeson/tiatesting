@@ -8,7 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
-import org.tiatesting.core.vcs.MissingUpstreamChanges;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
@@ -88,14 +88,16 @@ public class P4Reader implements VCSReader {
     /**
      * {@inheritDoc}
      *
-     * <p>Checked per file with one batched {@code p4 files -a <file>#>have,@<baseCl>} query: the
-     * revisions after the one the workspace has synced, up to the stored changelist. This also
-     * catches a single file synced to an older revision than the rest of the workspace.
+     * <p>Checked per file with one batched {@code p4 files -a} query over two ranges per file:
+     * {@code #>have,@<baseCl>} (revisions the stored changelist has after the synced one, behind)
+     * and {@code @>baseCl,#have} (synced revisions after the stored changelist, ahead). The check
+     * is per file, so it also catches a single file synced to a different revision than the rest
+     * of the workspace.
      */
     @Override
-    public MissingUpstreamChanges findMissingUpstreamChanges(final String baseChangeNum,
-                                                             final Collection<SourceFileDiffContext> localDiffs) {
-        return p4DiffAnalyzer.findMissingUpstreamChanges(p4Context, baseChangeNum, localDiffs);
+    public MappingDrift findMappingDrift(final String baseChangeNum,
+                                         final Collection<SourceFileDiffContext> localDiffs) {
+        return p4DiffAnalyzer.findMappingDrift(p4Context, baseChangeNum, localDiffs);
     }
 
     @Override

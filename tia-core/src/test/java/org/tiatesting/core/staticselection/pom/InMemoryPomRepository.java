@@ -2,7 +2,7 @@ package org.tiatesting.core.staticselection.pom;
 
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
-import org.tiatesting.core.vcs.MissingUpstreamChanges;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.ArrayList;
@@ -150,16 +150,16 @@ final class InMemoryPomRepository implements VCSReader {
     }
 
     /**
-     * No locally changed file is missing an upstream change.
+     * No locally changed file differs from its mapped version.
      *
      * @param baseChangeNum ignored
      * @param localDiffs ignored
-     * @return {@link MissingUpstreamChanges#none()}
+     * @return {@link MappingDrift#none()}
      */
     @Override
-    public MissingUpstreamChanges findMissingUpstreamChanges(String baseChangeNum,
+    public MappingDrift findMappingDrift(String baseChangeNum,
             Collection<SourceFileDiffContext> localDiffs) {
-        return MissingUpstreamChanges.none();
+        return MappingDrift.none();
     }
 
     /**

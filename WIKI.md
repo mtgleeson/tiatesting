@@ -71,10 +71,10 @@ wiki can also be read front to back.
   a method, the original-side hunk lines they're compared with, how the matched range is padded
   and its begin widened over blank and comment lines, annotations and a multi-line signature, and
   how class header and field declaration changes impact every method of the class.
-- [Local changes and a workspace behind the mapping](wiki/local-changes-behind-mapping.md) - what
-  local mode diffs (Git `HEAD`, Perforce `#have`), why a workspace behind the stored mapping commit
-  can mis-match edits to methods, and how Tia treats every tracked method in an affected file as
-  impacted.
+- [Local changes and a workspace out of step with the mapping](wiki/local-changes-mapping-drift.md) - what
+  local mode diffs (Git `HEAD`, Perforce `#have`), why a workspace behind or ahead of the stored
+  mapping commit can mis-match edits to methods, and how Tia treats every tracked method in an
+  affected file as impacted.
 - [Constructor and static initializer line ranges](wiki/initializer-line-ranges.md) - why a field
   declared after other methods stretches a constructor's line range over them, and the exact line
   ranges Tia records and matches instead.

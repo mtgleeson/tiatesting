@@ -24,7 +24,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.vcs.FileContentPair;
-import org.tiatesting.core.vcs.MissingUpstreamChanges;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
@@ -733,16 +733,16 @@ class LibraryPublishStamperTest {
         }
 
         /**
-         * No locally changed file is missing an upstream change.
+         * No locally changed file differs from its mapped version.
          *
          * @param baseChangeNum ignored
          * @param localDiffs ignored
-         * @return {@link MissingUpstreamChanges#none()}
+         * @return {@link MappingDrift#none()}
          */
         @Override
-        public MissingUpstreamChanges findMissingUpstreamChanges(String baseChangeNum,
+        public MappingDrift findMappingDrift(String baseChangeNum,
                 Collection<SourceFileDiffContext> localDiffs) {
-            return MissingUpstreamChanges.none();
+            return MappingDrift.none();
         }
 
         @Override public void close() { }

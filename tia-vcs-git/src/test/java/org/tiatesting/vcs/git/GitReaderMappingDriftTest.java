@@ -7,26 +7,29 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
-import org.tiatesting.core.vcs.MissingUpstreamChanges;
+import org.tiatesting.core.vcs.MappingDrift;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies {@link GitReader#findMissingUpstreamChanges} (delegating to {@link GitDiffAnalyzer})
- * against a throwaway on-disk Git repository: a workspace at or ahead of the stored commit has
- * nothing missing, a workspace behind it reports the commits that touched each locally changed
- * file, and a stored commit not in the repository is reported as not found.
+ * Verifies {@link GitReader#findMappingDrift} (delegating to {@link GitDiffAnalyzer})
+ * against a throwaway on-disk Git repository: a locally changed file whose blob at {@code HEAD}
+ * differs from its blob at the stored commit is reported with the commits that touched it on each
+ * side of the merge base (behind, ahead or both), an unchanged blob is not reported, and a stored
+ * commit not in the repository is reported as not found.
  */
-class GitReaderMissingUpstreamChangesTest {
+class GitReaderMappingDriftTest {
 
     private static final String FOO = "src/Foo.java";
     private static final String BAR = "src/Bar.java";
@@ -42,7 +45,7 @@ class GitReaderMissingUpstreamChangesTest {
      */
     @BeforeEach
     void setUp() throws Exception {
-        tempDir = Files.createTempDirectory("tia-git-upstream-").toFile();
+        tempDir = Files.createTempDirectory("tia-git-drift-").toFile();
         git = Git.init().setDirectory(tempDir).setInitialBranch("main").call();
     }
 
@@ -77,59 +80,104 @@ class GitReaderMissingUpstreamChangesTest {
         GitReader reader = new GitReader(tempDir.getAbsolutePath());
         try {
             // when
-            MissingUpstreamChanges missing = reader.findMissingUpstreamChanges(storedCommit,
+            MappingDrift drift = reader.findMappingDrift(storedCommit,
                     Arrays.asList(localDiff(FOO), localDiff(BAR)));
 
-            // then - Foo is missing B and C (oldest first); Bar changed in none of the missing commits
-            assertTrue(missing.isBaselineFound());
-            assertEquals(Collections.singletonMap(FOO, Arrays.asList(abbreviate(commitB), abbreviate(commitC))),
-                    missing.getChangesByFetchKey());
+            // then - Foo is missing B and C (oldest first); Bar is the same at A and D
+            assertTrue(drift.isBaselineFound());
+            assertEquals(Collections.singletonMap(FOO, behind(abbreviate(commitB), abbreviate(commitC))),
+                    drift.getDriftByFetchKey());
         } finally {
             reader.close();
         }
     }
 
     @Test
-    void workspaceAheadOfTheStoredCommitHasNothingMissing() throws Exception {
-        // given - the mapping is at A and the workspace is at B, which edited Foo
-        String storedCommit = commitFiles("A", FOO, "foo-a");
-        commitFiles("B", FOO, "foo-b");
+    void workspaceAheadReportsTheCommitsTheMappingDoesNotHave() throws Exception {
+        // given - the mapping is at A and the workspace is at C; B edited Foo and C edited Bar
+        String storedCommit = commitFiles("A", FOO, "foo-a", BAR, "bar-a");
+        String commitB = commitFiles("B", FOO, "foo-b");
+        commitFiles("C", BAR, "bar-c");
         writeFile(FOO, "foo-local");
 
         GitReader reader = new GitReader(tempDir.getAbsolutePath());
         try {
             // when
-            MissingUpstreamChanges missing = reader.findMissingUpstreamChanges(storedCommit,
+            MappingDrift drift = reader.findMappingDrift(storedCommit,
                     Collections.singletonList(localDiff(FOO)));
 
-            // then
-            assertTrue(missing.isBaselineFound());
-            assertTrue(missing.getChangesByFetchKey().isEmpty());
+            // then - only B touched Foo
+            assertTrue(drift.isBaselineFound());
+            assertEquals(Collections.singletonMap(FOO, ahead(abbreviate(commitB))), drift.getDriftByFetchKey());
         } finally {
             reader.close();
         }
     }
 
     @Test
-    void workspaceWithLocalCommitsOnAnOlderBaseReportsOnlyTheUpstreamCommits() throws Exception {
+    void workspaceAheadWithoutChangesToTheLocallyChangedFileHasNoDrift() throws Exception {
+        // given - the mapping is at A and the workspace is at B, which edited only Bar
+        String storedCommit = commitFiles("A", FOO, "foo-a", BAR, "bar-a");
+        commitFiles("B", BAR, "bar-b");
+        writeFile(FOO, "foo-local");
+
+        GitReader reader = new GitReader(tempDir.getAbsolutePath());
+        try {
+            // when
+            MappingDrift drift = reader.findMappingDrift(storedCommit,
+                    Collections.singletonList(localDiff(FOO)));
+
+            // then
+            assertTrue(drift.isBaselineFound());
+            assertTrue(drift.getDriftByFetchKey().isEmpty());
+        } finally {
+            reader.close();
+        }
+    }
+
+    @Test
+    void fileChangedAndRevertedSinceTheStoredCommitHasNoDrift() throws Exception {
+        // given - the mapping is at A; B changed Foo and C changed it back
+        String storedCommit = commitFiles("A", FOO, "foo-a");
+        commitFiles("B", FOO, "foo-b");
+        commitFiles("C", FOO, "foo-a");
+        writeFile(FOO, "foo-local");
+
+        GitReader reader = new GitReader(tempDir.getAbsolutePath());
+        try {
+            // when
+            MappingDrift drift = reader.findMappingDrift(storedCommit,
+                    Collections.singletonList(localDiff(FOO)));
+
+            // then - Foo at HEAD is the mapped version, so its line numbers still line up
+            assertTrue(drift.getDriftByFetchKey().isEmpty());
+        } finally {
+            reader.close();
+        }
+    }
+
+    @Test
+    void workspaceWithLocalCommitsOnAnOlderBaseReportsBothSides() throws Exception {
         // given - main: A adds Foo/Bar, B edits Foo (the mapping is at B). The workspace branched
         // at A and committed its own edit to Bar, then edited both files locally.
         String commitA = commitFiles("A", FOO, "foo-a", BAR, "bar-a");
         String storedCommit = commitFiles("B", FOO, "foo-b");
         git.checkout().setCreateBranch(true).setName("feature").setStartPoint(commitA).call();
-        commitFiles("local", BAR, "bar-local-commit");
+        String localCommit = commitFiles("local", BAR, "bar-local-commit");
         writeFile(FOO, "foo-local");
         writeFile(BAR, "bar-local");
 
         GitReader reader = new GitReader(tempDir.getAbsolutePath());
         try {
             // when
-            MissingUpstreamChanges missing = reader.findMissingUpstreamChanges(storedCommit,
+            MappingDrift drift = reader.findMappingDrift(storedCommit,
                     Arrays.asList(localDiff(FOO), localDiff(BAR)));
 
-            // then - only B (upstream, touching Foo) is missing; the local commit is not upstream
-            assertEquals(Collections.singletonMap(FOO, Collections.singletonList(abbreviate(storedCommit))),
-                    missing.getChangesByFetchKey());
+            // then - Foo is missing B (upstream); Bar has the local commit the mapping doesn't
+            Map<String, MappingDrift.FileDrift> expected = new LinkedHashMap<>();
+            expected.put(FOO, behind(abbreviate(storedCommit)));
+            expected.put(BAR, ahead(abbreviate(localCommit)));
+            assertEquals(expected, drift.getDriftByFetchKey());
         } finally {
             reader.close();
         }
@@ -144,12 +192,12 @@ class GitReaderMissingUpstreamChangesTest {
         GitReader reader = new GitReader(tempDir.getAbsolutePath());
         try {
             // when
-            MissingUpstreamChanges missing = reader.findMissingUpstreamChanges(
+            MappingDrift drift = reader.findMappingDrift(
                     "0123456789abcdef0123456789abcdef01234567", Collections.singletonList(localDiff(FOO)));
 
             // then
-            assertFalse(missing.isBaselineFound());
-            assertTrue(missing.getChangesByFetchKey().isEmpty());
+            assertFalse(drift.isBaselineFound());
+            assertTrue(drift.getDriftByFetchKey().isEmpty());
         } finally {
             reader.close();
         }
@@ -166,6 +214,22 @@ class GitReaderMissingUpstreamChangesTest {
         SourceFileDiffContext diff = new SourceFileDiffContext(localPath, localPath, ChangeType.MODIFY);
         diff.setVcsFetchKey(path);
         return diff;
+    }
+
+    /**
+     * @param commits the commits in the mapping the workspace doesn't have, oldest first.
+     * @return a behind-only file drift.
+     */
+    private static MappingDrift.FileDrift behind(String... commits) {
+        return new MappingDrift.FileDrift(Arrays.asList(commits), Collections.emptyList());
+    }
+
+    /**
+     * @param commits the commits in the workspace the mapping doesn't have, oldest first.
+     * @return an ahead-only file drift.
+     */
+    private static MappingDrift.FileDrift ahead(String... commits) {
+        return new MappingDrift.FileDrift(Collections.emptyList(), Arrays.asList(commits));
     }
 
     /**

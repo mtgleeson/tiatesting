@@ -88,16 +88,16 @@ public class StubVCSReaderProvider implements VCSReaderProvider {
             }
 
             /**
-             * No locally changed file is missing an upstream change.
+             * No locally changed file differs from its mapped version.
              *
              * @param baseChangeNum ignored
              * @param localDiffs ignored
-             * @return {@link MissingUpstreamChanges#none()}
+             * @return {@link MappingDrift#none()}
              */
             @Override
-            public MissingUpstreamChanges findMissingUpstreamChanges(final String baseChangeNum,
+            public MappingDrift findMappingDrift(final String baseChangeNum,
                                                                      final Collection<SourceFileDiffContext> localDiffs) {
-                return MissingUpstreamChanges.none();
+                return MappingDrift.none();
             }
 
             @Override

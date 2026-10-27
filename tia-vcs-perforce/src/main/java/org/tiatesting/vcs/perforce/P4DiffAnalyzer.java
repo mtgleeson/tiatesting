@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
-import org.tiatesting.core.vcs.MissingUpstreamChanges;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
 
@@ -326,31 +326,37 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * For locally opened files, find the submitted changelists each one is missing: revisions
-     * after the one the workspace has synced ({@code #have}) up to the stored changelist. One
-     * batched {@code p4 files -a <depotPath>#>have,@<baseCl>} call covers every file. The check
+     * For locally opened files, find the ones whose synced revision ({@code #have}) differs from
+     * their revision at the stored changelist, and the submitted changelists that make up the
+     * difference. One batched {@code p4 files -a} call covers every file with two ranges each:
+     * {@code <depotPath>#>have,@<baseCl>} lists the revisions the stored changelist has after the
+     * synced one (behind), and {@code <depotPath>@>baseCl,#have} lists the synced revisions after
+     * the stored changelist (ahead). At most one of the two is non-empty for a file, and each
+     * revision is assigned to a side by whether its changelist is after {@code baseCl}. The check
      * is per file rather than against the workspace head changelist, so it also catches a single
-     * file synced to an older revision than the rest of the workspace.
+     * file synced to a different revision than the rest of the workspace.
      *
      * <p>The command is sent with {@code execMapCmdList} and explicit argv, as {@code p4 print}
-     * is (see {@link #loadFileSpecsContentIntoDiffContext}), so the {@code #>have,@cl} range
-     * reaches the server verbatim instead of being parsed into a p4java file spec.
+     * is (see {@link #loadFileSpecsContentIntoDiffContext}), so the revision ranges reach the
+     * server verbatim instead of being parsed into p4java file specs.
      *
      * @param p4Context the Perforce context (connection + head CL).
      * @param baseCl the changelist the stored mapping was built at.
      * @param localDiffs the locally opened files to check; their fetch keys are depot paths.
-     * @return the missing changelist numbers (oldest first) keyed by depot path.
+     * @return the drift of each drifted file keyed by depot path, with changelist numbers oldest
+     *         first.
      */
-    MissingUpstreamChanges findMissingUpstreamChanges(final P4Context p4Context, final String baseCl,
-                                                      final Collection<SourceFileDiffContext> localDiffs) {
+    MappingDrift findMappingDrift(final P4Context p4Context, final String baseCl,
+                                  final Collection<SourceFileDiffContext> localDiffs) {
         if (localDiffs.isEmpty()) {
-            return MissingUpstreamChanges.none();
+            return MappingDrift.none();
         }
 
-        List<String> argv = new ArrayList<>(localDiffs.size() + 1);
+        List<String> argv = new ArrayList<>(localDiffs.size() * 2 + 1);
         argv.add("-a");
         for (SourceFileDiffContext diff : localDiffs) {
             argv.add(diff.getVcsFetchKey() + "#>have," + atChangelist(baseCl));
+            argv.add(diff.getVcsFetchKey() + "@>" + baseCl + "," + HAVE_REVISION);
         }
 
         List<Map<String, Object>> results;
@@ -361,24 +367,47 @@ public class P4DiffAnalyzer {
             throw new VCSAnalyzerException(e);
         }
 
-        // Files with no newer revision come back as "no revision(s) after that revision" entries,
-        // which carry no depotFile/change and are skipped.
-        Map<String, TreeSet<Integer>> changesByDepotPath = new LinkedHashMap<>();
+        // A range with no revisions comes back as an error entry ("no revision(s) after that
+        // revision", "no file(s) at that changelist number", "file(s) not on client"), which
+        // carries no depotFile/change and is skipped.
+        int base = Integer.parseInt(baseCl);
+        Map<String, TreeSet<Integer>> notInWorkspaceByDepotPath = new LinkedHashMap<>();
+        Map<String, TreeSet<Integer>> notInMappingByDepotPath = new LinkedHashMap<>();
         if (results != null) {
             for (Map<String, Object> result : results) {
                 Object depotFile = result.get("depotFile");
                 Object change = result.get("change");
                 if (depotFile != null && change != null) {
-                    changesByDepotPath.computeIfAbsent(depotFile.toString(), key -> new TreeSet<>())
-                            .add(Integer.parseInt(change.toString()));
+                    int cl = Integer.parseInt(change.toString());
+                    Map<String, TreeSet<Integer>> side = cl > base ? notInMappingByDepotPath : notInWorkspaceByDepotPath;
+                    side.computeIfAbsent(depotFile.toString(), key -> new TreeSet<>()).add(cl);
                 }
             }
         }
 
-        Map<String, List<String>> missingChanges = new LinkedHashMap<>();
-        changesByDepotPath.forEach((depotPath, changes) -> missingChanges.put(depotPath,
-                changes.stream().map(String::valueOf).collect(Collectors.toList())));
-        return MissingUpstreamChanges.of(missingChanges);
+        Map<String, MappingDrift.FileDrift> driftByDepotPath = new LinkedHashMap<>();
+        for (SourceFileDiffContext diff : localDiffs) {
+            String depotPath = diff.getVcsFetchKey();
+            List<String> notInWorkspace = toChangeIds(notInWorkspaceByDepotPath.get(depotPath));
+            List<String> notInMapping = toChangeIds(notInMappingByDepotPath.get(depotPath));
+            if (!notInWorkspace.isEmpty() || !notInMapping.isEmpty()) {
+                driftByDepotPath.put(depotPath, new MappingDrift.FileDrift(notInWorkspace, notInMapping));
+            }
+        }
+        return MappingDrift.of(driftByDepotPath);
+    }
+
+    /**
+     * Convert a sorted set of changelist numbers to change id strings.
+     *
+     * @param changelists the changelist numbers in ascending order; {@code null} for none.
+     * @return the changelists as strings, oldest first; empty when {@code changelists} is {@code null}.
+     */
+    private static List<String> toChangeIds(final TreeSet<Integer> changelists) {
+        if (changelists == null) {
+            return Collections.emptyList();
+        }
+        return changelists.stream().map(String::valueOf).collect(Collectors.toList());
     }
 
     /**

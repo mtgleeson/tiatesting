@@ -24,7 +24,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionResolver;
 import org.tiatesting.core.staticselection.StaticTestSelectionResult;
 import org.tiatesting.core.staticselection.pom.PomChangeAnalyzer;
 import org.tiatesting.core.staticselection.pom.PomChangeClassifier;
-import org.tiatesting.core.vcs.MissingUpstreamChanges;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.persistence.DataStore;
@@ -587,17 +587,17 @@ public class TestSelector {
         List<SourceFileDiffContext> trackedModifiedSourceDiffs =
                 filterToTrackedFiles(modifiedSourceDiffs, methodsTrackedByFile, sourceFilesDirs);
 
-        // A locally changed file that is missing upstream changes can't be matched to tracked
-        // methods by line number, so all of its tracked methods are treated as impacted instead.
-        // Its content isn't needed for that, so it is left out of the content load.
-        List<SourceFileDiffContext> diffsMissingUpstreamChanges = checkLocalChanges
-                ? findDiffsMissingUpstreamChanges(vcsReader, storedCommitValue, trackedModifiedSourceDiffs,
+        // A locally changed file whose base differs from its mapped version can't be matched to
+        // tracked methods by line number, so all of its tracked methods are treated as impacted
+        // instead. Its content isn't needed for that, so it is left out of the content load.
+        List<SourceFileDiffContext> driftedDiffs = checkLocalChanges
+                ? findDriftedDiffs(vcsReader, storedCommitValue, trackedModifiedSourceDiffs,
                         methodsTrackedByFile, sourceFilesDirs)
                 : Collections.emptyList();
         List<SourceFileDiffContext> lineMatchedDiffs = trackedModifiedSourceDiffs;
-        if (!diffsMissingUpstreamChanges.isEmpty()) {
+        if (!driftedDiffs.isEmpty()) {
             Set<SourceFileDiffContext> excluded = Collections.newSetFromMap(new IdentityHashMap<>());
-            excluded.addAll(diffsMissingUpstreamChanges);
+            excluded.addAll(driftedDiffs);
             lineMatchedDiffs = new ArrayList<>();
             for (SourceFileDiffContext diff : trackedModifiedSourceDiffs) {
                 if (!excluded.contains(diff)) {
@@ -616,7 +616,7 @@ public class TestSelector {
 
         // Find all test suites that execute the source code methods that have changed
         Set<Integer> impactedMethods = findMethodsImpacted(sourceProjectDiffs, methodsTrackedByFile, sourceFilesDirs);
-        impactedMethods.addAll(allTrackedMethodIds(diffsMissingUpstreamChanges, methodsTrackedByFile, sourceFilesDirs));
+        impactedMethods.addAll(allTrackedMethodIds(driftedDiffs, methodsTrackedByFile, sourceFilesDirs));
         SourceMethodTriggerResult methodResult = findTestSuitesForImpactedMethods(impactedMethods, methodsTrackedByFile);
         Set<String> testsToRun = methodResult.getTestsToRun();
 
@@ -773,25 +773,29 @@ public class TestSelector {
 
     /**
      * In local-changes mode, find the tracked locally changed files whose stored method line
-     * ranges can't be trusted because the file is missing upstream changes: the commit the
-     * stored mapping was built at has changes to it that the workspace version doesn't. Tia
-     * matches a local diff to tracked methods by line number, and those line numbers were recorded
-     * from the newer version of the file, so they may not line up with the workspace copy and the
-     * changed methods could be missed. When the stored commit isn't in the local repository at
-     * all, the workspace is almost certainly behind it and the files can't be checked, so every
-     * file is treated this way. Each affected file is logged at WARN with the reason, because all
-     * of its tracked methods are treated as impacted and that widens the selection.
+     * ranges can't be trusted because the file has drifted from the mapping: the version the local
+     * edit is based on differs from the version at the commit the stored mapping was built at.
+     * The workspace copy is either missing changes the mapping has (behind) or has changes the
+     * mapping doesn't (ahead, e.g. synced past the mapping commit while the mapping job catches
+     * up), or both. Tia matches a local diff to tracked methods by line number, and those line
+     * numbers were recorded from the mapped version of the file, so they may not line up with the
+     * workspace copy and the changed methods could be missed. When the stored commit isn't in the
+     * local repository at all, the workspace is almost certainly behind it and the files can't be
+     * checked, so every file is treated this way. Each affected file is logged at WARN with the
+     * reason, because all of its tracked methods are treated as impacted and that widens the
+     * selection.
      *
-     * <p>See the "Local changes and a workspace behind the mapping" chapter in {@code WIKI.md}.
+     * <p>See the "Local changes and a workspace out of step with the mapping" chapter in
+     * {@code WIKI.md}.
      *
-     * @param vcsReader the VCS reader used to look up the upstream changes
+     * @param vcsReader the VCS reader used to look up the drift
      * @param storedCommitValue the commit the stored mapping was built at
      * @param trackedModifiedSourceDiffs the tracked modified source files from the local diff
      * @param methodsTrackedByFile the tracked methods for the changed files, keyed by mapping key
      * @param sourceFilesDirs the configured source root directories (used for key normalization)
      * @return the diffs whose tracked methods should all be treated as impacted; empty when none
      */
-    private List<SourceFileDiffContext> findDiffsMissingUpstreamChanges(
+    private List<SourceFileDiffContext> findDriftedDiffs(
             final VCSReader vcsReader, final String storedCommitValue,
             final List<SourceFileDiffContext> trackedModifiedSourceDiffs,
             final Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
@@ -800,21 +804,29 @@ public class TestSelector {
             return Collections.emptyList();
         }
 
-        MissingUpstreamChanges missing = vcsReader.findMissingUpstreamChanges(storedCommitValue,
-                trackedModifiedSourceDiffs);
+        MappingDrift drift = vcsReader.findMappingDrift(storedCommitValue, trackedModifiedSourceDiffs);
         List<SourceFileDiffContext> affected = new ArrayList<>();
         StringBuilder fileLines = new StringBuilder();
+        boolean anyBehind = false;
+        boolean anyAhead = false;
         for (SourceFileDiffContext diff : trackedModifiedSourceDiffs){
-            List<String> changes = missing.getChangesByFetchKey().get(diff.getVcsFetchKey());
-            if (missing.isBaselineFound() && changes == null){
+            MappingDrift.FileDrift fileDrift = drift.getDriftByFetchKey().get(diff.getVcsFetchKey());
+            if (drift.isBaselineFound() && fileDrift == null){
                 continue;
             }
             affected.add(diff);
             String mappingKey = SourceFilenameUtil.normalizeToMappingKey(diff.getOldFilePath(), sourceFilesDirs);
             fileLines.append(System.lineSeparator()).append("  ").append(mappingKey)
                     .append(" (").append(methodsTrackedByFile.get(mappingKey).size()).append(" tracked methods");
-            if (changes != null){
-                fileLines.append("; missing upstream change(s): ").append(String.join(", ", changes));
+            if (fileDrift != null && !fileDrift.getChangesNotInWorkspace().isEmpty()){
+                anyBehind = true;
+                fileLines.append("; in the mapping but not your copy: ")
+                        .append(String.join(", ", fileDrift.getChangesNotInWorkspace()));
+            }
+            if (fileDrift != null && !fileDrift.getChangesNotInMapping().isEmpty()){
+                anyAhead = true;
+                fileLines.append("; in your copy but not the mapping: ")
+                        .append(String.join(", ", fileDrift.getChangesNotInMapping()));
             }
             fileLines.append(")");
         }
@@ -823,20 +835,67 @@ public class TestSelector {
             return affected;
         }
 
-        String cause = missing.isBaselineFound()
-                ? "These files have changes in the commit the Tia mapping was built at (" + storedCommitValue
-                        + ") that the version in your workspace doesn't have - your workspace is behind for them."
-                : "The commit the Tia mapping was built at (" + storedCommitValue + ") isn't in your local"
-                        + " repository, so your workspace is probably behind it (fetch to bring it in) and Tia"
-                        + " can't check which of your changed files are affected.";
         log.warn("Treating every tracked method in {} locally changed file(s) as impacted, so all of their tests"
                 + " will run:{}{}Why: {} Tia finds the methods you changed by matching the line numbers of your"
-                + " edits against the method line numbers stored in the mapping, and those were recorded from the"
-                + " newer version of each file, so they may not line up with your copy. Treating every method in"
-                + " these files as impacted makes sure no affected test is skipped. Sync to the latest and resolve"
-                + " these files to get a precise selection.",
-                affected.size(), fileLines, System.lineSeparator(), cause);
+                + " edits against the method line numbers stored in the mapping, and those were recorded from a"
+                + " different version of each file, so they may not line up with your copy. Treating every method"
+                + " in these files as impacted makes sure no affected test is skipped.{}",
+                affected.size(), fileLines, System.lineSeparator(),
+                driftCause(drift.isBaselineFound(), abbreviateCommit(storedCommitValue)),
+                driftAdvice(anyBehind, anyAhead));
         return affected;
+    }
+
+    /**
+     * Explain why the files in the drift WARN were treated as fully impacted.
+     *
+     * @param baselineFound whether the stored mapping commit is in the local repository
+     * @param mappingCommit the stored mapping commit, as shown in the message
+     * @return the cause sentence(s) for the WARN
+     */
+    private static String driftCause(final boolean baselineFound, final String mappingCommit){
+        if (baselineFound){
+            return "Your copy of these files isn't the version the Tia mapping was built at (" + mappingCommit + ").";
+        }
+        return "The commit the Tia mapping was built at (" + mappingCommit + ") isn't in your local repository,"
+                + " so your workspace is probably behind it (fetch to bring it in) and Tia can't check which of"
+                + " your changed files are affected.";
+    }
+
+    /**
+     * Say how to get a precise selection back, for each direction the listed files drifted in.
+     *
+     * @param anyBehind whether any listed file is missing changes the mapping has
+     * @param anyAhead whether any listed file has changes the mapping doesn't
+     * @return the advice sentences for the end of the WARN, each with a leading space; empty when
+     *         neither applies (the baseline was not found and the cause already says to fetch)
+     */
+    private static String driftAdvice(final boolean anyBehind, final boolean anyAhead){
+        StringBuilder advice = new StringBuilder();
+        if (anyBehind){
+            advice.append(" For files with changes in the mapping but not your copy, sync to the latest and resolve"
+                    + " them to get a precise selection.");
+        }
+        if (anyAhead){
+            advice.append(" For files with changes in your copy but not the mapping, the selection becomes precise"
+                    + " again once the mapping is rebuilt with those changes.");
+        }
+        return advice.toString();
+    }
+
+    /**
+     * Shorten a commit value for a log message: a 40-character hex Git commit id is cut to its
+     * first 8 characters, matching the abbreviated ids the Git reader reports per file, and any
+     * other value, such as a Perforce changelist number, is returned unchanged.
+     *
+     * @param commitValue the stored commit value
+     * @return the commit value to show in a log message
+     */
+    static String abbreviateCommit(final String commitValue){
+        if (commitValue.length() == 40 && commitValue.chars().allMatch(c -> Character.digit(c, 16) >= 0)){
+            return commitValue.substring(0, 8);
+        }
+        return commitValue;
     }
 
     /**

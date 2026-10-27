@@ -15,13 +15,14 @@ import org.eclipse.jgit.treewalk.FileTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.treewalk.filter.AndTreeFilter;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
+import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
 import org.eclipse.jgit.treewalk.filter.TreeFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
-import org.tiatesting.core.vcs.MissingUpstreamChanges;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 
 import java.io.ByteArrayOutputStream;
@@ -40,7 +41,7 @@ public class GitDiffAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(GitDiffAnalyzer.class);
 
-    /** Length of the abbreviated commit ids reported for upstream changes. */
+    /** Length of the abbreviated commit ids reported for mapping drift. */
     private static final int ABBREVIATED_COMMIT_LENGTH = 8;
 
     /**
@@ -504,53 +505,88 @@ public class GitDiffAnalyzer {
     }
 
     /**
-     * For locally changed files, find the commits each one is missing: commits that touched the
-     * file and are reachable from the stored commit but not from {@code HEAD}. The workspace is
-     * behind only when the stored commit is not an ancestor of {@code HEAD}, so the common case
-     * (at or ahead of the stored commit) costs one ancestry check. When it is behind, each file is
-     * looked up in the commits from the merge base of {@code HEAD} and the stored commit up to the
-     * stored commit. That covers a workspace with its own unpushed commits on an older base too.
+     * For locally changed files, find the ones whose version at {@code HEAD} (the base of the
+     * local edit) differs from their version at the stored commit, and the commits that make up
+     * the difference. One tree walk over the two commits compares the files' blobs, so a workspace
+     * at the stored commit, or one whose newer commits didn't touch these files, costs just that.
+     * For each drifted file the commits that touched it are listed from the merge base of the two
+     * commits up to the stored commit (missing from the workspace, behind) and up to {@code HEAD}
+     * (not in the mapping, ahead - including the developer's own unpushed commits).
      *
      * @param gitContext the Git context (repository + head).
      * @param commitFrom the commit the stored mapping was built at.
      * @param localDiffs the locally changed files to check; their fetch keys are repo-relative paths.
-     * @return the abbreviated ids of the missing commits (oldest first) keyed by fetch key, or
-     *         {@link MissingUpstreamChanges#baselineNotFound()} when the stored commit is not in
-     *         the local repository.
+     * @return the drift of each drifted file keyed by fetch key, with abbreviated commit ids
+     *         oldest first, or {@link MappingDrift#baselineNotFound()} when the stored commit is
+     *         not in the local repository.
      */
-    MissingUpstreamChanges findMissingUpstreamChanges(final GitContext gitContext, final String commitFrom,
-                                                      final Collection<SourceFileDiffContext> localDiffs) {
+    MappingDrift findMappingDrift(final GitContext gitContext, final String commitFrom,
+                                  final Collection<SourceFileDiffContext> localDiffs) {
         if (localDiffs.isEmpty()) {
-            return MissingUpstreamChanges.none();
+            return MappingDrift.none();
         }
 
         Repository repository = gitContext.getRepository();
         try (RevWalk walk = new RevWalk(repository)) {
             ObjectId storedObjectId = getObjectId(gitContext, commitFrom);
             if (storedObjectId == null || !repository.getObjectDatabase().has(storedObjectId)) {
-                return MissingUpstreamChanges.baselineNotFound();
+                return MappingDrift.baselineNotFound();
             }
 
             RevCommit stored = walk.parseCommit(storedObjectId);
             RevCommit head = walk.parseCommit(gitContext.getHeadObjectId());
-            if (walk.isMergedInto(stored, head)) {
-                // HEAD already contains everything in the stored commit.
-                return MissingUpstreamChanges.none();
+            if (stored.equals(head)) {
+                return MappingDrift.none();
+            }
+
+            Set<String> paths = new LinkedHashSet<>();
+            for (SourceFileDiffContext diff : localDiffs) {
+                paths.add(diff.getVcsFetchKey());
+            }
+            Set<String> driftedPaths = findPathsDifferingBetween(repository, stored.getTree(), head.getTree(), paths);
+            if (driftedPaths.isEmpty()) {
+                return MappingDrift.none();
             }
 
             RevCommit mergeBase = findMergeBase(repository, stored, head);
-            Map<String, List<String>> changesByPath = new LinkedHashMap<>();
-            for (SourceFileDiffContext diff : localDiffs) {
-                String path = diff.getVcsFetchKey();
-                List<String> commits = findCommitsTouchingPath(repository, stored, mergeBase, path);
-                if (!commits.isEmpty()) {
-                    changesByPath.put(path, commits);
+            Map<String, MappingDrift.FileDrift> driftByPath = new LinkedHashMap<>();
+            for (String path : paths) {
+                if (driftedPaths.contains(path)) {
+                    driftByPath.put(path, new MappingDrift.FileDrift(
+                            findCommitsTouchingPath(repository, stored, mergeBase, path),
+                            findCommitsTouchingPath(repository, head, mergeBase, path)));
                 }
             }
-            return MissingUpstreamChanges.of(changesByPath);
+            return MappingDrift.of(driftByPath);
         } catch (IOException e) {
             throw new VCSAnalyzerException(e);
         }
+    }
+
+    /**
+     * Find which of the given paths have a different blob in one tree than in the other,
+     * including a path present in only one of them, with a single recursive tree walk.
+     *
+     * @param repository the Git repository.
+     * @param first one tree.
+     * @param second the other tree.
+     * @param paths the repo-relative paths to compare.
+     * @return the paths that differ between the trees.
+     * @throws IOException if the repository can't be read.
+     */
+    private Set<String> findPathsDifferingBetween(final Repository repository, final RevTree first,
+                                                  final RevTree second, final Set<String> paths) throws IOException {
+        Set<String> differing = new HashSet<>();
+        try (TreeWalk treeWalk = new TreeWalk(repository)) {
+            treeWalk.addTree(first);
+            treeWalk.addTree(second);
+            treeWalk.setRecursive(true);
+            treeWalk.setFilter(AndTreeFilter.create(PathFilterGroup.createFromStrings(paths), TreeFilter.ANY_DIFF));
+            while (treeWalk.next()) {
+                differing.add(treeWalk.getPathString());
+            }
+        }
+        return differing;
     }
 
     /**
@@ -581,12 +617,16 @@ public class GitDiffAnalyzer {
      * @param exclude the commit whose history is excluded; {@code null} to include all of
      *                {@code tip}'s history.
      * @param path the repo-relative path.
-     * @return the abbreviated ids of the matching commits, oldest first.
+     * @return the abbreviated ids of the matching commits, oldest first; empty when {@code tip} is
+     *         {@code exclude}.
      * @throws IOException if the repository can't be read.
      */
     private List<String> findCommitsTouchingPath(final Repository repository, final RevCommit tip,
                                                  final RevCommit exclude, final String path) throws IOException {
         List<String> commits = new ArrayList<>();
+        if (tip.equals(exclude)) {
+            return commits;
+        }
         try (RevWalk walk = new RevWalk(repository)) {
             walk.markStart(walk.parseCommit(tip));
             if (exclude != null) {
