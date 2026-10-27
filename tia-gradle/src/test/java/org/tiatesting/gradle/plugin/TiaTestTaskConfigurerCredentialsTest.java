@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
@@ -277,6 +278,19 @@ class TiaTestTaskConfigurerCredentialsTest {
         }
 
         /** No resource to release. */
+        /**
+         * No locally changed file differs from its mapped version.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MappingDrift#none()}
+         */
+        @Override
+        public MappingDrift findMappingDrift(String baseChangeNum,
+                Collection<SourceFileDiffContext> localDiffs) {
+            return MappingDrift.none();
+        }
+
         @Override
         public void close() {
         }

@@ -8,6 +8,7 @@ import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSReader;
 
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -328,6 +329,19 @@ class TiaTestTaskConfigurerSchemaSuffixTest {
         }
 
         /** No resource to release. */
+        /**
+         * No locally changed file differs from its mapped version.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MappingDrift#none()}
+         */
+        @Override
+        public MappingDrift findMappingDrift(String baseChangeNum,
+                Collection<SourceFileDiffContext> localDiffs) {
+            return MappingDrift.none();
+        }
+
         @Override
         public void close() {
         }

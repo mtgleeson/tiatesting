@@ -87,6 +87,19 @@ public class StubVCSReaderProvider implements VCSReaderProvider {
                 throw new UnsupportedOperationException("loadFileContents is not used by this test");
             }
 
+            /**
+             * No locally changed file differs from its mapped version.
+             *
+             * @param baseChangeNum ignored
+             * @param localDiffs ignored
+             * @return {@link MappingDrift#none()}
+             */
+            @Override
+            public MappingDrift findMappingDrift(final String baseChangeNum,
+                                                                     final Collection<SourceFileDiffContext> localDiffs) {
+                return MappingDrift.none();
+            }
+
             @Override
             public void close() {
             }

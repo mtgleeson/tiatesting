@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -69,6 +70,20 @@ public class GitReader implements VCSReader {
     public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
                                                          final boolean checkLocalChanges) {
         return gitDiffAnalyzer.loadFileContents(gitContext, paths, baseChangeNum, checkLocalChanges);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>A file drifts when its blob at {@code HEAD} differs from its blob at the stored commit.
+     * Each drifted file's changes are then listed from the merge base of the two commits up to
+     * each of them. A stored commit missing from the local repository (not fetched yet) gives
+     * {@link MappingDrift#baselineNotFound()}.
+     */
+    @Override
+    public MappingDrift findMappingDrift(final String baseChangeNum,
+                                         final Collection<SourceFileDiffContext> localDiffs) {
+        return gitDiffAnalyzer.findMappingDrift(gitContext, baseChangeNum, localDiffs);
     }
 
     @Override

@@ -3,6 +3,7 @@ package org.tiatesting.core.staticselection.pom;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.ArrayList;
@@ -174,6 +175,19 @@ class PomChangeAnalyzerTest {
                 }
             }
             return loaded;
+        }
+
+        /**
+         * No locally changed file differs from its mapped version.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MappingDrift#none()}
+         */
+        @Override
+        public MappingDrift findMappingDrift(String baseChangeNum,
+                Collection<SourceFileDiffContext> localDiffs) {
+            return MappingDrift.none();
         }
 
         /**

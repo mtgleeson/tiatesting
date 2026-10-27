@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
@@ -290,6 +291,19 @@ class TiaDistPlanTaskTest {
         public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
                                                              final boolean checkLocalChanges) {
             throw new UnsupportedOperationException("loadFileContents is not used by this test");
+        }
+
+        /**
+         * No locally changed file differs from its mapped version.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MappingDrift#none()}
+         */
+        @Override
+        public MappingDrift findMappingDrift(String baseChangeNum,
+                Collection<SourceFileDiffContext> localDiffs) {
+            return MappingDrift.none();
         }
 
         /**

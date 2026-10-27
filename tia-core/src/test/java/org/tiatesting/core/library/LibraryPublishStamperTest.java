@@ -24,6 +24,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
@@ -729,6 +730,19 @@ class LibraryPublishStamperTest {
                 loaded.put(path, fileContents.containsKey(path) ? fileContents.get(path) : new FileContentPair(null, null));
             }
             return loaded;
+        }
+
+        /**
+         * No locally changed file differs from its mapped version.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MappingDrift#none()}
+         */
+        @Override
+        public MappingDrift findMappingDrift(String baseChangeNum,
+                Collection<SourceFileDiffContext> localDiffs) {
+            return MappingDrift.none();
         }
 
         @Override public void close() { }

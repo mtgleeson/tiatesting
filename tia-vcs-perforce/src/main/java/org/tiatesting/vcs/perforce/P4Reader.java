@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.FileContentPair;
+import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
@@ -82,6 +83,21 @@ public class P4Reader implements VCSReader {
     public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
                                                          final boolean checkLocalChanges) {
         return p4DiffAnalyzer.loadFileContents(p4Context, paths, baseChangeNum, checkLocalChanges);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Checked per file with one batched {@code p4 files -a} query over two ranges per file:
+     * {@code #>have,@<baseCl>} (revisions the stored changelist has after the synced one, behind)
+     * and {@code @>baseCl,#have} (synced revisions after the stored changelist, ahead). The check
+     * is per file, so it also catches a single file synced to a different revision than the rest
+     * of the workspace.
+     */
+    @Override
+    public MappingDrift findMappingDrift(final String baseChangeNum,
+                                         final Collection<SourceFileDiffContext> localDiffs) {
+        return p4DiffAnalyzer.findMappingDrift(p4Context, baseChangeNum, localDiffs);
     }
 
     @Override
