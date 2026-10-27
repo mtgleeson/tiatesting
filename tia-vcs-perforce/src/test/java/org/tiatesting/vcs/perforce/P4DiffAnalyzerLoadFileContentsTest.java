@@ -181,7 +181,7 @@ class P4DiffAnalyzerLoadFileContentsTest {
     }
 
     @Test
-    void localMode_printsHeadAndReadsTheWorkingCopy(@TempDir File workspace) throws Exception {
+    void localMode_printsHaveAndReadsTheWorkingCopy(@TempDir File workspace) throws Exception {
         // given - the workspace root is a temp dir; the module POM is edited on disk, the root
         // POM is removed from disk, and a new POM exists only on disk (not yet in the depot)
         String root = workspace.getAbsolutePath().replace('\\', '/');
@@ -203,13 +203,13 @@ class P4DiffAnalyzerLoadFileContentsTest {
         Map<String, FileContentPair> contents = analyzer.loadFileContents(p4Context,
                 new HashSet<>(Arrays.asList(ROOT_POM, MODULE_POM, "module-b/pom.xml")), "100", true);
 
-        // then - "before" printed at head (one print only), "after" read from disk
+        // then - "before" printed at the have revision (one print only), "after" read from disk
         assertEquals(new FileContentPair("<root/>\n", null), contents.get(ROOT_POM));
         assertEquals(new FileContentPair("<head/>\n", "<local/>"), contents.get(MODULE_POM));
         assertEquals(new FileContentPair(null, "<b/>"), contents.get("module-b/pom.xml"));
         ArgumentCaptor<String[]> argv = ArgumentCaptor.forClass(String[].class);
         verify(server, times(1)).execStreamCmd(eq("print"), argv.capture());
-        assertTrue(Arrays.stream(argv.getValue()).allMatch(arg -> arg.endsWith("@103")));
+        assertTrue(Arrays.stream(argv.getValue()).allMatch(arg -> arg.endsWith("#have")));
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.perforce.p4java.server.IOptionsServer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -17,7 +18,10 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -102,6 +106,34 @@ class P4DiffAnalyzerContentSubsetTest {
         assertEquals("class Bar { after }\n", bar.getSourceContentNew());
         assertNull(baz.getSourceContentOriginal(), "excluded file must not be fetched");
         assertNull(baz.getSourceContentNew(), "excluded file must not be fetched");
+    }
+
+    @Test
+    void localChangesReadTheBeforeSideAtTheHaveRevision(@TempDir File workspace) throws P4JavaException, IOException {
+        // given - Foo is opened for edit in a workspace whose newest synced CL is 103; Foo itself
+        // may be synced to an older revision, so its "before" must be the have revision, not @103
+        File localFoo = new File(workspace, "Foo.java");
+        Files.write(localFoo.toPath(), "class Foo { local }".getBytes(StandardCharsets.UTF_8));
+        SourceFileDiffContext foo = modifiedDiff(FOO_DEPOT);
+        foo.setLocalContentPath(localFoo.getAbsolutePath());
+
+        IFileSpec fooSpec = depotSpec(FOO_DEPOT);
+        when(server.getDepotFiles(any(), anyBoolean())).thenReturn(Collections.singletonList(fooSpec));
+        when(server.execStreamCmd(eq("print"), any(String[].class)))
+                .thenReturn(streamFor(printedFiles(Collections.singletonList(FOO_DEPOT),
+                        Collections.singletonList("class Foo { have }"))));
+
+        P4Context ctx = new P4Context(p4Connection, "main", "103");
+
+        // when
+        analyzer.loadContentForDiffContexts(ctx, Collections.singleton(foo), "100", true);
+
+        // then - one print, at #have; the "after" side comes from the working copy on disk
+        ArgumentCaptor<String[]> argvCaptor = ArgumentCaptor.forClass(String[].class);
+        verify(server, times(1)).execStreamCmd(eq("print"), argvCaptor.capture());
+        assertEquals(Collections.singletonList(FOO_DEPOT + "#have"), Arrays.asList(argvCaptor.getValue()));
+        assertEquals("class Foo { have }\n", foo.getSourceContentOriginal());
+        assertEquals("class Foo { local }", foo.getSourceContentNew());
     }
 
     @Test

@@ -36,6 +36,14 @@ public class P4DiffAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(P4DiffAnalyzer.class);
 
     /**
+     * Revision specifier for the revision of a file the workspace is synced to. This is the base
+     * an opened file's local edit sits on, so it is the "before" side of a local-changes diff.
+     * Unlike {@code @<workspace head CL>}, it stays correct when files in the workspace are synced
+     * to different changelists.
+     */
+    static final String HAVE_REVISION = "#have";
+
+    /**
      * Build the list of files that have changes either since the previously stored submit, or from local changes.
      * Return the list of SourceFileDiffContext.
      *
@@ -71,8 +79,8 @@ public class P4DiffAnalyzer {
      * Load the before/after file content onto the given diff contexts, keyed by each context's
      * {@link SourceFileDiffContext#getVcsFetchKey() depot-path fetch key}. For the submitted-range
      * case the "before" is read at {@code baseCl} and the "after" at head; for local changes the
-     * "before" is read at head and the "after" is the working-copy content from
-     * {@link SourceFileDiffContext#getLocalContentPath()}.
+     * "before" is read at the workspace's {@link #HAVE_REVISION have revision} and the "after" is
+     * the working-copy content from {@link SourceFileDiffContext#getLocalContentPath()}.
      *
      * @param p4Context the Perforce context (connection + head CL)
      * @param diffs the diff contexts to populate; may be empty
@@ -93,11 +101,11 @@ public class P4DiffAnalyzer {
 
         P4Connection p4Connection = p4Context.getP4Connection();
         if (checkLocalChanges) {
-            readFileContentForVersion(p4Connection, p4Context.getHeadCL(), true, diffsByDepotPath);
+            readFileContentForVersion(p4Connection, HAVE_REVISION, true, diffsByDepotPath);
             loadLocalContentFromDisk(diffs, false);
         } else {
-            readFileContentForVersion(p4Connection, baseCl, true, diffsByDepotPath);
-            readFileContentForVersion(p4Connection, p4Context.getHeadCL(), false, diffsByDepotPath);
+            readFileContentForVersion(p4Connection, atChangelist(baseCl), true, diffsByDepotPath);
+            readFileContentForVersion(p4Connection, atChangelist(p4Context.getHeadCL()), false, diffsByDepotPath);
         }
     }
 
@@ -174,7 +182,8 @@ public class P4DiffAnalyzer {
      * form {@link #getChangedFilePaths} returns). Each path is resolved to its depot path through
      * the client view with one {@code p4 where} call. For the CL range the "before" side is
      * printed at {@code baseCl} and the "after" side at head; for local changes the "before" side
-     * is printed at head and the "after" side is the working-copy file on disk. Each printed side
+     * is printed at the workspace's {@link #HAVE_REVISION have revision} and the "after" side is
+     * the working-copy file on disk. Each printed side
      * is one {@code p4 files} existence query plus one batched {@code p4 print}, regardless of
      * how many paths are requested.
      *
@@ -201,11 +210,12 @@ public class P4DiffAnalyzer {
         Map<String, String> oldByDepotPath;
         Map<String, String> newByDepotPath;
         if (checkLocalChanges) {
-            oldByDepotPath = printExistingDepotFiles(p4Connection, depotPathByPath.values(), p4Context.getHeadCL());
+            oldByDepotPath = printExistingDepotFiles(p4Connection, depotPathByPath.values(), HAVE_REVISION);
             newByDepotPath = null;
         } else {
-            oldByDepotPath = printExistingDepotFiles(p4Connection, depotPathByPath.values(), baseCl);
-            newByDepotPath = printExistingDepotFiles(p4Connection, depotPathByPath.values(), p4Context.getHeadCL());
+            oldByDepotPath = printExistingDepotFiles(p4Connection, depotPathByPath.values(), atChangelist(baseCl));
+            newByDepotPath = printExistingDepotFiles(p4Connection, depotPathByPath.values(),
+                    atChangelist(p4Context.getHeadCL()));
         }
 
         for (String path : paths) {
@@ -269,26 +279,26 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * Print the content of the given depot paths at a changelist, skipping paths that do not
+     * Print the content of the given depot paths at a revision, skipping paths that do not
      * exist there. Existence is checked first with one {@code p4 files} query: a path missing at
-     * the changelist comes back with no depot path, and a path whose revision at the changelist
-     * is a delete has no content to print. The remaining paths are fetched in one batched
-     * {@code p4 print}.
+     * the revision comes back with no depot path, and a path whose revision is a delete has no
+     * content to print. The remaining paths are fetched in one batched {@code p4 print}.
      *
      * @param p4Connection the Perforce connection.
      * @param depotPaths the depot paths to print.
-     * @param cl the changelist to print at.
-     * @return content keyed by depot path, for the paths that exist at {@code cl}.
+     * @param revision the revision specifier appended to each depot path, e.g. {@code @1234}
+     *                 or {@link #HAVE_REVISION}.
+     * @return content keyed by depot path, for the paths that exist at {@code revision}.
      */
     private Map<String, String> printExistingDepotFiles(final P4Connection p4Connection,
-                                                        final Collection<String> depotPaths, final String cl) {
+                                                        final Collection<String> depotPaths, final String revision) {
         if (depotPaths.isEmpty()) {
             return Collections.emptyMap();
         }
 
         List<String> annotatedPaths = new ArrayList<>(depotPaths.size());
         for (String depotPath : depotPaths) {
-            annotatedPaths.add(depotPath + "@" + cl);
+            annotatedPaths.add(depotPath + revision);
         }
 
         Set<String> requestedDepotPaths = new HashSet<>(depotPaths);
@@ -311,7 +321,18 @@ public class P4DiffAnalyzer {
         if (existingDepotPaths.isEmpty()) {
             return Collections.emptyMap();
         }
-        return printDepotFilesAtChangelist(p4Connection, existingDepotPaths, cl, "content by path at CL " + cl);
+        return printDepotFilesAtRevision(p4Connection, existingDepotPaths, revision, "content by path at " + revision);
+    }
+
+    /**
+     * Build the revision specifier for a changelist, e.g. {@code @1234}, for appending to a
+     * depot path.
+     *
+     * @param cl the changelist number.
+     * @return the {@code @<cl>} revision specifier.
+     */
+    private static String atChangelist(final String cl) {
+        return "@" + cl;
     }
 
     /**
@@ -944,24 +965,25 @@ public class P4DiffAnalyzer {
      * Read the content of a list of source files at a given version.
      * Read the content for each of the given source files and load it into a map to be used later for diffing.
      *
-     * p4Connection the Perforce connection being used for the analysis.
-     * @param cl the id of the changelist revision we are reading the file content for
+     * @param p4Connection the Perforce connection being used for the analysis.
+     * @param revision the revision specifier appended to each depot path, e.g. {@code @1234}
+     *                 or {@link #HAVE_REVISION}
      * @param forOriginal is the file content being read used as the 'before' in the diff?
      * @param sourceFileDiffContexts the map of source files that were impacted in the diff range
      */
-    private void readFileContentForVersion(P4Connection p4Connection, String cl, boolean forOriginal,
+    private void readFileContentForVersion(P4Connection p4Connection, String revision, boolean forOriginal,
                                            Map<String, SourceFileDiffContext> sourceFileDiffContexts) {
         try {
             List<String> filePaths = new ArrayList<>();
             sourceFileDiffContexts.forEach((depotPath, sourceFileDiffContext) -> {
                 // don't try read the original content for files that were added
                 if (forOriginal && sourceFileDiffContext.getChangeType() != ChangeType.ADD){
-                    filePaths.add(depotPath + "@" + cl);
+                    filePaths.add(depotPath + revision);
                 }
 
                 // don't try read the new content for files that were deleted
                 if (!forOriginal && sourceFileDiffContext.getChangeType() != ChangeType.DELETE){
-                    filePaths.add(depotPath + "@" + cl);
+                    filePaths.add(depotPath + revision);
                 }
             });
 
@@ -969,10 +991,10 @@ public class P4DiffAnalyzer {
             List<IFileSpec> revisionFileSpecs = p4Connection.getServer().getDepotFiles(searchFileSpecs, false);
 
             if (revisionFileSpecs == null || revisionFileSpecs.isEmpty()){
-                throw new VCSAnalyzerException("Couldn't find the source files in Perforce for revision " + cl);
+                throw new VCSAnalyzerException("Couldn't find the source files in Perforce for revision " + revision);
             }
 
-            loadFileSpecsContentIntoDiffContext(p4Connection, revisionFileSpecs, sourceFileDiffContexts, forOriginal, cl);
+            loadFileSpecsContentIntoDiffContext(p4Connection, revisionFileSpecs, sourceFileDiffContexts, forOriginal, revision);
         } catch (P4JavaException e) {
             throw new VCSAnalyzerException(e);
         }
@@ -1009,7 +1031,7 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * Load content for every file in {@code revisionFileSpecs} at the given changelist into
+     * Load content for every file in {@code revisionFileSpecs} at the given revision into
      * the matching {@link SourceFileDiffContext}. Fetches all files in a single
      * {@code p4 print} round-trip per version - replaces the older per-file loop that made
      * one round-trip per file.
@@ -1052,14 +1074,15 @@ public class P4DiffAnalyzer {
      *                               is populated based on {@code forOriginal}
      * @param forOriginal {@code true} when fetching the "before" version, {@code false} for
      *                    the "after" version
-     * @param cl the changelist id used as the {@code @CL} annotation in the argv (same id
-     *           that was passed to {@code getDepotFiles} to resolve the specs)
+     * @param revision the revision specifier appended to each depot path in the argv, e.g.
+     *                 {@code @1234} or {@link #HAVE_REVISION} (the same specifier that was passed
+     *                 to {@code getDepotFiles} to resolve the specs)
      */
     private void loadFileSpecsContentIntoDiffContext(P4Connection p4Connection,
                                                      List<IFileSpec> revisionFileSpecs,
                                                      Map<String, SourceFileDiffContext> sourceFileDiffContexts,
                                                      boolean forOriginal,
-                                                     String cl) {
+                                                     String revision) {
         List<String> expectedDepotPaths = new ArrayList<>(revisionFileSpecs.size());
         for (IFileSpec fileSpec : revisionFileSpecs) {
             String depotPath = fileSpec.getDepotPathString();
@@ -1081,7 +1104,7 @@ public class P4DiffAnalyzer {
             return;
         }
 
-        Map<String, String> contentByDepotPath = printDepotFilesAtChangelist(p4Connection, expectedDepotPaths, cl,
+        Map<String, String> contentByDepotPath = printDepotFilesAtRevision(p4Connection, expectedDepotPaths, revision,
                 "forOriginal=" + forOriginal);
         for (String depotPath : expectedDepotPaths) {
             loadFileContentIntoDiffContext(sourceFileDiffContexts, forOriginal, depotPath,
@@ -1090,27 +1113,28 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * Fetch the content of every given depot path at the given changelist in a single batched
+     * Fetch the content of every given depot path at the given revision in a single batched
      * {@code p4 print} round-trip and return it keyed by depot path. See
-     * {@link #loadFileSpecsContentIntoDiffContext} for why the argv is built by hand with an
-     * {@code @CL} annotation and how the concatenated output is split per file. Every requested
-     * path must exist at the changelist: a path whose header is missing from the response fails
+     * {@link #loadFileSpecsContentIntoDiffContext} for why the argv is built by hand with a
+     * revision annotation and how the concatenated output is split per file. Every requested
+     * path must exist at the revision: a path whose header is missing from the response fails
      * fast rather than being returned without content, because silently missing content would
      * mis-select tests.
      *
      * @param p4Connection the Perforce connection used to call {@code execStreamCmd}.
-     * @param depotPaths the depot paths to print; must be non-empty and exist at {@code cl}.
-     * @param cl the changelist id each path is printed at.
+     * @param depotPaths the depot paths to print; must be non-empty and exist at {@code revision}.
+     * @param revision the revision specifier appended to each depot path, e.g. {@code @1234}
+     *                 or {@link #HAVE_REVISION}.
      * @param requestLabel a short description of the request, included in error messages.
      * @return the content of every requested depot path, keyed by depot path.
      */
-    private Map<String, String> printDepotFilesAtChangelist(final P4Connection p4Connection,
-                                                            final List<String> depotPaths,
-                                                            final String cl,
-                                                            final String requestLabel) {
+    private Map<String, String> printDepotFilesAtRevision(final P4Connection p4Connection,
+                                                          final List<String> depotPaths,
+                                                          final String revision,
+                                                          final String requestLabel) {
         List<String> argvList = new ArrayList<>(depotPaths.size());
         for (String depotPath : depotPaths) {
-            argvList.add(depotPath + "@" + cl);
+            argvList.add(depotPath + revision);
         }
 
         byte[] streamBytes;
