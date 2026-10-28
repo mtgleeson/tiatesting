@@ -10,6 +10,7 @@ import org.tiatesting.core.model.LineRanges;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.sourcefile.SourceFilenameUtil;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -36,6 +37,10 @@ public class MethodImpactAnalyzer {
      * Compare two versions of a source file and create a unified diff.
      * Parse the original content as a Java file and check each method to see if it's in the diff based on the
      * file line numbers and the diff segment line numbers.
+     *
+     * <p>Logs one DEBUG summary line per file - its hunk ranges, its tracked method count and how many
+     * of them matched - plus one DEBUG line per match. The tracked methods' widened ranges are logged
+     * at TRACE, so the DEBUG output grows with the matches rather than with hunks x methods.
      *
      * @param originalFileContent the original file content
      * @param newFilContent the new file content
@@ -68,25 +73,36 @@ public class MethodImpactAnalyzer {
                 For each diff, get the line number from the original file, then find the method from the tracked list within
                 the line number range (using start and end line numbers).
              */
-            Map<Integer, MethodImpactTracker> methodsTrackedForSourceFile =
-                    getMethodsTrackedForSourceFile(methodsTrackedByFile, originalFileName, sourceFilesDirs);
+            String mappingKey = SourceFilenameUtil.normalizeToMappingKey(originalFileName, sourceFilesDirs);
+            Map<Integer, MethodImpactTracker> methodsTrackedForSourceFile = methodsTrackedByFile.get(mappingKey);
 
             if (methodsTrackedForSourceFile != null && !methodsTrackedForSourceFile.isEmpty()){
                 Map<String, Set<Integer>> methodIdsByClass = groupMethodIdsByClassPath(methodsTrackedForSourceFile);
                 Map<String, int[]> declarationLinesByClass = ClassDeclarationScanner.scan(originalFileLines);
+                Map<Integer, int[]> widenedLineRanges = widenMethodLineRanges(methodsTrackedForSourceFile,
+                        originalFileLines);
+                Set<Integer> methodsImpactedInFile = new HashSet<>();
+                List<String> hunkRanges = new ArrayList<>();
 
-                unifiedDiff.forEach( patchDiff -> {
-
+                for (String patchDiff : unifiedDiff) {
                     DiffContext diffContext = new DiffContext();
                     setImpactedLineBeginEnd(patchDiff, diffContext);
 
                     if (diffContext.isUnifiedDiff()){
-                        findTrackedMethodsForSourceDiff(diffContext, methodsTrackedForSourceFile, originalFileLines,
-                                methodsInvokedByChanges);
+                        hunkRanges.add(formatHunkRange(diffContext));
+                        findTrackedMethodsForSourceDiff(diffContext, methodsTrackedForSourceFile, widenedLineRanges,
+                                methodsImpactedInFile);
                         findTrackedClassesForDeclarationDiff(diffContext, declarationLinesByClass, methodIdsByClass,
-                                newFileLines, methodsInvokedByChanges);
+                                newFileLines, methodsImpactedInFile);
                     }
-                });
+                }
+
+                methodsInvokedByChanges.addAll(methodsImpactedInFile);
+                log.debug("{}: {} hunk(s) {} against {} tracked method(s), {} matched", mappingKey,
+                        hunkRanges.size(), hunkRanges, methodsTrackedForSourceFile.size(),
+                        methodsImpactedInFile.size());
+            } else {
+                log.debug("{}: no tracked methods", mappingKey);
             }
         } catch (DiffException e) {
             e.printStackTrace();
@@ -95,23 +111,64 @@ public class MethodImpactAnalyzer {
     }
 
     /**
-     * Look up the tracked methods for a source file from a VCS diff. The diff's file path
-     * is normalized to the stored mapping key via
-     * {@link SourceFilenameUtil#normalizeToMappingKey(String, List)} so the lookup matches
-     * the relative, forward-slash keys produced by the coverage agent.
+     * Work out, once per file, the line range each start-end tracked method is matched against: its
+     * padded stored range with the begin widened upwards to the top of its declaration (see
+     * {@link #widenStartToDeclaration(int, List)}). The range depends only on the method, not on
+     * the diff hunk, so computing it here rather than per hunk keeps the matching cost at hunks plus
+     * methods for the widening walk. Methods carrying exact line ranges are matched against those
+     * and get no entry.
      *
-     * @param methodsTrackedByFile the tracked methods for the changed files, keyed by mapping key
-     * @param originalFilePath the original (pre-change) file path from the diff
-     * @param sourceFilesDirs the configured source root directories to strip from the path
-     * @return the tracked methods (by id) for the file, or {@code null} when the file isn't tracked
+     * <p>Each method's range is logged at TRACE, one line per method. Together with the hunk ranges
+     * in the per-file DEBUG summary, these lines rebuild every hunk-to-method comparison, for
+     * debugging a method that should have matched and didn't. TRACE is dropped by the Gradle daemon,
+     * so only Maven can show them - see "Logging conventions (TRACE vs DEBUG)" in {@code WIKI.md}.
+     *
+     * @param methodsTrackedForSourceFile the tracked methods (by id) for the changed file
+     * @param originalFileLines the original (pre-change) file content, line 1 at index 0
+     * @return the widened inclusive {@code [begin, end]} range per start-end method id
      */
-    private Map<Integer, MethodImpactTracker> getMethodsTrackedForSourceFile(
-            final Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
-            final String originalFilePath,
-            final List<String> sourceFilesDirs){
-        String fileName = SourceFilenameUtil.normalizeToMappingKey(originalFilePath, sourceFilesDirs);
-        log.debug("File name to lookup tracked classes for methods - {}", fileName);
-        return methodsTrackedByFile.get(fileName);
+    private Map<Integer, int[]> widenMethodLineRanges(final Map<Integer, MethodImpactTracker> methodsTrackedForSourceFile,
+                                                      final List<String> originalFileLines){
+        Map<Integer, int[]> widenedLineRanges = new HashMap<>();
+        boolean traceEnabled = log.isTraceEnabled();
+        for (Map.Entry<Integer, MethodImpactTracker> trackedMethod : methodsTrackedForSourceFile.entrySet()) {
+            MethodImpactTracker methodImpactTracker = trackedMethod.getValue();
+            if (methodImpactTracker.getLineRanges() != null) {
+                if (traceEnabled) {
+                    log.trace("Tracked method {}, stored line ranges: {}", methodImpactTracker.getMethodName(),
+                            LineRanges.format(methodImpactTracker.getLineRanges()));
+                }
+                continue;
+            }
+
+            // start-end widened by one line either side, to catch changes to the method name line and
+            // the closing brace, then upwards to the top of the method's declaration (its annotations and
+            // a multi-line signature)
+            int[] matchedLineRange = methodImpactTracker.getMatchedLineRanges();
+            int[] widened = new int[]{widenStartToDeclaration(matchedLineRange[0], originalFileLines),
+                    matchedLineRange[1]};
+            widenedLineRanges.put(trackedMethod.getKey(), widened);
+            if (traceEnabled) {
+                log.trace("Tracked method {}, method line begin: {}, method line end: {}",
+                        methodImpactTracker.getMethodName(), widened[0], widened[1]);
+            }
+        }
+        return widenedLineRanges;
+    }
+
+    /**
+     * Format a hunk's original-side lines for the per-file DEBUG summary: {@code 31-33} for a hunk
+     * that changes or removes original lines 31 to 33, or {@code +31} for a pure insertion
+     * ({@code -31,0}), which changes no original line.
+     *
+     * @param diffContext the parsed diff hunk
+     * @return the hunk's line range as shown in the summary
+     */
+    private static String formatHunkRange(final DiffContext diffContext){
+        if (diffContext.isInsertion()) {
+            return "+" + diffContext.getImpactedLineNumBegin();
+        }
+        return diffContext.getImpactedLineNumBegin() + "-" + diffContext.getImpactedLineNumEnd();
     }
 
     /**
@@ -128,24 +185,29 @@ public class MethodImpactAnalyzer {
      * is split by other members) is instead matched against those ranges - see
      * {@link #diffTouchesLineRanges(DiffContext, int[])}.
      *
-     * A method matched by start-end has its begin widened upwards to the top of its declaration -
-     * over blank and comment lines above its first code line, then over its signature and annotation
-     * lines - see {@link #widenStartToDeclaration(int, List)}.
+     * A method matched by start-end is compared with its widened range from
+     * {@link #widenMethodLineRanges(Map, List)}: its begin widened upwards to the top of its
+     * declaration - over blank and comment lines above its first code line, then over its signature
+     * and annotation lines.
+     *
+     * <p>Only matches are logged, at DEBUG. A comparison that doesn't match logs nothing: logging every
+     * hunk and method pair grows with hunks x methods and swamped large selections.
      *
      * @param diffContext the parsed diff hunk carrying the impacted line range
      * @param methodsTrackedForSourceFile the tracked methods (by id) for the changed file
-     * @param originalFileLines the original (pre-change) file content, line 1 at index 0
+     * @param widenedLineRanges the widened {@code [begin, end]} range per start-end method id, from
+     *                          {@link #widenMethodLineRanges(Map, List)}
      * @param methodsInvokedByChanges accumulator for the ids of methods the diff impacts
      */
     private void findTrackedMethodsForSourceDiff(final DiffContext diffContext,
                                                  final Map<Integer, MethodImpactTracker> methodsTrackedForSourceFile,
-                                                 final List<String> originalFileLines,
+                                                 final Map<Integer, int[]> widenedLineRanges,
                                                  final Set<Integer> methodsInvokedByChanges){
+        int diffLineBegin = diffContext.getImpactedLineNumBegin();
+        int diffLineEnd = diffContext.getImpactedLineNumEnd();
         for (Map.Entry<Integer, MethodImpactTracker> trackedMethod : methodsTrackedForSourceFile.entrySet()) {
             Integer methodHashcode = trackedMethod.getKey();
             MethodImpactTracker methodImpactTracker = trackedMethod.getValue();
-            int diffLineBegin = diffContext.getImpactedLineNumBegin();
-            int diffLineEnd = diffContext.getImpactedLineNumEnd();
 
             if (methodImpactTracker.getLineRanges() != null) {
                 if (diffTouchesLineRanges(diffContext, methodImpactTracker.getLineRanges())) {
@@ -157,13 +219,9 @@ public class MethodImpactAnalyzer {
                 continue;
             }
 
-            // start-end widened by one line either side, to catch changes to the method name line and
-            // the closing brace, then upwards to the top of the method's declaration (its annotations and
-            // a multi-line signature)
-            int[] matchedLineRange = methodImpactTracker.getMatchedLineRanges();
-            int methodLineBegin = widenStartToDeclaration(matchedLineRange[0], originalFileLines);
-            int methodLineEnd = matchedLineRange[1];
-            log.debug("Method {}, diffLineBegin: {}, diffLineEnd: {}, methodLineBegin: {}, methodLineEnd: {}", methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
+            int[] widened = widenedLineRanges.get(methodHashcode);
+            int methodLineBegin = widened[0];
+            int methodLineEnd = widened[1];
 
             boolean diffBeginIsWithinMethod = diffLineBegin >= methodLineBegin && diffLineBegin <= methodLineEnd;
             boolean diffEndIsWithinMethod = diffLineEnd >= methodLineBegin && diffLineEnd <= methodLineEnd;
@@ -481,14 +539,16 @@ public class MethodImpactAnalyzer {
      * i.e. @@ -11,2 +11,2 @@ i.e. this means old file - line 11, 2 lines (get replaced in new file, starting line 11 for 2 lines).
      * https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Unified.html
      *
-     * @param patchDiff
-     * @param sourceFileDiffContext
+     * <p>The raw hunk header is logged at TRACE; its line range is in the per-file DEBUG summary.
+     *
+     * @param patchDiff one line of the unified diff; only a hunk header line is parsed
+     * @param sourceFileDiffContext the context to fill in when the line is a hunk header
      */
     private void setImpactedLineBeginEnd(String patchDiff, DiffContext sourceFileDiffContext){
         Matcher matcher = UNIFIED_DIFF_HUNK_PATTERN.matcher(patchDiff);
 
         if  (matcher.matches()){
-            log.debug("Diff hunk: " + patchDiff);
+            log.trace("Diff hunk: {}", patchDiff);
             sourceFileDiffContext.setUnifiedDiff(true);
 
             int revisionLineBegin = Integer.parseInt(matcher.group(HUNK_DIFF_ORIG_LINE_START_GROUP_INDEX));
@@ -502,8 +562,6 @@ public class MethodImpactAnalyzer {
             sourceFileDiffContext.setImpactedLineNumEnd(revisionLineBegin + (revisionLineCount - 1));
             sourceFileDiffContext.setRevisedLineBegin(Integer.parseInt(matcher.group(HUNK_DIFF_REVISED_LINE_START_GROUP_INDEX)));
             sourceFileDiffContext.setRevisedLineCount(Integer.parseInt(matcher.group(HUNK_DIFF_REVISED_LINE_COUNT_GROUP_INDEX)));
-
-            log.debug("getImpactedLineNumBegin: " + sourceFileDiffContext.getImpactedLineNumBegin() + " getImpactedLineNumEnd: " + sourceFileDiffContext.getImpactedLineNumEnd());
         }
     }
 

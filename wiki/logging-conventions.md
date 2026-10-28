@@ -6,6 +6,7 @@ Tia uses SLF4J throughout. Whether `log.trace(...)` is actually emitted depends 
 
 - **Code reachable from the Gradle daemon must use `DEBUG` or higher.** That includes everything in `tia-gradle`, *plus* anything in `tia-core` that is called from a daemon-side path (TestSelector, the drainer/recorder, `H2DataStore`, diff and method-impact analysis, JaCoCo coverage parsing, etc.).
 - **`TRACE` is only safe in code that exclusively runs inside the forked test JVM.** In practice today, that's a small subset of `tia-spock`. There are no TRACE call sites in `tia-core` — they were all converted to DEBUG because `tia-core` is shared between the two runtimes.
+- **One deliberate exception: method matching.** `MethodImpactAnalyzer` logs each tracked method's matched range and each raw hunk header at TRACE. At DEBUG these grew with hunks x methods and swamped large selections, so they were moved below DEBUG, accepting that only Maven can show them. Gradle users get the per-file summary and match lines at DEBUG. See "Logging the match" in [Matching a diff to tracked methods](method-diff-matching.md).
 - **Maven runs in the Maven build process**, which uses Plexus logging via SLF4J. It does honour TRACE, but `tia-core` follows the daemon rule for consistency — so don't add TRACE to shared code on Maven's behalf either.
 
 ### Why daemon-side code can't use TRACE
@@ -25,7 +26,7 @@ This means *test-JVM-only* code can legitimately use TRACE for very fine-grained
 ### Practical guidance for contributors
 
 - Default to `log.debug(...)` for fine-grained logging in any shared module. If the line would have been TRACE in a single-runtime codebase, write it as DEBUG here.
-- Reserve `log.trace(...)` for tia-spock-only code paths (the Spock global extension internals). If you find yourself wanting TRACE in `tia-core`, that's a sign the code is shared and DEBUG is the right level.
+- Reserve `log.trace(...)` for tia-spock-only code paths (the Spock global extension internals). If you find yourself wanting TRACE in `tia-core`, that's a sign the code is shared and DEBUG is the right level. The method-matching exception above is the only one; don't add more without the same trade-off being made on purpose.
 - The JUnit 5 agent (`tia-junit5-agent`) must not use SLF4J at all: it must start where the project's classes are not reachable from the system class loader (Surefire's `useSystemClassLoader=false`), and a project need not have SLF4J. It logs through `java.util.logging` at `FINEST` - see "How Tia exchanges data with the test runner", and "Seeing the JUnit 5 agent's logs" below for how to turn it on.
 - For users diagnosing a problem in `tia-select-tests` or any other plugin task, the workflow is `gradle <task> --debug 2>&1 | grep -E "org\.tiatesting"`. There is no equivalent of Logback level filtering for the daemon — Gradle's DEBUG level is the most fine-grained signal available.
 

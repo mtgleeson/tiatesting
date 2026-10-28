@@ -142,6 +142,38 @@ added above a field holds no code and doesn't count either.
 The scan costs about 1.7 ms for a 5,000-line file, once per changed file that has tracked methods,
 on content already in memory.
 
+### Logging the match
+
+Every hunk of a changed file is compared with every tracked method of that file, so the number of
+comparisons is hunks x tracked methods. Logging each one swamped large selections: one select-tests
+run logged 43,358 of these lines, 14.3 MB of a 16.7 MB log. So the DEBUG output only grows with the
+files and the matches:
+
+```
+[DEBUG] com/example/OrderStatus.java: 12 hunk(s) [31-31, 50-52, +60, ...] against 85 tracked method(s), 3 matched
+[DEBUG] Found stored tracked method: com/example/OrderStatus.fromName..., diff line begin: 50, diff line end: 52, stored line begin: 46, stored line end: 56
+```
+
+The summary lists each hunk's original-side lines, with `+N` for a pure insertion (`-N,0`). A
+match line shows the widened range the hunk was matched against.
+
+To see why a method didn't match, the ranges of every tracked method are logged at TRACE, one line
+per method per file, along with each raw hunk header:
+
+```
+[TRACE] Tracked method com/example/OrderStatus.fromName..., method line begin: 46, method line end: 56
+[TRACE] Tracked method com/example/OrderStatus.<init>.()V, stored line ranges: 7-16,20-21
+```
+
+Together with the hunk ranges in the summary, these rebuild every comparison. TRACE only reaches the
+log on Maven, e.g. with
+`-Dorg.slf4j.simpleLogger.log.org.tiatesting.core.diff.diffanalyze.MethodImpactAnalyzer=trace`.
+The Gradle daemon drops TRACE, so on Gradle the DEBUG lines are all there is - see
+[Logging conventions (TRACE vs DEBUG)](logging-conventions.md).
+
+Each method's widened range depends only on the method, so it is worked out once per file, before
+the hunks are compared, rather than once per comparison.
+
 ### Over-selection
 
 The widening heuristics only ever widen, so their failure mode is selecting extra tests:
