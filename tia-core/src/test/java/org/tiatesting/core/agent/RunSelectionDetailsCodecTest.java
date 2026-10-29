@@ -42,7 +42,7 @@ class RunSelectionDetailsCodecTest {
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo#bar", -4242, 3),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "forced-selection-rule", null, 7)
         );
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5,
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 6, 3, 4, 5,
                 SelectionMode.SELECTIVE);
         File file = tempDir.resolve("selection-details.txt").toFile();
 
@@ -56,6 +56,7 @@ class RunSelectionDetailsCodecTest {
         assertEquals(3, result.getNumPreviouslyFailed());
         assertEquals(4, result.getNumUnsealedMapping());
         assertEquals(5, result.getNumPendingLibrary());
+        assertEquals(6, result.getNumTestSupportDependants());
         assertEquals(2, result.getTriggers().size());
         TestRunTrigger sourceMethod = result.getTriggers().get(0);
         assertEquals(TestRunTrigger.Type.SOURCE_METHOD, sourceMethod.getType());
@@ -106,7 +107,7 @@ class RunSelectionDetailsCodecTest {
         TestRunTrigger triggerWithNewline = new TestRunTrigger(
                 TestRunTrigger.Type.STATIC_RULE, "line-one\nline-two", null, 4);
         TestRunSelectionDetails details = new TestRunSelectionDetails(
-                Arrays.asList(triggerWithNewline), 0, 0, 0, 0, 0, SelectionMode.SELECTIVE);
+                Arrays.asList(triggerWithNewline), 0, 0, 0, 0, 0, 0, SelectionMode.SELECTIVE);
         File file = tempDir.resolve("selection-details-newline.txt").toFile();
 
         // when
@@ -172,7 +173,7 @@ class RunSelectionDetailsCodecTest {
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, name, null, 1)
         );
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 0, 0, 0, 0, 0,
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 0, 0, 0, 0, 0, 0,
                 SelectionMode.SELECTIVE);
         File file = tempDir.resolve("names.txt").toFile();
 
@@ -210,6 +211,8 @@ class RunSelectionDetailsCodecTest {
         assertEquals(3, result.getNumPreviouslyFailed());
         assertEquals(4, result.getNumUnsealedMapping());
         assertEquals(5, result.getNumPendingLibrary());
+        // the counters line has no test-support field, so that counter reads as zero
+        assertEquals(0, result.getNumTestSupportDependants());
         assertEquals(2, result.getTriggers().size());
         assertEquals("valid.One", result.getTriggers().get(0).getName());
         assertEquals(Integer.valueOf(42), result.getTriggers().get(0).getMethodId());

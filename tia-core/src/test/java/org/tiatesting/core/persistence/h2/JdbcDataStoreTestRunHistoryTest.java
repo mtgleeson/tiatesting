@@ -133,7 +133,7 @@ class JdbcDataStoreTestRunHistoryTest {
                 "dist-id", 1_700_000_000_000L, "main", "abc123",
                 10, 2, 1, 5_000L, true, 4_000L, 80, 4_000L, 80,
                 "ci-run-42", 1_800L, 4, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null, false, null);
+                null, null, null, null, null, null, false, null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -381,7 +381,7 @@ class JdbcDataStoreTestRunHistoryTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", null, 519),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009)),
-                1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
+                1, 2, 6, 3, 4, 5, SelectionMode.SELECTIVE);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", 1000L,
                 10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details, false);
 
@@ -397,6 +397,7 @@ class JdbcDataStoreTestRunHistoryTest {
         assertEquals(Integer.valueOf(3), read.getNumPreviouslyFailed());
         assertEquals(Integer.valueOf(4), read.getNumUnsealedMapping());
         assertEquals(Integer.valueOf(5), read.getNumPendingLibrary());
+        assertEquals(Integer.valueOf(6), read.getNumTestSupportDependants());
         assertEquals(2, triggers.size());
         assertEquals("MDP", triggers.get(0).getName(), "1009 first (ORDER BY test_count DESC)");
     }

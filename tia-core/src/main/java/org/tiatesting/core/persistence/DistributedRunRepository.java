@@ -321,7 +321,8 @@ class DistributedRunRepository extends JdbcRepository {
             String insertCounters = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION + " ("
                     + COL_RUN_ID + ", " + COL_NUM_MODIFIED_TEST_FILES + ", " + COL_NUM_NEW_TEST_FILES + ", "
                     + COL_NUM_PREVIOUSLY_FAILED + ", " + COL_NUM_UNSEALED_MAPPING + ", "
-                    + COL_NUM_PENDING_LIBRARY + ") VALUES (?, ?, ?, ?, ?, ?)";
+                    + COL_NUM_PENDING_LIBRARY + ", " + COL_NUM_TEST_SUPPORT_DEPENDANTS
+                    + ") VALUES (?, ?, ?, ?, ?, ?, ?)";
             try (PreparedStatement ps = connection.prepareStatement(insertCounters)) {
                 ps.setString(1, runId);
                 ps.setInt(2, toPersist.getNumModifiedTestFiles());
@@ -329,6 +330,7 @@ class DistributedRunRepository extends JdbcRepository {
                 ps.setInt(4, toPersist.getNumPreviouslyFailed());
                 ps.setInt(5, toPersist.getNumUnsealedMapping());
                 ps.setInt(6, toPersist.getNumPendingLibrary());
+                ps.setInt(7, toPersist.getNumTestSupportDependants());
                 ps.executeUpdate();
             }
             List<TestRunTrigger> triggers = toPersist.getTriggers();
@@ -379,9 +381,11 @@ class DistributedRunRepository extends JdbcRepository {
             int numPreviouslyFailed = 0;
             int numUnsealedMapping = 0;
             int numPendingLibrary = 0;
+            int numTestSupportDependants = 0;
             String countersSql = "SELECT " + COL_NUM_MODIFIED_TEST_FILES + ", " + COL_NUM_NEW_TEST_FILES
                     + ", " + COL_NUM_PREVIOUSLY_FAILED + ", " + COL_NUM_UNSEALED_MAPPING + ", "
-                    + COL_NUM_PENDING_LIBRARY + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION
+                    + COL_NUM_PENDING_LIBRARY + ", " + COL_NUM_TEST_SUPPORT_DEPENDANTS
+                    + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION
                     + " WHERE " + COL_RUN_ID + " = ?";
             try (PreparedStatement ps = connection.prepareStatement(countersSql)) {
                 ps.setString(1, runId);
@@ -393,6 +397,7 @@ class DistributedRunRepository extends JdbcRepository {
                         numPreviouslyFailed = rs.getInt(COL_NUM_PREVIOUSLY_FAILED);
                         numUnsealedMapping = rs.getInt(COL_NUM_UNSEALED_MAPPING);
                         numPendingLibrary = rs.getInt(COL_NUM_PENDING_LIBRARY);
+                        numTestSupportDependants = rs.getInt(COL_NUM_TEST_SUPPORT_DEPENDANTS);
                     }
                 }
             }
@@ -419,7 +424,7 @@ class DistributedRunRepository extends JdbcRepository {
                 return TestRunSelectionDetails.empty();
             }
             return new TestRunSelectionDetails(triggers, numModifiedTestFiles, numNewTestFiles,
-                    numPreviouslyFailed, numUnsealedMapping, numPendingLibrary,
+                    numTestSupportDependants, numPreviouslyFailed, numUnsealedMapping, numPendingLibrary,
                     SelectionMode.SELECTIVE);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);

@@ -76,6 +76,7 @@ final class TiaSchema {
     static final String COL_NUM_PREVIOUSLY_FAILED = "num_previously_failed";
     static final String COL_NUM_UNSEALED_MAPPING = "num_unsealed_mapping";
     static final String COL_NUM_PENDING_LIBRARY = "num_pending_library";
+    static final String COL_NUM_TEST_SUPPORT_DEPENDANTS = "num_test_support_dependants";
     static final String COL_RERUN = "rerun";
     static final String TABLE_TIA_TEST_RUN_HISTORY_TRIGGER = TABLE_TIA_TEST_RUN_HISTORY + "_trigger";
     static final String COL_HISTORY_ID = "history_id";

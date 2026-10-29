@@ -31,7 +31,7 @@ class TestRunHistoryRepositoryTest {
             List<TestRunTrigger> triggers = Arrays.asList(
                     new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 3, 5),
                     new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", null, 9));
-            TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
+            TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 0, 3, 4, 5, SelectionMode.SELECTIVE);
             TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", 1000L,
                     10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details, false);
 

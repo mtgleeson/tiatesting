@@ -56,8 +56,8 @@ import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXT;
  * class (with no source file left) is still found through the files that still refer to it.
  *
  * <p>The index is built once per selection, only when a changed test file isn't a tracked suite, so
- * builds that don't change test support code never read the test sources. See the test selection
- * chapter of {@code WIKI.md}.
+ * builds that don't change test support code never read the test sources. See the "Changed test
+ * support files" chapter of {@code WIKI.md}.
  */
 final class TestSourceDependencyIndex {
 

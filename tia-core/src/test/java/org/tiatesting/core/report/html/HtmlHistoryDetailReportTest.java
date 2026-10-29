@@ -37,7 +37,7 @@ class HtmlHistoryDetailReportTest {
                 "force-run-smoke-tests", null, 5);
         List<TestRunTrigger> triggers = Arrays.asList(lowCountMethod, highCountMethod, staticRule);
 
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 4, 0, SelectionMode.SELECTIVE);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 0, 2, 4, 0, SelectionMode.SELECTIVE);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
                 1_700_000_000_000L, 10, 2, 0, 12345L, true, 4000L, 40,
                 RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), details, false);
@@ -58,6 +58,7 @@ class HtmlHistoryDetailReportTest {
         assertTrue(html.contains(">5<"), "should contain the static rule count. Output:\n" + html);
         assertTrue(html.contains("Modified test files"), "should contain the modified-test-files counter label. Output:\n" + html);
         assertTrue(html.contains("New test files"), "should contain the new-test-files counter label. Output:\n" + html);
+        assertTrue(html.contains("Test support files"), "should contain the test-support-files counter label. Output:\n" + html);
         assertTrue(html.contains("Previously-failed"), "should contain the previously-failed counter label. Output:\n" + html);
         assertTrue(html.contains("Unsealed-mapping"), "should contain the unsealed-mapping counter label. Output:\n" + html);
         assertTrue(html.contains("Pending library"), "should contain the pending-library counter label. Output:\n" + html);
@@ -199,7 +200,7 @@ class HtmlHistoryDetailReportTest {
         TestRunHistoryEntry selective = TestRunHistoryEntry.create("main", "def456",
                 1_700_000_500_000L, 10, 2, 0, 4_000L, true, 0L, 0,
                 RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"),
-                new TestRunSelectionDetails(Collections.<TestRunTrigger>emptyList(), 1, 1, 1, 1, 1,
+                new TestRunSelectionDetails(Collections.<TestRunTrigger>emptyList(), 1, 1, 0, 1, 1, 1,
                         SelectionMode.SELECTIVE), false);
 
         // when
@@ -216,7 +217,7 @@ class HtmlHistoryDetailReportTest {
                     "'" + label + "' should carry a tooltip. Output:\n" + forcedHtml);
         }
         List<String> selectionSourceLabels = Arrays.asList("Modified test files", "New test files",
-                "Previously-failed", "Unsealed-mapping", "Pending library");
+                "Test support files", "Previously-failed", "Unsealed-mapping", "Pending library");
         for (String label : selectionSourceLabels) {
             assertTrue(Pattern.compile("<span class=\"tia-stat-hint\" data-tooltip=\"[^\"]+\">"
                             + Pattern.quote(label) + "</span>: ").matcher(selectiveHtml).find(),

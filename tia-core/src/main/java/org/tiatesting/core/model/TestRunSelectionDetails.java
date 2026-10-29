@@ -17,13 +17,14 @@ public final class TestRunSelectionDetails {
     private final List<TestRunTrigger> triggers;
     private final int numModifiedTestFiles;
     private final int numNewTestFiles;
+    private final int numTestSupportDependants;
     private final int numPreviouslyFailed;
     private final int numUnsealedMapping;
     private final int numPendingLibrary;
     private final SelectionMode selectionMode;
 
     /**
-     * Build a breakdown from the per-method and per-rule triggers, the five scalar source counts,
+     * Build a breakdown from the per-method and per-rule triggers, the six scalar source counts,
      * and the mode that decided the run's selection. The trigger list is defensively copied and
      * exposed unmodifiable.
      *
@@ -31,19 +32,22 @@ public final class TestRunSelectionDetails {
      *                 triggers
      * @param numModifiedTestFiles count of modified test files that were selected
      * @param numNewTestFiles count of new test files that were selected
+     * @param numTestSupportDependants count of suites selected because they use a changed test
+     *                                 support file
      * @param numPreviouslyFailed count of previously-failed suites re-run
      * @param numUnsealedMapping count of suites re-run from unsealed mapping rows
      * @param numPendingLibrary count of suites selected from pending library changes
      * @param selectionMode how the run's selection was decided; null is treated as SELECTIVE
      */
     public TestRunSelectionDetails(List<TestRunTrigger> triggers, int numModifiedTestFiles,
-                                   int numNewTestFiles, int numPreviouslyFailed,
-                                   int numUnsealedMapping, int numPendingLibrary,
-                                   SelectionMode selectionMode) {
+                                   int numNewTestFiles, int numTestSupportDependants,
+                                   int numPreviouslyFailed, int numUnsealedMapping,
+                                   int numPendingLibrary, SelectionMode selectionMode) {
         this.triggers = triggers == null ? Collections.emptyList()
                 : Collections.unmodifiableList(new ArrayList<>(triggers));
         this.numModifiedTestFiles = numModifiedTestFiles;
         this.numNewTestFiles = numNewTestFiles;
+        this.numTestSupportDependants = numTestSupportDependants;
         this.numPreviouslyFailed = numPreviouslyFailed;
         this.numUnsealedMapping = numUnsealedMapping;
         this.numPendingLibrary = numPendingLibrary;
@@ -55,7 +59,7 @@ public final class TestRunSelectionDetails {
      *         used where the breakdown was not recorded
      */
     public static TestRunSelectionDetails empty() {
-        return new TestRunSelectionDetails(Collections.emptyList(), 0, 0, 0, 0, 0,
+        return new TestRunSelectionDetails(Collections.emptyList(), 0, 0, 0, 0, 0, 0,
                 SelectionMode.SELECTIVE);
     }
 
@@ -67,7 +71,7 @@ public final class TestRunSelectionDetails {
      * @return an empty breakdown carrying {@code selectionMode}
      */
     public static TestRunSelectionDetails forFullRun(SelectionMode selectionMode) {
-        return new TestRunSelectionDetails(Collections.emptyList(), 0, 0, 0, 0, 0, selectionMode);
+        return new TestRunSelectionDetails(Collections.emptyList(), 0, 0, 0, 0, 0, 0, selectionMode);
     }
 
     /**
@@ -79,7 +83,7 @@ public final class TestRunSelectionDetails {
      */
     public TestRunSelectionDetails withSelectionMode(SelectionMode newMode) {
         return new TestRunSelectionDetails(triggers, numModifiedTestFiles, numNewTestFiles,
-                numPreviouslyFailed, numUnsealedMapping, numPendingLibrary, newMode);
+                numTestSupportDependants, numPreviouslyFailed, numUnsealedMapping, numPendingLibrary, newMode);
     }
 
     /** @return every trigger, in the order supplied */
@@ -117,6 +121,9 @@ public final class TestRunSelectionDetails {
 
     /** @return count of new test files that were selected */
     public int getNumNewTestFiles() { return numNewTestFiles; }
+
+    /** @return count of suites selected because they use a changed test support file */
+    public int getNumTestSupportDependants() { return numTestSupportDependants; }
 
     /** @return count of previously-failed suites re-run */
     public int getNumPreviouslyFailed() { return numPreviouslyFailed; }

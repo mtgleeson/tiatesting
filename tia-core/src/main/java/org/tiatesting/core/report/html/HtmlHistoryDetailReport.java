@@ -106,6 +106,7 @@ public class HtmlHistoryDetailReport {
         boolean noBreakdownRecorded = (triggers == null || triggers.isEmpty())
                 && entry.getNumModifiedTestFiles() == null
                 && entry.getNumNewTestFiles() == null
+                && entry.getNumTestSupportDependants() == null
                 && entry.getNumPreviouslyFailed() == null
                 && entry.getNumUnsealedMapping() == null
                 && entry.getNumPendingLibrary() == null;
@@ -223,7 +224,7 @@ public class HtmlHistoryDetailReport {
     }
 
     /**
-     * Build the five-counter "selection sources" list: the scalar counts for the selection
+     * Build the six-counter "selection sources" list: the scalar counts for the selection
      * sources that are not broken down into individual triggers. Each counter renders {@code "-"}
      * when its {@link Integer} field is null (not recorded for this row). A run that executed
      * every test shows one line saying why instead - see {@link ReportUtils#selectionOverrideNote}.
@@ -244,6 +245,10 @@ public class HtmlHistoryDetailReport {
                 field("New test files", "Test suites selected because their test file was added "
                                 + "since the commit the mapping was recorded against.",
                         counterOrDash(entry.getNumNewTestFiles())),
+                field("Test support files", "Test suites selected because they use a test base "
+                                + "class, helper or fixture under a test dir that changed since the "
+                                + "commit the mapping was recorded against.",
+                        counterOrDash(entry.getNumTestSupportDependants())),
                 field("Previously-failed", "Test suites selected because they failed in an earlier "
                                 + "run and have not passed since.",
                         counterOrDash(entry.getNumPreviouslyFailed())),

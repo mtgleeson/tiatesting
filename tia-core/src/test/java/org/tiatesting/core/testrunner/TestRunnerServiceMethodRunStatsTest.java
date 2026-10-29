@@ -181,7 +181,7 @@ class TestRunnerServiceMethodRunStatsTest {
 
         TestRunSelectionDetails details = new TestRunSelectionDetails(Collections.singletonList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, METHOD_NAME, METHOD_ID, 1)),
-                0, 0, 0, 0, 0, SelectionMode.SELECTIVE);
+                0, 0, 0, 0, 0, 0, SelectionMode.SELECTIVE);
 
         return new TestRunResult(trackers, new HashSet<>(), runnerSuites, suites, suites, observed,
                 new TestStats(), null, runnerSuites.size() - 1, 1, 0, details, runAttempt);

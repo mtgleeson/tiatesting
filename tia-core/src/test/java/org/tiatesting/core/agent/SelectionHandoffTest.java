@@ -39,7 +39,7 @@ class SelectionHandoffTest {
         // given
         Set<String> ignored = new LinkedHashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest"));
         Set<String> selected = Collections.singleton("com.example.CTest");
-        TestRunSelectionDetails details = new TestRunSelectionDetails(Collections.emptyList(), 1, 2, 3, 0, 0,
+        TestRunSelectionDetails details = new TestRunSelectionDetails(Collections.emptyList(), 1, 2, 0, 3, 0, 0,
                 SelectionMode.RESEED);
 
         // when

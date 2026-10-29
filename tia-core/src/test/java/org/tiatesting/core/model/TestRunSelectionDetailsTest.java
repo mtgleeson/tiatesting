@@ -20,7 +20,7 @@ public class TestRunSelectionDetailsTest {
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.a", null, 5),
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.b", null, 20),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009));
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5,
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 0, 3, 4, 5,
                 SelectionMode.SELECTIVE);
 
         // when
@@ -53,7 +53,7 @@ public class TestRunSelectionDetailsTest {
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.b", -22, 20),
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.c", null, 2),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009));
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 0, 0, 0, 0, 0,
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 0, 0, 0, 0, 0, 0,
                 SelectionMode.SELECTIVE);
 
         // when
@@ -103,7 +103,7 @@ public class TestRunSelectionDetailsTest {
     public void withSelectionModeKeepsEveryCounter() {
         // given
         TestRunSelectionDetails details = new TestRunSelectionDetails(Collections.emptyList(),
-                1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
+                1, 2, 0, 3, 4, 5, SelectionMode.SELECTIVE);
 
         // when
         TestRunSelectionDetails copy = details.withSelectionMode(SelectionMode.RESEED);

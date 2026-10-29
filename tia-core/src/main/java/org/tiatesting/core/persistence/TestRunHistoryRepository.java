@@ -48,7 +48,8 @@ class TestRunHistoryRepository extends JdbcRepository {
                             COL_GROUP_COUNT, COL_GROUPS_AVAILABLE, COL_RUN_SOURCE, COL_HOST_NAME,
                             COL_NUM_MODIFIED_TEST_FILES,
                             COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
-                            COL_NUM_PENDING_LIBRARY, COL_RERUN, COL_SELECTION_MODE),
+                            COL_NUM_PENDING_LIBRARY, COL_RERUN, COL_SELECTION_MODE,
+                            COL_NUM_TEST_SUPPORT_DEPENDANTS),
                     Collections.singletonList(COL_ID));
 
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -85,6 +86,7 @@ class TestRunHistoryRepository extends JdbcRepository {
             // Nullable like the counters: a row whose mode was not recorded stores SQL NULL.
             setNullableString(ps, 26, entry.getSelectionMode() == null ? null
                     : entry.getSelectionMode().name());
+            setNullableInt(ps, 27, entry.getNumTestSupportDependants());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -138,6 +140,7 @@ class TestRunHistoryRepository extends JdbcRepository {
                                 resultSet.getString(COL_HOST_NAME)),
                         getNullableInt(resultSet, COL_NUM_MODIFIED_TEST_FILES),
                         getNullableInt(resultSet, COL_NUM_NEW_TEST_FILES),
+                        getNullableInt(resultSet, COL_NUM_TEST_SUPPORT_DEPENDANTS),
                         getNullableInt(resultSet, COL_NUM_PREVIOUSLY_FAILED),
                         getNullableInt(resultSet, COL_NUM_UNSEALED_MAPPING),
                         getNullableInt(resultSet, COL_NUM_PENDING_LIBRARY),

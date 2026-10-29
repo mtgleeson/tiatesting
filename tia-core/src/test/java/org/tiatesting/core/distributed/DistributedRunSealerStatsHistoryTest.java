@@ -442,7 +442,7 @@ class DistributedRunSealerStatsHistoryTest {
         dataStore.persistDistributedRunSelectionDetails(RUN_ID, new TestRunSelectionDetails(
                 Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
                         "com/example/Source0.method.()V", 100, 1)),
-                0, 0, 0, 0, 0, SelectionMode.SELECTIVE));
+                0, 0, 0, 0, 0, 0, SelectionMode.SELECTIVE));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
 
         // when
@@ -1343,7 +1343,7 @@ class DistributedRunSealerStatsHistoryTest {
                         "com.example.Source0.method()V", null, 2),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "force-rule", null, 1));
         dataStore.persistDistributedRunSelectionDetails(RUN_ID,
-                new TestRunSelectionDetails(triggers, 3, 1, 2, 0, 1, SelectionMode.SELECTIVE));
+                new TestRunSelectionDetails(triggers, 3, 1, 0, 2, 0, 1, SelectionMode.SELECTIVE));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when

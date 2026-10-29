@@ -43,7 +43,7 @@ class TestRunHistoryDetailConsoleFormatterTest {
         // than trust the caller's ordering.
         List<TestRunTrigger> triggers = Arrays.asList(lowCountMethod, staticRule, highCountMethod);
 
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 2, 1, 4, 0, 6, SelectionMode.SELECTIVE);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 2, 1, 7, 4, 0, 6, SelectionMode.SELECTIVE);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123def456",
                 1_700_000_000_000L, 42, 3, 1, 83_000L, true, 45_000L, 54,
                 RunOrigin.of("local", "host"), details, false);
@@ -59,6 +59,7 @@ class TestRunHistoryDetailConsoleFormatterTest {
         assertTrue(output.contains("Previously-failed"), output);
         assertTrue(output.contains("Unsealed-mapping"), output);
         assertTrue(output.contains("Pending library"), output);
+        assertTrue(output.contains("  Test support files:   7"), output);
         assertTrue(output.contains("com.example.Foo#bar"), output);
         assertTrue(output.contains("com.example.Baz#qux"), output);
         assertTrue(output.contains("always-run-smoke-tests"), output);

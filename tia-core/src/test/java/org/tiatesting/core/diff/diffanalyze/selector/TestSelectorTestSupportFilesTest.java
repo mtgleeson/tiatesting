@@ -108,6 +108,7 @@ class TestSelectorTestSupportFilesTest {
 
         // then
         assertEquals(Collections.singleton(ORDER_TEST), selection.result.getTestsToRun());
+        assertEquals(1, selection.result.getSelectionDetails().getNumTestSupportDependants());
         assertTrue(selection.log.contains("Selected 1 " + SUPPORT_LOG + ": [" + ORDER_TEST + "]"),
                 "expected the support-file selection line, got: " + selection.log);
     }
@@ -134,6 +135,7 @@ class TestSelectorTestSupportFilesTest {
 
         // then
         assertEquals(Collections.emptySet(), selection.result.getTestsToRun());
+        assertEquals(0, selection.result.getSelectionDetails().getNumTestSupportDependants());
         assertTrue(selection.log.contains(
                 "Changed test file(s) not used by any tracked suite: [com.example.support.UnusedHelper]"),
                 "expected the unused-file line, got: " + selection.log);
@@ -195,6 +197,7 @@ class TestSelectorTestSupportFilesTest {
         // then
         assertEquals(new HashSet<>(Arrays.asList(ORDER_TEST, OTHER_TEST)), selection.result.getTestsToRun());
         assertEquals(1, selection.result.getSelectionDetails().getNumModifiedTestFiles());
+        assertEquals(1, selection.result.getSelectionDetails().getNumTestSupportDependants());
     }
 
     /**

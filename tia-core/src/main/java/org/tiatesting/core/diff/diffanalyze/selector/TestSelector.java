@@ -174,6 +174,7 @@ public class TestSelector {
         triggers.addAll(staticRuleTriggers);
         TestRunSelectionDetails selectionDetails = new TestRunSelectionDetails(triggers,
                 runResult.getNumModifiedTestFiles(), runResult.getNumNewTestFiles(),
+                runResult.getNumTestSupportDependants(),
                 runResult.getNumPreviouslyFailed(), runResult.getNumUnsealedMapping(),
                 librarySelection.getNumPendingLibrary(), SelectionMode.SELECTIVE);
 
@@ -1115,8 +1116,8 @@ public class TestSelector {
      * or API client under a test dir - directly or through other test classes. The coverage mapping
      * can't see these, since test code is never in it. The test sources are only read when at least
      * one support class changed, so builds that change only suites or source code pay nothing. See
-     * {@link TestSourceDependencyIndex} for how a dependency is found, and the test selection
-     * chapter of {@code WIKI.md}.
+     * {@link TestSourceDependencyIndex} for how a dependency is found, and the "Changed test support
+     * files" chapter of {@code WIKI.md}.
      *
      * <p>Logs the suites selected at INFO, the suite count per changed class at DEBUG, and at INFO
      * the changed classes no tracked suite uses, so no changed test file is dropped silently.

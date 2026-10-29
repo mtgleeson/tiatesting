@@ -9,16 +9,18 @@ developer can see it.
 ### What is captured
 
 `TestRunSelectionDetails` is the per-run breakdown computed at selection time. It carries two
-named trigger lists plus five scalar counters - deliberately **counts only**, never per-trigger
+named trigger lists plus six scalar counters - deliberately **counts only**, never per-trigger
 test-name lists, so the breakdown stays small and safe to keep indefinitely:
 
 - **`SOURCE_METHOD` triggers** - one entry per changed source method whose mapping pulled test
   suites into the run, each with the method's name and the number of suites it accounted for.
 - **`STATIC_RULE` triggers** - one entry per fired [static selection rule](static-test-selection.md),
   each with the rule's name and the number of suites it forced.
-- Five scalar counters, recorded as totals only because they do not name a single trigger the way
-  a method or a rule does: `numModifiedTestFiles`, `numNewTestFiles`, `numPreviouslyFailed`,
-  `numUnsealedMapping`, `numPendingLibrary`.
+- Six scalar counters, recorded as totals only because they do not name a single trigger the way
+  a method or a rule does: `numModifiedTestFiles`, `numNewTestFiles`, `numTestSupportDependants`,
+  `numPreviouslyFailed`, `numUnsealedMapping`, `numPendingLibrary`.
+  `numTestSupportDependants` counts the suites selected because they use a changed test support
+  file (see [Changed test support files](changed-test-support-files.md)).
   `numNewTestFiles` leaves out a new file under a test dir whose compiled class proves it is not a
   test (a helper, an abstract class, an interface) - but only when compiled test classes existed
   when selection ran: always on Gradle, and on Maven only if the test classes were compiled before
@@ -31,9 +33,9 @@ more than the run's distinct selected-suite count. `TestRunTrigger.Type` is the 
 
 ### Storage: columns, a child table, and null-vs-zero
 
-The five counters live as nullable `INT` columns directly on `tia_test_run_history`
-(`num_modified_test_files`, `num_new_test_files`, `num_previously_failed`, `num_unsealed_mapping`,
-`num_pending_library`) - see the [database schema](database-schema.md) chapter for the full table
+The six counters live as nullable `INT` columns directly on `tia_test_run_history`
+(`num_modified_test_files`, `num_new_test_files`, `num_test_support_dependants`,
+`num_previously_failed`, `num_unsealed_mapping`, `num_pending_library`) - see the [database schema](database-schema.md) chapter for the full table
 definitions. Being scalar and one-per-run, they cost nothing extra to read on the hot history path.
 
 The triggers do not: they are unbounded per run, so they live in a separate child table,
@@ -46,7 +48,7 @@ anything `TestRunHistory` renders in bulk are sensitive to added work, and a per
 is exactly the kind of cost that must not ride along on every history read - it is paid only by the
 caller who actually wants one run's breakdown.
 
-**Null means "not recorded", not "zero".** The only case where a persisted row's five counters are
+**Null means "not recorded", not "zero".** The only case where a persisted row's six counters are
 null is a row written before this feature existed. Every run recorded since - single-host or
 distributed - writes the counts, zero included, because selection always produces a
 `TestRunSelectionDetails` (`TestRunSelectionDetails.empty()` for an all-tests or seed run, a
@@ -85,7 +87,7 @@ forward directly, because no single runner - and no single persist - is the one 
 writing the build's one history row; that is decided later, by whichever runner wins the seal.
 
 Two run-id-keyed tables hold the staged breakdown: `tia_distributed_run_selection` (one row per
-run, the same five counters as the history table) and `tia_distributed_run_trigger` (one row per
+run, the same six counters as the history table) and `tia_distributed_run_trigger` (one row per
 staged trigger, same shape as `tia_test_run_history_trigger` but keyed by `run_id` instead of
 `history_id`, with no foreign key, plus the changed method's id for the
 [method run stats](method-run-stats.md)). Both are populated by
@@ -93,7 +95,7 @@ staged trigger, same shape as `tia_test_run_history_trigger` but keyed by `run_i
 is (re)planned, the same lifecycle the other distributed-run tables already follow.
 
 At seal time, `DistributedRunSealer` reads the staged breakdown back
-(`DataStore#readDistributedRunSelectionDetails`) and folds its five counters and its triggers onto
+(`DataStore#readDistributedRunSelectionDetails`) and folds its six counters and its triggers onto
 the build's single history row and its trigger table, via the same `TestRunHistoryEntry` factory
 and `persistTestRunTriggers` call a single-host run uses. A run with no staged breakdown - a seed
 run, for example - reads back `TestRunSelectionDetails.empty()` rather than null, so the sealer
@@ -107,13 +109,13 @@ trigger rows in that case, exactly as a single-host all-tests run does, not null
 `HtmlHistoryDetailReport`. The page shows the run's summary (timestamp to the second, branch,
 commit, run source and host - the last two the History table leaves out - suite counts, wall clock and serial duration, groups used and groups available, wall-clock and serial
 savings - see "Wall-clock savings" in the [test-run history log](test-run-history.md) chapter),
-the five counters - dashed where not recorded - and two tables ranking
+the six counters - dashed where not recorded - and two tables ranking
 the source-method and static-rule triggers by suite count descending. A run with nothing recorded
 at all (every counter null and no triggers) shows a "No selection breakdown was recorded for this
 run" note in place of the trigger tables.
 
 **The CLI command.** `TestRunHistoryDetailConsoleFormatter` renders the same breakdown as plain
-text - a summary block (including the run's source and host), a "Selection sources" block for the five counters, and "Source method
+text - a summary block (including the run's source and host), a "Selection sources" block for the six counters, and "Source method
 changes" / "Static rules" blocks for the ranked triggers - shared by both build tools:
 
 - Gradle: `./gradlew tia-history-details --id=<historyId>`

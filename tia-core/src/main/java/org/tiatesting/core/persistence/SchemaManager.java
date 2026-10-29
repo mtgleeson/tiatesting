@@ -436,6 +436,7 @@ class SchemaManager {
                 + COL_NUM_PREVIOUSLY_FAILED + " INT, "
                 + COL_NUM_UNSEALED_MAPPING + " INT, "
                 + COL_NUM_PENDING_LIBRARY + " INT, "
+                + COL_NUM_TEST_SUPPORT_DEPENDANTS + " INT, "
                 // True for a retry of failed tests (a Surefire rerun or a Gradle test-retry round),
                 // which is credited no savings.
                 + COL_RERUN + " BOOLEAN DEFAULT FALSE, "
@@ -587,7 +588,7 @@ class SchemaManager {
 
     /**
      * Build the DDL for the {@code tia_distributed_run_selection} table: one row per distributed
-     * run holding the same five scalar selection-source counters {@code
+     * run holding the same six scalar selection-source counters {@code
      * tia_test_run_history} stores, staged here by the planner so the sealer can later copy them
      * onto the build's single history row - see the "Run history details" chapter in {@code
      * WIKI.md}.
@@ -601,7 +602,8 @@ class SchemaManager {
                 + COL_NUM_NEW_TEST_FILES + " INT, "
                 + COL_NUM_PREVIOUSLY_FAILED + " INT, "
                 + COL_NUM_UNSEALED_MAPPING + " INT, "
-                + COL_NUM_PENDING_LIBRARY + " INT)";
+                + COL_NUM_PENDING_LIBRARY + " INT, "
+                + COL_NUM_TEST_SUPPORT_DEPENDANTS + " INT)";
     }
 
     /**
