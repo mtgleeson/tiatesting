@@ -50,7 +50,8 @@ class SchemaManager {
      * Memoized per datastore instance: the schema can't disappear within a JVM, so repeat calls
      * skip even that check.
      * An existing DB also gets the TEMPORARY group-suite flag column check - see {@link
-     * #hasGroupSuiteFlagColumns(Connection)}.
+     * #hasGroupSuiteFlagColumns(Connection)} - and the TEMPORARY test-support counter column check -
+     * see {@link #hasTestSupportCounterColumns(Connection)}.
      *
      * @param connection the connection to check on
      * @return {@code true} if the Tia DB already existed before this call (or an earlier call
@@ -68,6 +69,9 @@ class SchemaManager {
             createTiaDB();
         } else if (!hasGroupSuiteFlagColumns(connection)) {
             addGroupSuiteFlagColumns();
+        }
+        if (dbExisted && !hasTestSupportCounterColumns(connection)) {
+            addTestSupportCounterColumns();
         }
 
         schemaEnsured = true;
@@ -112,6 +116,85 @@ class SchemaManager {
             }
         }
         return !tableFound || (observedFound && unrunnableFound);
+    }
+
+    /**
+     * TEMPORARY one-off migration check: report whether {@code tia_test_run_history} and {@code
+     * tia_distributed_run_selection} already have the {@code num_test_support_dependants} column.
+     * Remove this method, {@link #addTestSupportCounterColumns()}, {@link #lacksColumn} and their
+     * call in {@link #ensureSchema} once the shared database has been migrated - Tia otherwise has
+     * no migrations (see the class javadoc).
+     *
+     * <p>Reads JDBC metadata on the caller's connection, like {@link
+     * #hasGroupSuiteFlagColumns(Connection)}, so an already-migrated schema costs two metadata reads
+     * and opens no connection.
+     *
+     * @param connection the caller's connection, with the per-branch schema selected
+     * @return true when both tables have the column (or are absent, so there is nothing to migrate)
+     * @throws SQLException if a metadata read fails
+     */
+    private boolean hasTestSupportCounterColumns(Connection connection) throws SQLException {
+        return !lacksColumn(connection, TABLE_TIA_TEST_RUN_HISTORY, COL_NUM_TEST_SUPPORT_DEPENDANTS)
+                && !lacksColumn(connection, TABLE_TIA_DISTRIBUTED_RUN_SELECTION, COL_NUM_TEST_SUPPORT_DEPENDANTS);
+    }
+
+    /**
+     * TEMPORARY: report whether a table exists in the connection's schema without a column. Names
+     * are compared ignoring case, since H2 folds unquoted identifiers to upper case and Postgres to
+     * lower case; the table name is compared exactly because metadata patterns treat its underscores
+     * as wildcards. Remove with {@link #hasTestSupportCounterColumns(Connection)}.
+     *
+     * @param connection the caller's connection, with the per-branch schema selected
+     * @param table the table name
+     * @param column the column name
+     * @return true when the table exists and doesn't have the column
+     * @throws SQLException if the metadata read fails
+     */
+    private static boolean lacksColumn(Connection connection, String table, String column) throws SQLException {
+        String schema = connection.getSchema();
+        boolean tableFound = false;
+        for (String tableName : new String[]{table.toUpperCase(), table.toLowerCase()}) {
+            try (ResultSet columns = connection.getMetaData().getColumns(null, schema, tableName, null)) {
+                while (columns.next()) {
+                    if (!table.equalsIgnoreCase(columns.getString("TABLE_NAME"))
+                            || (schema != null && !schema.equals(columns.getString("TABLE_SCHEM")))) {
+                        continue;
+                    }
+                    tableFound = true;
+                    if (column.equalsIgnoreCase(columns.getString("COLUMN_NAME"))) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return tableFound;
+    }
+
+    /**
+     * TEMPORARY one-off migration: add the {@code num_test_support_dependants} column to a {@code
+     * tia_test_run_history} and {@code tia_distributed_run_selection} table created before it
+     * existed. Nullable with no default, like the other selection counters, so existing rows read
+     * back as "not recorded". See {@link #hasTestSupportCounterColumns(Connection)} for when to
+     * remove it.
+     *
+     * <p>Runs on a fresh connection, like {@link #createTiaDB()}, so the DDL (which H2 commits
+     * implicitly) never touches a caller's transaction. {@code ADD COLUMN IF NOT EXISTS} makes two
+     * runners migrating the same schema at once harmless.
+     *
+     * @throws TiaPersistenceException if either statement fails
+     */
+    private void addTestSupportCounterColumns() {
+        log.info("Adding the {} column to {} and {} at {}", COL_NUM_TEST_SUPPORT_DEPENDANTS,
+                TABLE_TIA_TEST_RUN_HISTORY, TABLE_TIA_DISTRIBUTED_RUN_SELECTION, jdbcUrl);
+        try (Connection connection = connections.get();
+             Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY
+                    + " ADD COLUMN IF NOT EXISTS " + COL_NUM_TEST_SUPPORT_DEPENDANTS + " INT");
+            statement.execute("ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION
+                    + " ADD COLUMN IF NOT EXISTS " + COL_NUM_TEST_SUPPORT_DEPENDANTS + " INT");
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
     }
 
     /**
