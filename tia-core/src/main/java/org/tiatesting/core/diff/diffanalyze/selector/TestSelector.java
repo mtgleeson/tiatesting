@@ -620,14 +620,26 @@ public class TestSelector {
         SourceMethodTriggerResult methodResult = findTestSuitesForImpactedMethods(impactedMethods, methodsTrackedByFile);
         Set<String> testsToRun = methodResult.getTestsToRun();
 
+        // Changed test files that aren't tracked suites - helpers, base classes, fixtures - are
+        // collected by the next three steps, to select the suites that depend on them.
+        Set<String> changedSupportClasses = new TreeSet<>();
+
         // If any test suite files were modified, always re-run these. So add them to the run list.
         int numModifiedTestFiles = addModifiedTestFilesToRunList(
-                groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_MODIFIED), testSuitesTracked, testsToRun, testFilesDirs);
+                groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_MODIFIED), testSuitesTracked, testsToRun,
+                testFilesDirs, changedSupportClasses);
 
         // Add newly added test files to the run list.
         int numNewTestFiles = addNewTestFilesToRunList(
                 groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_ADDED), testsToRun, testFilesDirs,
-                runnabilityClassifier);
+                runnabilityClassifier, changedSupportClasses);
+
+        collectDeletedSupportClasses(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_DELETED),
+                testSuitesTracked, testFilesDirs, changedSupportClasses);
+
+        // Add the suites that use a changed test support class, directly or through other test classes.
+        int numTestSupportDependants = addTestSupportDependantsToRunList(changedSupportClasses, testFilesDirs,
+                testSuitesTracked, testsToRun);
 
         // Re-run tests that failed since the last successful full test run.
         int numPreviouslyFailed = addPreviouslyFailedTests(testsToRun);
@@ -637,7 +649,7 @@ public class TestSelector {
         int numUnsealedMapping = addUnsealedTests(testSuitesTracked, testsToRun);
 
         return new SelectTestsToRunResult(testsToRun, methodResult.getTriggers(), numModifiedTestFiles,
-                numNewTestFiles, numPreviouslyFailed, numUnsealedMapping);
+                numNewTestFiles, numTestSupportDependants, numPreviouslyFailed, numUnsealedMapping);
     }
 
     /**
@@ -652,6 +664,7 @@ public class TestSelector {
         private final List<TestRunTrigger> sourceMethodTriggers;
         private final int numModifiedTestFiles;
         private final int numNewTestFiles;
+        private final int numTestSupportDependants;
         private final int numPreviouslyFailed;
         private final int numUnsealedMapping;
 
@@ -660,16 +673,19 @@ public class TestSelector {
          * @param sourceMethodTriggers one trigger per impacted method, carrying its covering-suite count
          * @param numModifiedTestFiles count of modified test files added to the run set
          * @param numNewTestFiles count of newly-added test files added to the run set
+         * @param numTestSupportDependants count of suites selected because they use a changed test
+         *                                 support class
          * @param numPreviouslyFailed count of previously-failed suites re-added to the run set
          * @param numUnsealedMapping count of suites re-added from unsealed mapping rows
          */
         SelectTestsToRunResult(Set<String> testsToRun, List<TestRunTrigger> sourceMethodTriggers,
-                               int numModifiedTestFiles, int numNewTestFiles, int numPreviouslyFailed,
-                               int numUnsealedMapping) {
+                               int numModifiedTestFiles, int numNewTestFiles, int numTestSupportDependants,
+                               int numPreviouslyFailed, int numUnsealedMapping) {
             this.testsToRun = testsToRun;
             this.sourceMethodTriggers = sourceMethodTriggers;
             this.numModifiedTestFiles = numModifiedTestFiles;
             this.numNewTestFiles = numNewTestFiles;
+            this.numTestSupportDependants = numTestSupportDependants;
             this.numPreviouslyFailed = numPreviouslyFailed;
             this.numUnsealedMapping = numUnsealedMapping;
         }
@@ -685,6 +701,9 @@ public class TestSelector {
 
         /** @return count of newly-added test files added to the run set */
         int getNumNewTestFiles() { return numNewTestFiles; }
+
+        /** @return count of suites selected because they use a changed test support class */
+        int getNumTestSupportDependants() { return numTestSupportDependants; }
 
         /** @return count of previously-failed suites re-added to the run set */
         int getNumPreviouslyFailed() { return numPreviouslyFailed; }
@@ -991,24 +1010,30 @@ public class TestSelector {
 
     /**
      * Add modified test suites to the run list. Only suites present in the tracked set are
-     * added - an untracked modified test file is new to Tia and is picked up by the
-     * new-test-file path instead.
+     * added. Any other modified test file is a test support class - a helper, base class or
+     * fixture the suites use - or a test Tia hasn't tracked, which runs anyway since it is in no
+     * ignore list. Either way it is collected as a changed support class, so the suites that use it
+     * are selected.
      *
      * @param sourceFileDiffContexts the modified test-file diff contexts
      * @param testSuitesTracked the tracked test suites keyed by suite name
      * @param testsToRun the run set to add the modified suites to
      * @param testFilesDirs the configured test file directories
+     * @param changedSupportClasses accumulator for the modified test files that aren't tracked suites
      * @return the number of modified test suites added to {@code testsToRun}
      */
     private int addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts,
                                                Map<String, TestSuiteTracker> testSuitesTracked,
-                                               Set<String> testsToRun, List<String> testFilesDirs){
+                                               Set<String> testsToRun, List<String> testFilesDirs,
+                                               Set<String> changedSupportClasses){
         Set<String> testSuitesModified = new HashSet<>();
 
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
             String testName = getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), testFilesDirs);
             if (testSuitesTracked.containsKey(testName)){
                 testSuitesModified.add(testName);
+            } else {
+                changedSupportClasses.add(testName);
             }
         }
 
@@ -1030,15 +1055,20 @@ public class TestSelector {
      * runner's ignore list, so every runner would run it. See "Which suites a runner skips" in the
      * distributed test runs chapter of {@code WIKI.md}.
      *
+     * <p>A dropped file is collected as a changed support class: a new abstract base class or helper
+     * can be added in the same change as the existing suites that start using it.
+     *
      * @param sourceFileDiffContexts the added test-file diff contexts
      * @param testsToRun the run set to add the new suites to
      * @param testFilesDirs the configured test file directories
      * @param runnabilityClassifier classifies the new suites against the compiled test classes
+     * @param changedSupportClasses accumulator for the new test files proven not to be a test
      * @return the number of new test suites added to {@code testsToRun}
      */
     private int addNewTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts,
                                           Set<String> testsToRun, List<String> testFilesDirs,
-                                          TestSuiteRunnabilityClassifier runnabilityClassifier){
+                                          TestSuiteRunnabilityClassifier runnabilityClassifier,
+                                          Set<String> changedSupportClasses){
         Set<String> testSuitesAdded = new HashSet<>();
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
             String testName = getTestNameFromFilePath(sourceFileDiffContext.getNewFilePath(), testFilesDirs);
@@ -1046,6 +1076,7 @@ public class TestSelector {
             if (verdict.isProvenNotATest()) {
                 log.debug("New test file {} skipped: not a runnable test suite ({})", testName,
                         verdict.getReason());
+                changedSupportClasses.add(testName);
                 continue;
             }
             testSuitesAdded.add(testName);
@@ -1054,6 +1085,75 @@ public class TestSelector {
         log.info("Selected tests to run from new test files: {}", testSuitesAdded);
         testsToRun.addAll(testSuitesAdded);
         return testSuitesAdded.size();
+    }
+
+    /**
+     * Collect the deleted test files that weren't tracked suites as changed support classes, by
+     * their old class name. The suites that used a deleted helper still refer to it in their
+     * sources until they are changed too, and if they no longer compile the build fails anyway.
+     * A deleted tracked suite is left out: it no longer runs, and its removal from the mapping is
+     * handled when the run's results are persisted.
+     *
+     * @param sourceFileDiffContexts the deleted test-file diff contexts
+     * @param testSuitesTracked the tracked test suites keyed by suite name
+     * @param testFilesDirs the configured test file directories
+     * @param changedSupportClasses accumulator for the deleted test files that weren't tracked suites
+     */
+    private void collectDeletedSupportClasses(List<SourceFileDiffContext> sourceFileDiffContexts,
+                                              Map<String, TestSuiteTracker> testSuitesTracked,
+                                              List<String> testFilesDirs, Set<String> changedSupportClasses){
+        for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
+            String testName = getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), testFilesDirs);
+            if (!testSuitesTracked.containsKey(testName)){
+                changedSupportClasses.add(testName);
+            }
+        }
+    }
+
+    /**
+     * Add the tracked suites that use a changed test support class - a base class, helper, fixture
+     * or API client under a test dir - directly or through other test classes. The coverage mapping
+     * can't see these, since test code is never in it. The test sources are only read when at least
+     * one support class changed, so builds that change only suites or source code pay nothing. See
+     * {@link TestSourceDependencyIndex} for how a dependency is found, and the test selection
+     * chapter of {@code WIKI.md}.
+     *
+     * <p>Logs the suites selected at INFO, the suite count per changed class at DEBUG, and at INFO
+     * the changed classes no tracked suite uses, so no changed test file is dropped silently.
+     *
+     * @param changedSupportClasses the changed test files that aren't tracked suites, as class names
+     * @param testFilesDirs the configured test file directories, as full paths
+     * @param testSuitesTracked the tracked test suites keyed by suite name
+     * @param testsToRun the run set to add the dependant suites to
+     * @return the number of suites that use a changed support class
+     */
+    private int addTestSupportDependantsToRunList(Set<String> changedSupportClasses, List<String> testFilesDirs,
+                                                  Map<String, TestSuiteTracker> testSuitesTracked,
+                                                  Set<String> testsToRun){
+        if (changedSupportClasses.isEmpty()) {
+            return 0;
+        }
+
+        TestSourceDependencyIndex index = TestSourceDependencyIndex.build(testFilesDirs, changedSupportClasses,
+                testSuitesTracked.keySet());
+        Set<String> dependants = new HashSet<>();
+        List<String> unused = new ArrayList<>();
+        for (String changedSupportClass : changedSupportClasses) {
+            Set<String> suites = index.dependantSuites(changedSupportClass);
+            log.debug("Changed test support file {} is used by {} suite(s)", changedSupportClass, suites.size());
+            if (suites.isEmpty()) {
+                unused.add(changedSupportClass);
+            }
+            dependants.addAll(suites);
+        }
+
+        log.info("Selected {} test(s) to run from changed test support files: {}", dependants.size(),
+                StringUtil.sampleSorted(dependants, StringUtil.LOG_SAMPLE_SIZE));
+        if (!unused.isEmpty()) {
+            log.info("Changed test file(s) not used by any tracked suite: {}", unused);
+        }
+        testsToRun.addAll(dependants);
+        return dependants.size();
     }
 
     /**
