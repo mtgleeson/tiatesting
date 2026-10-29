@@ -24,9 +24,6 @@ public final class ClassFileFixture {
     private final List<String> interfaces = new ArrayList<>();
     private final List<String> classAnnotations = new ArrayList<>();
     private final List<String[]> methods = new ArrayList<>();
-    private final List<String> fieldTypes = new ArrayList<>();
-    private final List<String> parameterTypes = new ArrayList<>();
-    private final List<String> staticCallOwners = new ArrayList<>();
 
     /**
      * Start describing one class to be written under a directory.
@@ -109,42 +106,6 @@ public final class ClassFileFixture {
     }
 
     /**
-     * Add a field of the given type. The type is named only in the field's descriptor, not in a
-     * constant pool class entry.
-     *
-     * @param typeBinaryName the field type's binary name
-     * @return this builder
-     */
-    public ClassFileFixture field(final String typeBinaryName) {
-        this.fieldTypes.add(descriptor(typeBinaryName));
-        return this;
-    }
-
-    /**
-     * Add a method taking one parameter of the given type and doing nothing with it,
-     * so the type is named only in the method's descriptor.
-     *
-     * @param typeBinaryName the parameter type's binary name
-     * @return this builder
-     */
-    public ClassFileFixture methodTaking(final String typeBinaryName) {
-        this.parameterTypes.add(descriptor(typeBinaryName));
-        return this;
-    }
-
-    /**
-     * Add a method whose code calls a static no-arg void method on the given class, which puts the
-     * class in a constant pool class entry (as the method's owner).
-     *
-     * @param ownerBinaryName the called class's binary name
-     * @return this builder
-     */
-    public ClassFileFixture callingStatic(final String ownerBinaryName) {
-        this.staticCallOwners.add(ownerBinaryName.replace('.', '/'));
-        return this;
-    }
-
-    /**
      * Write the described class to {@code <dir>/<internalName>.class}, creating package
      * directories as needed.
      *
@@ -164,25 +125,6 @@ public final class ClassFileFixture {
             if (method[1] != null) {
                 visitor.visitAnnotation(method[1], true).visitEnd();
             }
-            visitor.visitEnd();
-        }
-        for (int i = 0; i < fieldTypes.size(); i++) {
-            writer.visitField(Opcodes.ACC_PRIVATE, "field" + i, fieldTypes.get(i), null, null).visitEnd();
-        }
-        for (int i = 0; i < parameterTypes.size(); i++) {
-            MethodVisitor visitor = writer.visitMethod(Opcodes.ACC_PUBLIC, "take" + i,
-                    "(" + parameterTypes.get(i) + ")V", null, null);
-            visitor.visitCode();
-            visitor.visitInsn(Opcodes.RETURN);
-            visitor.visitMaxs(0, 2);
-            visitor.visitEnd();
-        }
-        for (int i = 0; i < staticCallOwners.size(); i++) {
-            MethodVisitor visitor = writer.visitMethod(Opcodes.ACC_PUBLIC, "call" + i, "()V", null, null);
-            visitor.visitCode();
-            visitor.visitMethodInsn(Opcodes.INVOKESTATIC, staticCallOwners.get(i), "help", "()V", false);
-            visitor.visitInsn(Opcodes.RETURN);
-            visitor.visitMaxs(0, 1);
             visitor.visitEnd();
         }
         writer.visitEnd();
