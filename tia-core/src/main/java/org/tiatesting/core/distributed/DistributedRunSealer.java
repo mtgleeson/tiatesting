@@ -358,7 +358,7 @@ public final class DistributedRunSealer {
      * since that is the one timestamp every runner in the build shares.
      *
      * <p>The row also carries the build's selection breakdown, copied from what the plan staged
-     * for this run id: {@code selectionDetails}'s five scalar counters are folded into the entry
+     * for this run id: {@code selectionDetails}'s six scalar counters are folded into the entry
      * via {@link TestRunHistoryEntry#createForDistributedRun}, and its per-method/per-rule
      * triggers are persisted separately via {@link DataStore#persistTestRunTriggers} keyed on the
      * entry's id - the same split a single-host run's {@code TestRunnerService} makes for its own

@@ -101,6 +101,7 @@ erDiagram
         INT savings_percent
         INT num_modified_test_files
         INT num_new_test_files
+        INT num_test_support_dependants
         INT num_previously_failed
         INT num_unsealed_mapping
         INT num_pending_library
@@ -202,6 +203,7 @@ erDiagram
         VARCHAR run_id PK
         INT num_modified_test_files
         INT num_new_test_files
+        INT num_test_support_dependants
         INT num_previously_failed
         INT num_unsealed_mapping
         INT num_pending_library
@@ -257,8 +259,9 @@ rather than needing their own cleanup.)
   cleared for a suite when it is deleted. See [Failed-suite tracking](failed-suite-tracking.md).
 - **tia_test_run_history** - audit log: one row per run (timestamp, branch, commit, ran/ignored/
   failed counts, duration, frozen per-run savings). Drives the `history` task and HTML History tab.
-  Also carries five nullable selection-source counters (`num_modified_test_files`,
-  `num_new_test_files`, `num_previously_failed`, `num_unsealed_mapping`, `num_pending_library`) -
+  Also carries six nullable selection-source counters (`num_modified_test_files`,
+  `num_new_test_files`, `num_test_support_dependants`, `num_previously_failed`,
+  `num_unsealed_mapping`, `num_pending_library`) -
   null means "not recorded" rather than zero. See the
   [Run history details](run-history-details.md) chapter. `rerun` flags a retry of failed tests (a
   Surefire rerun or a Gradle test-retry round), which is credited no savings - see
@@ -318,7 +321,7 @@ rather than needing their own cleanup.)
   one row per id per run, so overlapping ids from several runners merge into a union. The sealer
   counts an executed run against each - see [Method run stats](method-run-stats.md). Kept apart
   from the method stage because a stage row covers every method of a covered class, executed or not.
-- **tia_distributed_run_selection** - one row per distributed run, staging the same five
+- **tia_distributed_run_selection** - one row per distributed run, staging the same six
   selection-source counters `tia_test_run_history` stores. Written at plan time; the sealer copies
   it onto the build's single history row. See the
   [Run history details](run-history-details.md) chapter.

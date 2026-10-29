@@ -38,6 +38,7 @@ public final class TestRunHistoryEntry {
     private final RunOrigin runOrigin;
     private final Integer numModifiedTestFiles;
     private final Integer numNewTestFiles;
+    private final Integer numTestSupportDependants;
     private final Integer numPreviouslyFailed;
     private final Integer numUnsealedMapping;
     private final Integer numPendingLibrary;
@@ -55,7 +56,7 @@ public final class TestRunHistoryEntry {
      * group's time - so savings stay comparable across the two. See the "Stats and history"
      * material in the distributed test runs chapter of {@code WIKI.md}.
      *
-     * <p>The five trailing counters are null when not recorded - a row written before this
+     * <p>The six trailing counters are null when not recorded - a row written before this
      * feature, or a distributed row before the seal populates it - rather than defaulting to zero,
      * so callers can distinguish "not recorded" from "recorded as zero". A single-host run always
      * records the counts (zero included). See the "Run history details" chapter in
@@ -98,6 +99,8 @@ public final class TestRunHistoryEntry {
      * @param numModifiedTestFiles count of modified test files that were selected, or null when
      *                             not recorded
      * @param numNewTestFiles count of new test files that were selected, or null when not recorded
+     * @param numTestSupportDependants count of suites selected because they use a changed test
+     *                                 support file, or null when not recorded
      * @param numPreviouslyFailed count of previously-failed suites re-run, or null when not recorded
      * @param numUnsealedMapping count of suites re-run from unsealed mapping rows, or null when not
      *                           recorded
@@ -117,7 +120,8 @@ public final class TestRunHistoryEntry {
                                String runId, Long wallClockMs, Integer groupCount,
                                Integer groupsAvailable, RunOrigin runOrigin,
                                Integer numModifiedTestFiles,
-                               Integer numNewTestFiles, Integer numPreviouslyFailed,
+                               Integer numNewTestFiles, Integer numTestSupportDependants,
+                               Integer numPreviouslyFailed,
                                Integer numUnsealedMapping, Integer numPendingLibrary,
                                boolean rerun, SelectionMode selectionMode) {
         this.id = id;
@@ -140,6 +144,7 @@ public final class TestRunHistoryEntry {
         this.runOrigin = Objects.requireNonNull(runOrigin, "runOrigin");
         this.numModifiedTestFiles = numModifiedTestFiles;
         this.numNewTestFiles = numNewTestFiles;
+        this.numTestSupportDependants = numTestSupportDependants;
         this.numPreviouslyFailed = numPreviouslyFailed;
         this.numUnsealedMapping = numUnsealedMapping;
         this.numPendingLibrary = numPendingLibrary;
@@ -167,7 +172,7 @@ public final class TestRunHistoryEntry {
      * @param savingsPercent    {@code timeSavingsMs} as a percentage of the full-suite baseline
      * @param runOrigin         where the run came from and which machine executed it
      * @param selectionDetails  the per-run breakdown of what drove test selection, used to
-     *                          populate the five selection-counter fields; null leaves all five
+     *                          populate the six selection-counter fields; null leaves all six
      *                          null (not recorded) rather than defaulting to zero
      * @param rerun             true when the row records a retry of failed tests rather than the
      *                          test task's real run
@@ -186,6 +191,7 @@ public final class TestRunHistoryEntry {
                 savingsPercent, timeSavingsMs, savingsPercent, null, null, null, null, runOrigin,
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumModifiedTestFiles),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumNewTestFiles),
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumTestSupportDependants),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumUnsealedMapping),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary),
@@ -227,7 +233,7 @@ public final class TestRunHistoryEntry {
      * @param runOrigin         where the build came from. Its host is expected to be null: the build
      *                          ran across several machines, so no single one executed it
      * @param selectionDetails  the build-level breakdown of what drove test selection, used to
-     *                          populate the five selection-counter fields; null leaves all five
+     *                          populate the six selection-counter fields; null leaves all six
      *                          null (not recorded) rather than defaulting to zero
      * @return a new entry carrying the build-level figures and the distributed fields
      */
@@ -255,6 +261,7 @@ public final class TestRunHistoryEntry {
                 Integer.valueOf(groupsAvailable), runOrigin,
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumModifiedTestFiles),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumNewTestFiles),
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumTestSupportDependants),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumUnsealedMapping),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary),
@@ -433,6 +440,13 @@ public final class TestRunHistoryEntry {
      *         single-host run records the actual count, zero included
      */
     public Integer getNumNewTestFiles() { return numNewTestFiles; }
+
+    /**
+     * @return count of suites selected because they use a changed test support file; null when not
+     *         recorded (a row written before this feature, or a distributed row before the seal
+     *         populates it). A single-host run records the actual count, zero included
+     */
+    public Integer getNumTestSupportDependants() { return numTestSupportDependants; }
 
     /**
      * @return count of previously-failed suites re-run; null when not recorded (a row written

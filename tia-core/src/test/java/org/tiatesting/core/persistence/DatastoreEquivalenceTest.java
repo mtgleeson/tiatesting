@@ -384,7 +384,7 @@ class DatastoreEquivalenceTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", null, 519),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009)),
-                1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
+                1, 2, 0, 3, 4, 5, SelectionMode.SELECTIVE);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(BRANCH, "equiv-c1", 1000L,
                 10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details, false);
 
@@ -448,7 +448,7 @@ class DatastoreEquivalenceTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", null, 519),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009)),
-                1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
+                1, 2, 0, 3, 4, 5, SelectionMode.SELECTIVE);
 
         // when
         store.persistDistributedRunSelectionDetails("run-equiv-1", details);

@@ -20,7 +20,7 @@ public class TestRunHistoryEntrySelectionCountersTest {
     public void createCopiesCountersFromSelectionDetails() {
         // given
         TestRunSelectionDetails details = new TestRunSelectionDetails(
-                Collections.emptyList(), 1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
+                Collections.emptyList(), 1, 2, 6, 3, 4, 5, SelectionMode.SELECTIVE);
 
         // when
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1000L,
@@ -32,6 +32,7 @@ public class TestRunHistoryEntrySelectionCountersTest {
         assertEquals(Integer.valueOf(3), entry.getNumPreviouslyFailed());
         assertEquals(Integer.valueOf(4), entry.getNumUnsealedMapping());
         assertEquals(Integer.valueOf(5), entry.getNumPendingLibrary());
+        assertEquals(Integer.valueOf(6), entry.getNumTestSupportDependants());
     }
 
     @Test
@@ -49,5 +50,6 @@ public class TestRunHistoryEntrySelectionCountersTest {
         assertNull(entry.getNumPreviouslyFailed());
         assertNull(entry.getNumUnsealedMapping());
         assertNull(entry.getNumPendingLibrary());
+        assertNull(entry.getNumTestSupportDependants());
     }
 }

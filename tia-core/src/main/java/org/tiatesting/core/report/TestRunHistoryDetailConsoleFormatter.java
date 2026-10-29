@@ -12,7 +12,7 @@ import java.util.List;
  * Renders one {@link TestRunHistoryEntry}'s full selection breakdown as plain text, shared by the
  * Gradle task and Maven mojo that print the detail of a single recorded test run. Where
  * {@link TestRunHistoryConsoleFormatter} renders a table of many runs, this formatter renders one
- * run in full: its summary figures, the five scalar selection-source counters, and the ranked
+ * run in full: its summary figures, the six scalar selection-source counters, and the ranked
  * per-method and per-rule triggers that pulled tests into the run. See the "Run history details"
  * chapter in {@code WIKI.md}.
  *
@@ -56,7 +56,7 @@ import java.util.List;
  * ReportUtils#savingsText}, which renders {@code "-"} when the entry recorded none. The wall clock
  * and wall-clock savings are what the history table shows; the serial duration and serial savings
  * measure the same run as total machine time. The two are equal for a single-host run, whose group
- * lines are dashed. Each of the five scalar selection-source counters renders {@code "-"} when its
+ * lines are dashed. Each of the six scalar selection-source counters renders {@code "-"} when its
  * boxed {@link Integer} is null (not recorded), rather than a misleading zero.
  */
 public final class TestRunHistoryDetailConsoleFormatter {
@@ -76,7 +76,7 @@ public final class TestRunHistoryDetailConsoleFormatter {
      * Render one run's full selection breakdown: a header/summary section (id, branch, commit,
      * timestamp, whether it was a rerun of failed tests, suite counts, wall clock and serial
      * duration, groups used and available, wall-clock
-     * and serial savings), a "Selection sources" section with the five
+     * and serial savings), a "Selection sources" section with the six
      * scalar counters, and "Source method changes" / "Static rules" sections listing the run's
      * triggers ranked by the number of suites each accounts for.
      *
@@ -157,7 +157,7 @@ public final class TestRunHistoryDetailConsoleFormatter {
     }
 
     /**
-     * Append the "Selection sources" section: the five scalar selection-source counters, each
+     * Append the "Selection sources" section: the six scalar selection-source counters, each
      * rendered as the not-applicable dash when its boxed value is null (not recorded) - or, for a
      * run that executed every test, a single line saying why, in place of counters that would all
      * read zero.
@@ -175,6 +175,7 @@ public final class TestRunHistoryDetailConsoleFormatter {
         }
         sb.append("  Modified test files:  ").append(orDash(entry.getNumModifiedTestFiles())).append(lineSep);
         sb.append("  New test files:       ").append(orDash(entry.getNumNewTestFiles())).append(lineSep);
+        sb.append("  Test support files:   ").append(orDash(entry.getNumTestSupportDependants())).append(lineSep);
         sb.append("  Previously-failed:    ").append(orDash(entry.getNumPreviouslyFailed())).append(lineSep);
         sb.append("  Unsealed-mapping:     ").append(orDash(entry.getNumUnsealedMapping())).append(lineSep);
         sb.append("  Pending library:      ").append(orDash(entry.getNumPendingLibrary())).append(lineSep);
@@ -209,7 +210,7 @@ public final class TestRunHistoryDetailConsoleFormatter {
     }
 
     /**
-     * Coalesce a null boxed counter to the not-applicable dash - used for the five selection
+     * Coalesce a null boxed counter to the not-applicable dash - used for the six selection
      * source counters, which are null when not recorded rather than defaulting to zero.
      *
      * @param value the possibly-null counter value

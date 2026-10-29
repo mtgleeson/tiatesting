@@ -654,7 +654,7 @@ class JdbcDataStoreDistributedPlanTest {
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.A.foo()V", 777, 5),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "always-run-smoke", null, 9));
-        return new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
+        return new TestRunSelectionDetails(triggers, 1, 2, 0, 3, 4, 5, SelectionMode.SELECTIVE);
     }
 
     /**

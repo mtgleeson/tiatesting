@@ -24,7 +24,7 @@ import java.util.List;
  *
  * <p>File format, UTF-8, one record per line:
  * <pre>
- * counters&lt;TAB&gt;modified&lt;TAB&gt;new&lt;TAB&gt;prevFailed&lt;TAB&gt;unsealed&lt;TAB&gt;pendingLib
+ * counters&lt;TAB&gt;modified&lt;TAB&gt;new&lt;TAB&gt;prevFailed&lt;TAB&gt;unsealed&lt;TAB&gt;pendingLib&lt;TAB&gt;testSupport
  * mode&lt;TAB&gt;&lt;{@link SelectionMode} name&gt;
  * trigger&lt;TAB&gt;SOURCE_METHOD&lt;TAB&gt;&lt;count&gt;&lt;TAB&gt;&lt;methodId&gt;&lt;TAB&gt;&lt;name&gt;
  * trigger&lt;TAB&gt;STATIC_RULE&lt;TAB&gt;&lt;count&gt;&lt;TAB&gt;&lt;TAB&gt;&lt;name&gt;
@@ -66,7 +66,8 @@ public final class RunSelectionDetailsCodec {
                 .append(details.getNumNewTestFiles()).append('\t')
                 .append(details.getNumPreviouslyFailed()).append('\t')
                 .append(details.getNumUnsealedMapping()).append('\t')
-                .append(details.getNumPendingLibrary()).append('\n');
+                .append(details.getNumPendingLibrary()).append('\t')
+                .append(details.getNumTestSupportDependants()).append('\n');
         sb.append(MODE_PREFIX).append('\t').append(details.getSelectionMode().name()).append('\n');
 
         for (TestRunTrigger trigger : details.getTriggers()) {
@@ -122,6 +123,7 @@ public final class RunSelectionDetailsCodec {
         int numPreviouslyFailed = 0;
         int numUnsealedMapping = 0;
         int numPendingLibrary = 0;
+        int numTestSupportDependants = 0;
         SelectionMode selectionMode = SelectionMode.SELECTIVE;
         List<TestRunTrigger> triggers = new ArrayList<>();
         boolean sawAnyContent = false;
@@ -139,6 +141,7 @@ public final class RunSelectionDetailsCodec {
                 numPreviouslyFailed = parseIntOrZero(fields, 3);
                 numUnsealedMapping = parseIntOrZero(fields, 4);
                 numPendingLibrary = parseIntOrZero(fields, 5);
+                numTestSupportDependants = parseIntOrZero(fields, 6);
             } else if (line.startsWith(MODE_PREFIX + "\t")) {
                 selectionMode = SelectionMode.fromStoredName(line.substring(MODE_PREFIX.length() + 1).trim());
             } else if (line.startsWith(TRIGGER_PREFIX + "\t")) {
@@ -156,7 +159,8 @@ public final class RunSelectionDetailsCodec {
         }
 
         return new TestRunSelectionDetails(triggers, numModifiedTestFiles, numNewTestFiles,
-                numPreviouslyFailed, numUnsealedMapping, numPendingLibrary, selectionMode);
+                numTestSupportDependants, numPreviouslyFailed, numUnsealedMapping, numPendingLibrary,
+                selectionMode);
     }
 
     /**

@@ -615,7 +615,7 @@ public class TestRunnerService {
      * Build and persist a {@link TestRunHistoryEntry} for this run.
      *
      * <p>The selection breakdown carried on {@link TestRunResult#getSelectionDetails()} is written
-     * alongside the entry: its five scalar counters are folded into the entry via
+     * alongside the entry: its six scalar counters are folded into the entry via
      * {@link TestRunHistoryEntry#create} and its per-method/per-rule triggers are persisted
      * separately via {@link DataStore#persistTestRunTriggers} keyed on the entry's id, so both the
      * history row and its trigger breakdown are written for every single-host run. Only this

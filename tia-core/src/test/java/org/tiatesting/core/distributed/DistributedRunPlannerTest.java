@@ -496,7 +496,7 @@ class DistributedRunPlannerTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(
                 Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
                         "com.example.Foo.bar()V", null, 2)),
-                1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
+                1, 2, 6, 3, 4, 5, SelectionMode.SELECTIVE);
         DistributedRunConfig config = DistributedRunConfig.validated("run-selection-details", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
@@ -510,6 +510,7 @@ class DistributedRunPlannerTest {
         assertEquals(3, read.getNumPreviouslyFailed());
         assertEquals(4, read.getNumUnsealedMapping());
         assertEquals(5, read.getNumPendingLibrary());
+        assertEquals(6, read.getNumTestSupportDependants());
         assertEquals(1, read.getTriggers().size());
         assertEquals("com.example.Foo.bar()V", read.getTriggers().get(0).getName());
     }

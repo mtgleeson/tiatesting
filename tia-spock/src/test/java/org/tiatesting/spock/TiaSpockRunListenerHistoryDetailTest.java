@@ -109,7 +109,7 @@ class TiaSpockRunListenerHistoryDetailTest {
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo.save", null, 2),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "ForceOnDbChange", null, 1));
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 1, 4, SelectionMode.SELECTIVE);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 0, 2, 1, 4, SelectionMode.SELECTIVE);
         TiaSpockRunListener listener = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 0, false, true, null,
                 details, null, RunAttempt.FIRST);

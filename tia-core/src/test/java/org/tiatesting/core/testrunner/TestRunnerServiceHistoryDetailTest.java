@@ -88,7 +88,7 @@ class TestRunnerServiceHistoryDetailTest {
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo.save", null, 2),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "ForceOnDbChange", null, 1));
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 1, 4, SelectionMode.SELECTIVE);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 0, 2, 1, 4, SelectionMode.SELECTIVE);
 
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
@@ -148,7 +148,7 @@ class TestRunnerServiceHistoryDetailTest {
         Set<String> runnerTestSuites = new HashSet<>(Arrays.asList("com.example.ATest"));
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", null, 1));
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 7, 0, 0, 0, 0, SelectionMode.SELECTIVE);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 7, 0, 0, 0, 0, 0, SelectionMode.SELECTIVE);
         TestRunResult result = new TestRunResult(trackers, new HashSet<>(), runnerTestSuites,
                 runnerTestSuites, new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0, details, RunAttempt.FIRST);
 

@@ -71,6 +71,9 @@ wiki can also be read front to back.
   a method, the original-side hunk lines they're compared with, how the matched range is padded
   and its begin widened over blank and comment lines, annotations and a multi-line signature, and
   how class header and field declaration changes impact every method of the class.
+- [Changed test support files](wiki/changed-test-support-files.md) - how a changed base class,
+  helper or fixture under a test dir selects the suites that use it: which changed files count, the
+  test-source dependency index, the transitive walk, the log lines and the cost.
 - [Local changes and a workspace out of step with the mapping](wiki/local-changes-mapping-drift.md) - what
   local mode diffs (Git `HEAD`, Perforce `#have`), why a workspace behind or ahead of the stored
   mapping commit can mis-match edits to methods, and how Tia treats every tracked method in an
