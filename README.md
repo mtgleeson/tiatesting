@@ -123,7 +123,7 @@ For the latest versions, see [tia-maven-plugin](https://central.sonatype.com/sea
             <!-- Configure Jacoco as a TCP server, needed by Tia (which has a Jacoco client) for collecting the coverage data for each test suite. -->
             <groupId>org.jacoco</groupId>
             <artifactId>jacoco-maven-plugin</artifactId>            
-            <version>0.8.7</version>
+            <version>0.8.15</version>
             <executions>
                 <execution>
                     <id>pre-test</id>
