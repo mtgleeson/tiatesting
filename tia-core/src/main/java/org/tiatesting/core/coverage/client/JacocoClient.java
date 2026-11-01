@@ -15,6 +15,7 @@ import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.sourcefile.FileExtensions;
 import org.tiatesting.core.util.StringUtil;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -77,16 +78,44 @@ public class JacocoClient {
     }
 
     /**
-     * Starts the execution data request.
-     * @return CoverageResult
-     * @throws IOException IO Exception
+     * Collects the coverage recorded since the previous collection: dumps (and resets) the execution
+     * data from the JaCoCo agent's TCP server, then analyzes it into the methods the suite covered.
+     * The socket is closed as soon as the dump has been read, before the analysis starts.
+     *
+     * @return the coverage result for the execution data dumped from the agent
+     * @throws IOException if the agent cannot be reached, or closes the connection before the dump
+     *                     completes
      */
     public CoverageResult collectCoverage() throws IOException {
         long startTime = System.currentTimeMillis();
 
-        // Open a socket to the coverage agent:
-        final Socket socket = new Socket(InetAddress.getByName(ADDRESS), PORT);
-        final RemoteControlReader reader = new RemoteControlReader(socket.getInputStream());
+        final ExecutionDataStore executionDataStore;
+        try (Socket socket = new Socket(InetAddress.getByName(ADDRESS), PORT)) {
+            executionDataStore = dumpExecutionData(socket);
+        }
+
+        IBundleCoverage bundleCoverage = analyze(executionDataStore);
+        CoverageResult coverageResult = collectMethodsCalled(bundleCoverage);
+
+        log.debug("Time to collect coverage (ms): " + (System.currentTimeMillis() - startTime));
+        return coverageResult;
+    }
+
+    /**
+     * Sends a dump-and-reset command to the JaCoCo agent over the given connected socket and reads
+     * the execution data it returns. The response is read through a {@link BufferedInputStream}:
+     * JaCoCo decodes execution data a byte at a time, so reading the socket unbuffered costs a
+     * socket read per byte. This pays off with a JaCoCo 0.8.15+ agent, which buffers its side of the
+     * dump; an older agent writes the dump unbuffered, which then dominates the round trip. The
+     * command is short and written unbuffered, as JaCoCo recommends.
+     *
+     * @param socket a socket connected to the JaCoCo agent's TCP server; the caller closes it
+     * @return the execution data of the classes executed since the previous dump
+     * @throws IOException if the agent closes the connection before the dump completes
+     */
+    ExecutionDataStore dumpExecutionData(final Socket socket) throws IOException {
+        final RemoteControlReader reader = new RemoteControlReader(
+                new BufferedInputStream(socket.getInputStream()));
 
         SessionInfoStore sessionInfoStore = new SessionInfoStore();
         ExecutionDataStore executionDataStore = new ExecutionDataStore();
@@ -97,18 +126,10 @@ public class JacocoClient {
         // Send a dump coverage command, reset the coverage on the server agent and read the response:
         writer.visitDumpCommand(true, true);
 
-        // execute read logic
         if (!reader.read()) {
             throw new IOException("Socket closed unexpectedly.");
         }
-
-        // session and execution info have been read to our local objects
-        IBundleCoverage bundleCoverage = analyze(executionDataStore);
-        CoverageResult coverageResult = collectMethodsCalled(bundleCoverage);
-
-        socket.close();
-        log.debug("Time to collect coverage (ms): " + (System.currentTimeMillis() - startTime));
-        return coverageResult;
+        return executionDataStore;
     }
 
     /**
