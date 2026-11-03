@@ -30,6 +30,30 @@ This means *test-JVM-only* code can legitimately use TRACE for very fine-grained
 - The JUnit 5 agent (`tia-junit5-agent`) must not use SLF4J at all: it must start where the project's classes are not reachable from the system class loader (Surefire's `useSystemClassLoader=false`), and a project need not have SLF4J. It logs through `java.util.logging` at `FINEST` - see "How Tia exchanges data with the test runner", and "Seeing the JUnit 5 agent's logs" below for how to turn it on.
 - For users diagnosing a problem in `tia-select-tests` or any other plugin task, the workflow is `gradle <task> --debug 2>&1 | grep -E "org\.tiatesting"`. There is no equivalent of Logback level filtering for the daemon — Gradle's DEBUG level is the most fine-grained signal available.
 
+### Logging lists of names
+
+A list of suites, classes or POMs can grow to the size of the whole project. On a full run of a
+project with about 1000 suites, a `Selected tests to run from ...` line that listed every suite
+was about 70 KB on one line: unreadable, and too big for CI consoles and log search.
+
+- **At INFO, log a list through `LogUtil.infoSampled`** (or `StringUtil.sampleSorted` when the
+  list sits in the middle of the line). INFO then shows the first `StringUtil.LOG_SAMPLE_SIZE`
+  (10) names in sorted order, followed by `and N more`. Lists of 10 or fewer are logged in full.
+  Because the names are sorted, two builds' logs show the same names and can be compared.
+- **The full list goes to DEBUG, once.** `infoSampled` adds a
+  `<message> (full list of N): [...]` DEBUG line only when the INFO line was cut short, and builds
+  it only when DEBUG is enabled. So `--debug` (Gradle) or `-X` (Maven) still shows every suite each
+  selection source chose.
+- A DEBUG-only list can stay in full when its size is the point of the line. The per-group
+  `Distributed run grouping` lines are an example.
+
+Example on a full run:
+
+```
+[INFO] Selected tests to run from static test selection rules: [com.example.AccountTest, ...] and 990 more
+[DEBUG] Selected tests to run from static test selection rules (full list of 1000): [com.example.AccountTest, ...]
+```
+
 ### Seeing the JUnit 5 agent's logs
 
 The agent logs the values it hands to the test listener as system properties, one `FINEST` line

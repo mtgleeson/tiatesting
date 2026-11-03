@@ -21,7 +21,7 @@ wiki can also be read front to back.
   Tia never publishes the JUnit Platform launcher, the `junit6Test` suites in `check`, and the local
   JDK 17+ contributors need for them.
 - [Logging conventions (TRACE vs DEBUG)](wiki/logging-conventions.md) - why daemon-side code must
-  log at DEBUG and only test-JVM code may use TRACE.
+  log at DEBUG and only test-JVM code may use TRACE, and how list-valued lines stay short at INFO.
 - [Why Tia requires Maven 3.8.1+](wiki/maven-version-requirement.md) - the CVE-driven floor and
   how the `<prerequisites>` check surfaces it to users.
 - [Supported Gradle versions](wiki/gradle-version-support.md) - why the plugin needs Gradle 6.1+,

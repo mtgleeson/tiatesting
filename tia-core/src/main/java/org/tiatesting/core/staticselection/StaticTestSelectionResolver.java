@@ -8,6 +8,7 @@ import org.tiatesting.core.staticselection.pom.PomChange;
 import org.tiatesting.core.staticselection.pom.PomChangeAnalyzer;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.staticselection.pom.PomChangeReport;
+import org.tiatesting.core.util.StringUtil;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -210,12 +211,14 @@ public class StaticTestSelectionResolver {
 
         if (firedCategories.isEmpty()) {
             log.info("Static test selection rule '{}' matched {} but none of the changes is in {}: {}",
-                    rule.getName(), matchedPaths, rule.getPomChanges(),
+                    rule.getName(), StringUtil.sampleSorted(matchedPaths, StringUtil.LOG_SAMPLE_SIZE),
+                    rule.getPomChanges(),
                     otherChanges.isEmpty() ? "no changes" : summarize(otherChanges));
             return null;
         }
         log.info("Static test selection rule '{}' fired for {} change(s) in {}: {}",
-                rule.getName(), firedCategories, matchedPaths, summarize(firingChanges));
+                rule.getName(), firedCategories, StringUtil.sampleSorted(matchedPaths, StringUtil.LOG_SAMPLE_SIZE),
+                summarize(firingChanges));
         return new FiredStaticRule(rule, matchedPaths.size(), firedCategories);
     }
 
