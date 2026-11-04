@@ -119,7 +119,14 @@ A filtered resource that embeds `${project.version}` is a real behaviour change 
 
 Reads are batched: the changed POMs' parent chains are read one level per VCS call across all of them, and the reactor is read one module-tree level per call, once per run. A POM whose change needs neither the reactor nor its children (for example a compiler property) causes no further reads. When the diff adds or deletes a POM, the diff's other changed `pom.xml` files are read in one more call to find references to it. Without an added or deleted POM they are not read.
 
-**Logging and history.** When a POM-aware rule matches a POM, an INFO line says why it fired or why it did not, listing the first few changes, e.g. `Static test selection rule 'POM changes' matched [pom.xml] but none of the changes is in [CODE_AND_TESTS]: [project version 1.4.0 -> 1.5.0 (inert)]`. The full change list is logged at DEBUG. The run-history trigger records the categories of the changes that fired, not the rule's aggregate, e.g. `POM changes [DEPENDENCY_VERSIONS]`.
+**Logging and history.** When a POM-aware rule matches a POM, an INFO line says why it fired or why it did not, listing the first few changes, e.g. `Static test selection rule 'POM changes' matched [pom.xml] but none of the changes is in [CODE_AND_TESTS]: [project version 1.4.0 -> 1.5.0 (inert)]`. Up to 10 matched POM paths are listed, sorted, followed by `and N more`. The full change list is logged at DEBUG, with each change listed once. Each matched POM gets a line with its own changes and how many it inherited from each external parent or imported BOM. Each distinct list of inherited changes then gets one line naming the POMs that inherit it, so a parent bump that 10 modules inherit is listed once, not 10 times:
+
+```
+Static test selection rule 'POM changes' POM module-a/pom.xml: 1 change(s) of its own: [external parent org.boot:boot-parent version 1 -> 2 (its changes are listed separately) (inert)]; 35 inherited from parent org.boot:boot-parent:2
+Static test selection rule 'POM changes' parent org.boot:boot-parent:2: 35 change(s), inherited by [module-a/pom.xml, module-b/pom.xml, module-c/pom.xml]: [managed dependency org.lib:lib version 1.0 -> 1.1 (in parent org.boot:boot-parent:2) (DEPENDENCY_VERSIONS), ...]
+```
+
+A change inherited through a chain of parents is attributed to the parent the POM declares. POMs that inherit different changes from the same parent, because each is classified in its own surroundings, get one parent line each. See "Logging lists of names" in [Logging conventions](logging-conventions.md). The run-history trigger records the categories of the changes that fired, not the rule's aggregate, e.g. `POM changes [DEPENDENCY_VERSIONS]`.
 
 **Library rules.** A library's own static rules, evaluated at publish time against the files changed since its previous publish, use the same evaluation. A library's POM-aware rule therefore records a forced selection for a consumer only for a functional POM change.
 

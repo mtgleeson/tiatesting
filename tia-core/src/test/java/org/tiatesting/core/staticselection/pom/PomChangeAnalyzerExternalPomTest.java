@@ -65,6 +65,30 @@ class PomChangeAnalyzerExternalPomTest {
                 report.toString());
     }
 
+    /**
+     * The changes a bumped external parent brings record the parent as their origin, so the
+     * resolver's DEBUG log can list them once for every POM that inherits them.
+     */
+    @Test
+    void externalParentChangesRecordTheParentAsTheirOrigin() {
+        // given
+        MapPomSource source = new MapPomSource()
+                .add(BOOT, "boot-parent", "1", bootParent("1", managed(dep("org.lib", "lib", "1.0"))))
+                .add(BOOT, "boot-parent", "2", bootParent("2", managed(dep("org.lib", "lib", "1.1"))));
+        InMemoryPomRepository repository = new InMemoryPomRepository()
+                .changed(ROOT, rootWithParent("1"), rootWithParent("2"));
+
+        // when
+        PomChangeReport report = analyze(repository, source, ROOT);
+
+        // then
+        for (PomChange change : report.getChanges()) {
+            boolean inherited = change.getDescription().endsWith("(in parent org.boot:boot-parent:2)");
+            assertEquals(inherited ? "parent org.boot:boot-parent:2" : null, change.getOrigin(), change.getDescription());
+        }
+        assertTrue(report.getChanges().stream().anyMatch(change -> change.getOrigin() != null), report.toString());
+    }
+
     @Test
     void externalParentManagedTrackedLibraryBumpIsInert() {
         // given
