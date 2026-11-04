@@ -18,6 +18,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.sourcefile.SourceFilenameUtil;
+import org.tiatesting.core.util.LogUtil;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionResolver;
@@ -735,7 +736,7 @@ public class TestSelector {
         }
 
         if (!unsealed.isEmpty()){
-            log.info("Selected tests to run from unsealed mapping rows (a previous run did not complete): {}", unsealed);
+            LogUtil.infoSampled(log, "Selected tests to run from unsealed mapping rows (a previous run did not complete)", unsealed);
             testsToRun.addAll(unsealed);
         }
 
@@ -1038,7 +1039,7 @@ public class TestSelector {
             }
         }
 
-        log.info("Selected tests to run from VCS test file changes: {}", testSuitesModified);
+        LogUtil.infoSampled(log, "Selected tests to run from VCS test file changes", testSuitesModified);
         testsToRun.addAll(testSuitesModified);
         return testSuitesModified.size();
     }
@@ -1083,7 +1084,7 @@ public class TestSelector {
             testSuitesAdded.add(testName);
         }
 
-        log.info("Selected tests to run from new test files: {}", testSuitesAdded);
+        LogUtil.infoSampled(log, "Selected tests to run from new test files", testSuitesAdded);
         testsToRun.addAll(testSuitesAdded);
         return testSuitesAdded.size();
     }
@@ -1148,10 +1149,10 @@ public class TestSelector {
             dependants.addAll(suites);
         }
 
-        log.info("Selected {} test(s) to run from changed test support files: {}", dependants.size(),
-                StringUtil.sampleSorted(dependants, StringUtil.LOG_SAMPLE_SIZE));
+        LogUtil.infoSampled(log, "Selected " + dependants.size() + " test(s) to run from changed test support files",
+                dependants);
         if (!unused.isEmpty()) {
-            log.info("Changed test file(s) not used by any tracked suite: {}", unused);
+            LogUtil.infoSampled(log, "Changed test file(s) not used by any tracked suite", unused);
         }
         testsToRun.addAll(dependants);
         return dependants.size();
@@ -1228,7 +1229,7 @@ public class TestSelector {
                     entry.getValue().size()));
         }
 
-        log.info("Selected tests to run from VCS source changes: {}", testsToRun);
+        LogUtil.infoSampled(log, "Selected tests to run from VCS source changes", testsToRun);
         return new SourceMethodTriggerResult(testsToRun, triggers);
     }
 
@@ -1289,7 +1290,7 @@ public class TestSelector {
     private int addPreviouslyFailedTests(Set<String> testsToRun){
         Set<String> testSuitesFailed = dataStore.getTestSuitesFailed();
         testsToRun.addAll(testSuitesFailed);
-        log.info("Running previously failed tests: {}", testSuitesFailed);
+        LogUtil.infoSampled(log, "Running previously failed tests", testSuitesFailed);
         return testSuitesFailed.size();
     }
 
@@ -1365,7 +1366,7 @@ public class TestSelector {
         // Always log the static selection outcome when rules are configured - an empty result
         // is as informative as a hit, and this matches the unconditional logging of the other
         // "Selected tests to run from ..." selection sources above.
-        log.info("Selected tests to run from static test selection rules: {}", forced);
+        LogUtil.infoSampled(log, "Selected tests to run from static test selection rules", forced);
         testsToRun.addAll(forced);
         return staticResult.getRuleTriggers();
     }
@@ -1555,7 +1556,7 @@ public class TestSelector {
                 drainer.drainPendingMethods(dataStore, libraryConfig, testSuitesTracked);
 
         if (!outcome.getTestsToAdd().isEmpty()) {
-            log.info("Selected tests to run from pending library changes: {}", outcome.getTestsToAdd());
+            LogUtil.infoSampled(log, "Selected tests to run from pending library changes", outcome.getTestsToAdd());
             testsToRun.addAll(outcome.getTestsToAdd());
         }
 

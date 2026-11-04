@@ -17,6 +17,7 @@ dependencies {
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
     testImplementation 'org.postgresql:postgresql:42.7.4'
+    testImplementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion // EventRecodingLogger in LogUtilTest
     testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
 }
 

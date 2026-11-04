@@ -8,6 +8,7 @@ import org.tiatesting.core.staticselection.pom.PomChange;
 import org.tiatesting.core.staticselection.pom.PomChangeAnalyzer;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.staticselection.pom.PomChangeReport;
+import org.tiatesting.core.util.StringUtil;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -205,18 +206,71 @@ public class StaticTestSelectionResolver {
                 }
             }
         }
-        log.debug("Static test selection rule '{}' matched POM(s) {}; changes: {}",
-                rule.getName(), matchedPaths, reports.values());
+        if (log.isDebugEnabled()) {
+            for (String line : describeMatchedPoms(rule.getName(), matchedPaths, reports)) {
+                log.debug(line);
+            }
+        }
 
         if (firedCategories.isEmpty()) {
             log.info("Static test selection rule '{}' matched {} but none of the changes is in {}: {}",
-                    rule.getName(), matchedPaths, rule.getPomChanges(),
+                    rule.getName(), StringUtil.sampleSorted(matchedPaths, StringUtil.LOG_SAMPLE_SIZE),
+                    rule.getPomChanges(),
                     otherChanges.isEmpty() ? "no changes" : summarize(otherChanges));
             return null;
         }
         log.info("Static test selection rule '{}' fired for {} change(s) in {}: {}",
-                rule.getName(), firedCategories, matchedPaths, summarize(firingChanges));
+                rule.getName(), firedCategories, StringUtil.sampleSorted(matchedPaths, StringUtil.LOG_SAMPLE_SIZE),
+                summarize(firingChanges));
         return new FiredStaticRule(rule, matchedPaths.size(), firedCategories);
+    }
+
+    /**
+     * Describe the classified changes of a rule's matched POMs for the DEBUG log, listing each
+     * change once. Each POM gets a line with its own changes and how many it inherited from each
+     * external parent or BOM. Each distinct list of inherited changes then gets one line naming
+     * the POMs that share it. Without this, a parent bump inherited by many matched POMs was
+     * repeated in full for every one of them.
+     *
+     * @param ruleName the rule's name.
+     * @param matchedPaths the matched POM paths, in the order to describe them.
+     * @param reports the classified changes of every matched POM, keyed by path.
+     * @return the log lines, POM lines first, then one line per distinct inherited list.
+     */
+    static List<String> describeMatchedPoms(final String ruleName, final List<String> matchedPaths,
+                                            final Map<String, PomChangeReport> reports) {
+        List<String> lines = new ArrayList<>();
+        // origin -> distinct inherited change list -> the POMs that inherit exactly that list
+        Map<String, Map<List<PomChange>, List<String>>> inheritedBy = new LinkedHashMap<>();
+        for (String path : matchedPaths) {
+            List<PomChange> own = new ArrayList<>();
+            Map<String, List<PomChange>> inherited = new LinkedHashMap<>();
+            for (PomChange change : reports.get(path).getChanges()) {
+                if (change.getOrigin() == null) {
+                    own.add(change);
+                } else {
+                    inherited.computeIfAbsent(change.getOrigin(), origin -> new ArrayList<>()).add(change);
+                }
+            }
+            StringBuilder line = new StringBuilder("Static test selection rule '").append(ruleName)
+                    .append("' POM ").append(path).append(": ")
+                    .append(own.isEmpty() ? "no changes of its own" : own.size() + " change(s) of its own: " + own);
+            for (Map.Entry<String, List<PomChange>> entry : inherited.entrySet()) {
+                line.append("; ").append(entry.getValue().size()).append(" inherited from ").append(entry.getKey());
+                inheritedBy.computeIfAbsent(entry.getKey(), origin -> new LinkedHashMap<>())
+                        .computeIfAbsent(entry.getValue(), changes -> new ArrayList<>()).add(path);
+            }
+            lines.add(line.toString());
+        }
+        for (Map.Entry<String, Map<List<PomChange>, List<String>>> origin : inheritedBy.entrySet()) {
+            for (Map.Entry<List<PomChange>, List<String>> changes : origin.getValue().entrySet()) {
+                lines.add("Static test selection rule '" + ruleName + "' " + origin.getKey() + ": "
+                        + changes.getKey().size() + " change(s), inherited by "
+                        + StringUtil.sampleSorted(changes.getValue(), StringUtil.LOG_SAMPLE_SIZE) + ": "
+                        + changes.getKey());
+            }
+        }
+        return lines;
     }
 
     /**
@@ -234,15 +288,18 @@ public class StaticTestSelectionResolver {
     }
 
     /**
-     * Summarise changes for a log line: the first few, plus a count of the rest.
+     * Summarise changes for a log line: the first few distinct changes, plus a count of the rest.
+     * Duplicates are dropped first, so a parent change inherited by several matched POMs is
+     * counted once rather than once per POM.
      *
-     * @param changes the changes.
+     * @param changes the changes, in the order they were classified.
      * @return the summary.
      */
-    private String summarize(final List<PomChange> changes) {
-        int shown = Math.min(changes.size(), MAX_LOGGED_POM_CHANGES);
-        String summary = changes.subList(0, shown).toString();
-        return changes.size() > shown ? summary + " and " + (changes.size() - shown) + " more" : summary;
+    static String summarize(final List<PomChange> changes) {
+        List<PomChange> distinct = new ArrayList<>(new LinkedHashSet<>(changes));
+        int shown = Math.min(distinct.size(), MAX_LOGGED_POM_CHANGES);
+        String summary = distinct.subList(0, shown).toString();
+        return distinct.size() > shown ? summary + " and " + (distinct.size() - shown) + " more" : summary;
     }
 
     /**

@@ -464,9 +464,9 @@ public final class PomChangeClassifier {
         }
         changes.add(PomChange.inert(description + (relevant.isEmpty()
                 ? " (no functional changes in it)" : " (its changes are listed separately)")));
-        String label = " (in " + (bom ? "BOM " : "parent ") + groupId + ":" + artifactId + ":" + newVersion + ")";
+        String origin = (bom ? "BOM " : "parent ") + groupId + ":" + artifactId + ":" + newVersion;
         for (PomChange change : relevant) {
-            changes.add(change.withDescriptionSuffix(label));
+            changes.add(change.inheritedFrom(origin));
         }
     }
 
