@@ -83,6 +83,24 @@ For the latest versions, see [tia-maven-plugin](https://central.sonatype.com/sea
 <build>
     <plugins>        
         <plugin>
+            <!-- Configure Jacoco as a TCP server, needed by Tia (which has a Jacoco client) for collecting the coverage data for each test suite. -->
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>            
+            <version>0.8.15</version>
+            <executions>
+                <execution>
+                    <id>pre-test</id>
+                    <goals>
+                        <goal>prepare-agent</goal>
+                    </goals>
+                    <phase>test-compile</phase>
+                    <configuration>
+                        <output>tcpserver</output>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+        <plugin>
             <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-maven-plugin</artifactId>
@@ -119,24 +137,6 @@ For the latest versions, see [tia-maven-plugin](https://central.sonatype.com/sea
                      flags) to its javaagent automatically, from the Tia plugin <configuration> /
                      properties above. -->
             </configuration>
-        </plugin>
-        <plugin>
-            <!-- Configure Jacoco as a TCP server, needed by Tia (which has a Jacoco client) for collecting the coverage data for each test suite. -->
-            <groupId>org.jacoco</groupId>
-            <artifactId>jacoco-maven-plugin</artifactId>            
-            <version>0.8.15</version>
-            <executions>
-                <execution>
-                    <id>pre-test</id>
-                    <goals>
-                        <goal>prepare-agent</goal>
-                    </goals>
-                    <phase>test-compile</phase>
-                    <configuration>
-                        <output>tcpserver</output>
-                    </configuration>
-                </execution>
-            </executions>
         </plugin>
     </plugins>
 </build>
