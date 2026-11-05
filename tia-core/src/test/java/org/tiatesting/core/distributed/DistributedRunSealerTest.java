@@ -1,5 +1,8 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.TestRunContribution;
+import org.tiatesting.core.testrunner.TestJvmContribution;
+import org.tiatesting.core.testrunner.TestRunResultFixture;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -810,7 +813,7 @@ class DistributedRunSealerTest {
     private void claimAndComplete(final String runId, final String runnerKey) {
         DistributedRunnerContext context = claim(runId, runnerKey);
         int groupNumber = context.getGroupNumber().intValue();
-        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, 1000L, 1, 0, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, 1), 0L),
+        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, 1000L, 1, 0, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, 1), 0L, Collections.<TestRunContribution>emptyList()),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L,
                 Collections.<String>emptySet()),
@@ -903,7 +906,7 @@ class DistributedRunSealerTest {
         Set<String> runnerSuites = new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest"));
         return new TestRunResult(trackers, new HashSet<String>(), runnerSuites, runnerSuites,
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, new TestStats(),
-                null, 1, 1, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                null, 1, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -1063,9 +1066,10 @@ class DistributedRunSealerTest {
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final Set<String> suitesObserved, final long suitesDurationMs) {
+                                           final Set<String> suitesObserved, final long suitesDurationMs,
+                                           final List<TestRunContribution> contributions) {
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
+                    suitesRan, suitesFailed, suitesObserved, suitesDurationMs, contributions);
         }
 
         /**

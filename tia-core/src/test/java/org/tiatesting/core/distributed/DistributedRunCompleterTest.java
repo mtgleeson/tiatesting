@@ -1,5 +1,8 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.TestRunContribution;
+import org.tiatesting.core.testrunner.TestJvmContribution;
+import org.tiatesting.core.testrunner.TestRunResultFixture;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -355,7 +358,7 @@ class DistributedRunCompleterTest {
         observed.addAll(failed);
 
         return new TestRunResult(trackers, failed, observed, observed, new HashSet<>(observed),
-                methodTrackers, new TestStats(), null, 1, suitesRan, failed.size(), TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                methodTrackers, new TestStats(), null, 1, TestRunResultFixture.syntheticPlanOutcome(suitesRan, failed.size(), 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -424,9 +427,10 @@ class DistributedRunCompleterTest {
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final Set<String> suitesObserved, final long suitesDurationMs) {
+                                           final Set<String> suitesObserved, final long suitesDurationMs,
+                                           final List<TestRunContribution> contributions) {
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
+                    suitesRan, suitesFailed, suitesObserved, suitesDurationMs, contributions);
         }
 
         /**

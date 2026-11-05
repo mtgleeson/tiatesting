@@ -1,5 +1,6 @@
 package org.tiatesting.core.testrunner;
 
+import java.util.Collections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -135,8 +136,8 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         }
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, suiteNames.length, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(suiteNames.length, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -383,7 +384,8 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         @Override
         public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
                                            long actualDurationMs, int suitesRan, int suitesFailed,
-                                           Set<String> suitesObserved, long suitesDurationMs) {
+                                           Set<String> suitesObserved, long suitesDurationMs,
+                                           final List<TestRunContribution> contributions) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

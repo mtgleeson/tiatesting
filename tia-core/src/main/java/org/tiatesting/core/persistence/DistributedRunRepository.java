@@ -25,15 +25,20 @@ import static org.tiatesting.core.persistence.TiaSchema.*;
  */
 class DistributedRunRepository extends JdbcRepository {
 
+    private final TestRunContributionRepository contributionRepository;
+
     /**
      * Construct the repository over the datastore's shared JDBC plumbing.
      *
      * @param dialect the SQL dialect rendering vendor-specific statements
      * @param connections opens a connection with the per-branch schema selected
      * @param schemaManager bootstraps the schema before first use
+     * @param contributionRepository creates the run's {@code tia_test_run} row in the plan write's transaction
      */
-    DistributedRunRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager) {
+    DistributedRunRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager,
+           TestRunContributionRepository contributionRepository) {
         super(dialect, connections, schemaManager);
+        this.contributionRepository = contributionRepository;
     }
 
     /**
@@ -114,6 +119,9 @@ class DistributedRunRepository extends JdbcRepository {
                     setNullableString(statement, 14, run.getRunSource());
                     statement.executeUpdate();
                 }
+                // The run's parent row for its runner JVMs' contributions, in the same transaction
+                // so a runner never claims a group of a run whose contributions it cannot record.
+                contributionRepository.insertRunForPlan(connection, run.getRunId(), run.getCreatedAtMs());
                 try (PreparedStatement statement = connection.prepareStatement(groupSql)) {
                     for (DistributedRunGroup group : plan.getGroups()) {
                         statement.setString(1, group.getRunId());

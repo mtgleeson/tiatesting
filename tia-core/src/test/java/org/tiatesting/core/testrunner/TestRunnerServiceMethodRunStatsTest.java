@@ -90,7 +90,7 @@ class TestRunnerServiceMethodRunStatsTest {
     @Test
     void mappingRunCountsExecutedAndTriggeredRun() {
         // given
-        TestRunResult result = runResult(RunAttempt.FIRST);
+        TestRunResult result = runResult();
 
         // when
         service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(), result, null);
@@ -111,9 +111,9 @@ class TestRunnerServiceMethodRunStatsTest {
         // given - a seed where OTHER_SUITE covers both methods, so both are catalogued
         Set<String> bothSuites = new HashSet<>(Arrays.asList(SUITE, OTHER_SUITE));
         service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(),
-                runResult(RunAttempt.FIRST, OTHER_SUITE, new HashSet<>(Arrays.asList(METHOD_ID, OTHER_METHOD_ID)),
+                runResult(new TestJvmContribution(), TestRunResultFixture.runIdentity(), false, OTHER_SUITE, new HashSet<>(Arrays.asList(METHOD_ID, OTHER_METHOD_ID)),
                         bothSuites), null);
-        TestRunResult result = runResult(RunAttempt.FIRST, SUITE, Collections.singleton(METHOD_ID), bothSuites);
+        TestRunResult result = runResult(new TestJvmContribution(), TestRunResultFixture.runIdentity(), false, SUITE, Collections.singleton(METHOD_ID), bothSuites);
 
         // when - SUITE executes only METHOD_ID, though its class's other method is observed too
         service.persistTestRunData(true, false, "commit-2", "main", System.currentTimeMillis(), result, null);
@@ -131,9 +131,14 @@ class TestRunnerServiceMethodRunStatsTest {
     @Test
     void retryDoesNotCountTheRunAgain() {
         // given
+        TestJvmContribution jvm = new TestJvmContribution();
+        TestRunIdentity build = TestRunResultFixture.runIdentity();
         service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(),
-                runResult(RunAttempt.FIRST), null);
-        TestRunResult retry = runResult(RunAttempt.RERUN_SAME_JVM);
+                runResult(jvm, build, true, SUITE, Collections.singleton(METHOD_ID), Collections.singleton(SUITE)),
+                null);
+        // the failed suite re-run in the same JVM: a Surefire rerun
+        TestRunResult retry = runResult(jvm, build, false, SUITE, Collections.singleton(METHOD_ID),
+                Collections.singleton(SUITE));
 
         // when
         service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(), retry, null);
@@ -148,11 +153,11 @@ class TestRunnerServiceMethodRunStatsTest {
      * Build the result of a run whose one suite covered the method, selected because the method
      * changed.
      *
-     * @param runAttempt which attempt at the test task's run this is
      * @return the run result
      */
-    private TestRunResult runResult(RunAttempt runAttempt) {
-        return runResult(runAttempt, SUITE, Collections.singleton(METHOD_ID), Collections.singleton(SUITE));
+    private TestRunResult runResult() {
+        return runResult(new TestJvmContribution(), TestRunResultFixture.runIdentity(), false, SUITE,
+                Collections.singleton(METHOD_ID), Collections.singleton(SUITE));
     }
 
     /**
@@ -160,14 +165,16 @@ class TestRunnerServiceMethodRunStatsTest {
      * selected because METHOD_ID changed. The observed trackers hold both of Foo's methods whatever
      * the suite executed, as the coverage client reports every method of a covered class.
      *
-     * @param runAttempt which attempt at the test task's run this is
+     * @param jvm the test JVM the plan ran in
+     * @param build the run the plan belongs to
+     * @param suiteFailed whether the suite failed in this plan
      * @param suiteName the suite the run executed
      * @param coveredMethodIds the Foo methods the suite executed
      * @param runnerSuites every suite the runner knows of, so suites the run skipped aren't deleted
      * @return the run result
      */
-    private TestRunResult runResult(RunAttempt runAttempt, String suiteName, Set<Integer> coveredMethodIds,
-                                    Set<String> runnerSuites) {
+    private TestRunResult runResult(TestJvmContribution jvm, TestRunIdentity build, boolean suiteFailed,
+                                    String suiteName, Set<Integer> coveredMethodIds, Set<String> runnerSuites) {
         TestSuiteTracker suite = new TestSuiteTracker(suiteName);
         suite.setClassesImpacted(Collections.singletonList(
                 new ClassImpactTracker(SOURCE_FILE, new HashSet<>(coveredMethodIds))));
@@ -183,7 +190,9 @@ class TestRunnerServiceMethodRunStatsTest {
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, METHOD_NAME, METHOD_ID, 1)),
                 0, 0, 0, 0, 0, 0, SelectionMode.SELECTIVE);
 
-        return new TestRunResult(trackers, new HashSet<>(), runnerSuites, suites, suites, observed,
-                new TestStats(), null, runnerSuites.size() - 1, 1, 0, details, runAttempt);
+        Set<String> failed = suiteFailed ? suites : Collections.<String>emptySet();
+        return new TestRunResult(trackers, new HashSet<>(failed), runnerSuites, suites, suites, observed,
+                new TestStats(), null, runnerSuites.size() - 1, TestRunResultFixture.planOutcome(suites, failed, 0L),
+                details, jvm, build);
     }
 }

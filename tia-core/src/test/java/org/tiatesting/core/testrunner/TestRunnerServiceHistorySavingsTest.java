@@ -18,6 +18,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 
 import java.io.File;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -78,17 +79,21 @@ class TestRunnerServiceHistorySavingsTest {
      * @return the result
      */
     private TestRunResult runResult(int ignoredTestSuiteCount){
-        return runResult(ignoredTestSuiteCount, RunAttempt.FIRST);
+        return runResult(ignoredTestSuiteCount, new TestJvmContribution(), TestRunResultFixture.runIdentity(),
+                TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L));
     }
 
     /**
-     * Build a history-only {@link TestRunResult} with the given selector ignore count and attempt.
+     * Build a history-only {@link TestRunResult} for one plan of a given run in a given JVM.
      *
      * @param ignoredTestSuiteCount the count of suites Tia ignored
-     * @param runAttempt which attempt at the test task's run the result describes
+     * @param jvm the test JVM the plan ran in
+     * @param build the run the plan belongs to
+     * @param plan what the plan ran and failed
      * @return the result
      */
-    private TestRunResult runResult(int ignoredTestSuiteCount, RunAttempt runAttempt){
+    private TestRunResult runResult(int ignoredTestSuiteCount, TestJvmContribution jvm, TestRunIdentity build,
+                                    TestPlanOutcome plan){
         TestStats runStats = new TestStats();
         runStats.setNumRuns(1);
         runStats.setAvgRunTime(100L);
@@ -96,7 +101,7 @@ class TestRunnerServiceHistorySavingsTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
         return new TestRunResult(trackers, empty, empty, empty, empty, new HashMap<>(), runStats, null,
-                ignoredTestSuiteCount, 1, 0, TestRunSelectionDetails.empty(), runAttempt);
+                ignoredTestSuiteCount, plan, TestRunSelectionDetails.empty(), jvm, build);
     }
 
     /**
@@ -194,12 +199,21 @@ class TestRunnerServiceHistorySavingsTest {
      */
     @Test
     void rerun_isFlaggedAndRecordsZeroSavings() {
-        for (RunAttempt rerun : new RunAttempt[]{RunAttempt.RERUN_SAME_JVM, RunAttempt.RERUN_NEW_JVM}) {
-            // given
-            long runStart = System.currentTimeMillis() + rerun.ordinal();
+        for (boolean sameJvm : new boolean[]{true, false}) {
+            // given a first attempt of a new build whose one suite failed
+            String rerun = sameJvm ? "a same-JVM rerun" : "a new-JVM rerun";
+            TestRunIdentity build = TestRunResultFixture.runIdentity();
+            TestJvmContribution firstJvm = new TestJvmContribution();
+            Set<String> suite = Collections.singleton("com.example.FlakyTest");
+            long firstStart = System.currentTimeMillis();
+            service.persistTestRunData(false, true, "abc123", "main", firstStart, runResult(2, firstJvm, build,
+                    TestRunResultFixture.planOutcome(suite, suite, firstStart)), null);
 
-            // when
-            service.persistTestRunData(false, true, "abc123", "main", runStart, runResult(2, rerun), null);
+            // when the failed suite is retried and passes
+            long runStart = firstStart + 1;
+            service.persistTestRunData(false, true, "abc123", "main", runStart,
+                    runResult(2, sameJvm ? firstJvm : new TestJvmContribution(), build,
+                            TestRunResultFixture.planOutcome(suite, Collections.<String>emptySet(), runStart)), null);
 
             // then
             TestRunHistoryEntry row = dataStore.readTestRunHistory().get(0);

@@ -108,8 +108,14 @@ public class TestRunnerService {
      * @param updateDBTestRunHistory   should this run write a row to {@code tia_test_run_history}
      * @param commitValue              the VCS commit / changelist the run was against
      * @param branch                   the VCS branch the run targeted
-     * @param runStartTimestampMs      UTC epoch millis when the test run started
-     * @param testRunResult            the collected results of the test run
+     * <p>Before any write, the plan's attempt is resolved from what the run's JVMs have recorded and
+     * the plan is added to this JVM's running totals: the mapping persist, the seal and the
+     * distributed report all read the attempt. A single-host JVM then restates its contribution to
+     * the run whichever branch it takes.
+     *
+     * @param runStartTimestampMs      UTC epoch millis when the test plan started
+     * @param unresolvedResult         the collected results of the test plan, its attempt not yet
+     *                                 resolved
      * @param distributedRunnerContext the distributed runner's context, or {@code null} for an
      *                                 ordinary single-host run
      */
@@ -117,7 +123,7 @@ public class TestRunnerService {
                                   final boolean updateDBTestRunHistory,
                                   final String commitValue, final String branch,
                                   final long runStartTimestampMs,
-                                  final TestRunResult testRunResult,
+                                  final TestRunResult unresolvedResult,
                                   final DistributedRunnerContext distributedRunnerContext){
         // Capture the run duration up front, before any DB read/write below. This is the
         // test-execution wall clock (test-plan start to here); it deliberately excludes Tia's own
@@ -125,6 +131,16 @@ public class TestRunnerService {
         // The savings baseline (allTestsRunTime) is likewise pure test-execution time, so the two
         // must be measured on the same clock for savings = baseline - duration to be meaningful.
         final long durationMs = Math.max(0L, System.currentTimeMillis() - runStartTimestampMs);
+
+        // Resolve which attempt this plan is from what the run's JVMs have recorded, then add the
+        // plan to this JVM's running totals - both before any write. See RunAttemptResolver.
+        final String runId = distributedRunnerContext != null
+                ? distributedRunnerContext.getRunId() : unresolvedResult.getRunIdentity().getRunId();
+        final TestRunResult testRunResult =
+                unresolvedResult.withRunAttempt(resolveRunAttempt(unresolvedResult, runId));
+        testRunResult.getJvmContribution().record(testRunResult.getRunAttempt().isRerun(),
+                testRunResult.getPlanOutcome(), runStartTimestampMs + durationMs,
+                sumMeasuredSuiteRunTimes(testRunResult.getTestSuiteTrackers()));
 
         if (distributedRunnerContext != null){
             // One runner of a distributed build persists only its own share and stops. Everything
@@ -142,6 +158,7 @@ public class TestRunnerService {
         if (testRunResult.ranNoExpectedSuites()){
             persistEmptyRun(updateDBMapping, updateDBTestRunHistory, commitValue, branch,
                     runStartTimestampMs, durationMs, testRunResult);
+            persistRunContribution(testRunResult);
             return;
         }
 
@@ -182,6 +199,42 @@ public class TestRunnerService {
             long allTestsRunTimeMs = tiaData.getTestStats().getAllTestsRunTime();
             persistTestRunHistory(updateDBMapping, commitValue, branch, runStartTimestampMs,
                     durationMs, testRunResult, allTestsRunTimeMs, false);
+        }
+
+        // 5. This JVM's contribution to the run, whatever the flags: a later JVM of the run - a
+        //    Gradle test-retry round - reads it to recognise itself as a retry.
+        persistRunContribution(testRunResult);
+    }
+
+    /**
+     * Resolve a plan's attempt from the run's contributions. See {@link RunAttemptResolver}.
+     *
+     * @param testRunResult the plan's result, carrying the plan outcome and this JVM's totals
+     * @param runId the run the plan belongs to
+     * @return the plan's attempt
+     */
+    private RunAttempt resolveRunAttempt(final TestRunResult testRunResult, final String runId) {
+        final TestJvmContribution jvm = testRunResult.getJvmContribution();
+        return RunAttemptResolver.resolve(testRunResult.getPlanOutcome(), jvm,
+                () -> dataStore.readTestRunFailedSuites(runId, jvm.getJvmId()));
+    }
+
+    /**
+     * Restate this single-host JVM's contribution to its run. Written whatever the history and
+     * mapping flags say: a later JVM of the run - a Gradle test-retry round - reads it to recognise
+     * itself as a retry. A failure is logged and swallowed, like the trigger write: the tests ran,
+     * and the mapping writes before it are already committed.
+     *
+     * @param result the plan's result, with its attempt resolved and recorded
+     */
+    private void persistRunContribution(final TestRunResult result) {
+        TestRunIdentity identity = result.getRunIdentity();
+        try {
+            dataStore.persistTestRunContribution(identity.getRunId(), identity.getStartMs(),
+                    result.getJvmContribution().snapshot(identity.getRunId(), null), null);
+        } catch (RuntimeException e) {
+            log.warn("Failed to record this test JVM's contribution to run {}. A retry of failed tests "
+                    + "in another JVM may not be recognised as a retry.", identity.getRunId(), e);
         }
     }
 
@@ -354,7 +407,8 @@ public class TestRunnerService {
         Set<String> suitesObserved = observedSuitesInGroup(testRunResult.getSuitesObserved(),
                 distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber().intValue());
         runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesObserved,
-                suitesDurationMs);
+                suitesDurationMs, testRunResult.getJvmContribution().snapshot(
+                        distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber()));
     }
 
     /**
@@ -622,7 +676,7 @@ public class TestRunnerService {
      * single-host path does so - the distributed build's breakdown is written by the sealer.
      *
      * <p>Counts: {@code ran} is the per-attempt count of suites that finished in this listener
-     * attempt only, taken from {@link TestRunResult#getSuitesRanThisAttempt()}. This avoids
+     * attempt only, taken from {@link TestRunResult#getPlanOutcome()}. This avoids
      * inflating retry-row counts with prior-attempt entries that the shared
      * {@link TestRunResult#getTestSuiteTrackers()} map deliberately carries forward for the
      * mapping path. {@code ignored} is the number of suites Tia chose to ignore, taken directly
@@ -658,11 +712,11 @@ public class TestRunnerService {
                                        final long durationMs, final TestRunResult testRunResult,
                                        final long allTestsRunTimeMs,
                                        final boolean ranNoExpectedSuites) {
-        int ran = Math.max(0, testRunResult.getSuitesRanThisAttempt());
+        int ran = testRunResult.getPlanOutcome().getSuitesRan().size();
         int ignored = Math.max(0, testRunResult.getIgnoredTestSuiteCount());
         // Per-attempt, to pair with the per-attempt ran count on the same row: the JVM-wide failed
         // set would charge a retry row with failures in suites that retry never ran.
-        int failed = Math.max(0, testRunResult.getSuitesFailedThisAttempt());
+        int failed = testRunResult.getPlanOutcome().getSuitesFailed().size();
 
         // Freeze the savings for this run: 0 for an all-tests run (ignored == 0), for a run that
         // executed none of the suites it was expected to, for a rerun of failed tests, or when no

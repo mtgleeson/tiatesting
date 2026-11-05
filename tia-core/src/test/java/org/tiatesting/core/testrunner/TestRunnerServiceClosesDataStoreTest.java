@@ -143,7 +143,7 @@ class TestRunnerServiceClosesDataStoreTest {
         trackers.put("com.example.SomeTest", new TestSuiteTracker("com.example.SomeTest"));
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 }

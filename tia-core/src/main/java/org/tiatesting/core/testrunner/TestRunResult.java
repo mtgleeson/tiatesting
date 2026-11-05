@@ -21,9 +21,10 @@ public class TestRunResult {
     final TestStats testStats;
     final LibraryImpactDrainResult libraryImpactDrainResult;
     final int ignoredTestSuiteCount;
-    final int suitesRanThisAttempt;
-    final int suitesFailedThisAttempt;
+    final TestPlanOutcome planOutcome;
     final TestRunSelectionDetails selectionDetails;
+    final TestJvmContribution jvmContribution;
+    final TestRunIdentity runIdentity;
     final RunAttempt runAttempt;
 
     /**
@@ -31,8 +32,8 @@ public class TestRunResult {
      *
      * @param testSuiteTrackers          per-suite trackers (one entry per suite the runner actually executed).
      *                                   On Surefire retry of failed tests this map accumulates across attempts -
-     *                                   the mapping path needs the cumulative coverage. For the history "Ran"
-     *                                   column use {@code suitesRanThisAttempt} instead.
+     *                                   the mapping path needs the cumulative coverage. For what this plan
+     *                                   ran use {@code planOutcome} instead.
      * @param testSuitesFailed           the suites whose <b>latest</b> execution in this JVM failed, across
      *                                   every test plan the JVM has made (Surefire retries included): a
      *                                   suite that fails and then passes on a retry is not in it, and a
@@ -64,24 +65,18 @@ public class TestRunResult {
      *                                   from the {@code tiaIgnoredTestSuiteCount} system property; this is
      *                                   the value persisted to {@code tia_test_run_history} and reflects
      *                                   only Tia's selection decision, not engine-level skips or filters
-     * @param suitesRanThisAttempt       the count of test suites that finished in this listener attempt only -
-     *                                   not the cumulative count across Surefire retries. Persisted to
-     *                                   {@code tia_test_run_history.num_suites_ran} so each retry row reports
-     *                                   what that retry actually ran.
-     * @param suitesFailedThisAttempt    the count of test suites that failed in this listener attempt only,
-     *                                   the failure counterpart of {@code suitesRanThisAttempt}. Persisted
-     *                                   to {@code tia_test_run_history.num_suites_failed} so a retry row's
-     *                                   failed count describes the same attempt as its ran count, rather
-     *                                   than counting a failure in a suite that attempt never ran.
+     * @param planOutcome                what this test plan finished, failed, exercised and skipped -
+     *                                   the per-plan figures the run's contribution and the rerun rule
+     *                                   are built from. Per plan, not cumulative across Surefire
+     *                                   retries, unlike {@code testSuiteTrackers}.
      * @param selectionDetails           the per-run breakdown of what drove test selection (the per-method
      *                                   and per-rule triggers plus the scalar source counts), or {@code null}
      *                                   when the caller has not populated it yet - {@link #getSelectionDetails()}
      *                                   substitutes {@link TestRunSelectionDetails#empty()} in that case so
      *                                   callers never see null
-     * @param runAttempt                 which attempt at the test task's run this result describes -
-     *                                   the first run, or a retry of failed tests in the same or a
-     *                                   fresh JVM. A retry's history row is flagged as a rerun and
-     *                                   credited no savings.
+     * @param jvmContribution            this test JVM's running totals for the run, shared by every
+     *                                   plan the JVM makes
+     * @param runIdentity                the run id and start time the build tool assigned
      */
     public TestRunResult(Map<String, TestSuiteTracker> testSuiteTrackers,
                          Set<String> testSuitesFailed,
@@ -92,10 +87,47 @@ public class TestRunResult {
                          TestStats testStats,
                          LibraryImpactDrainResult libraryImpactDrainResult,
                          int ignoredTestSuiteCount,
-                         int suitesRanThisAttempt,
-                         int suitesFailedThisAttempt,
+                         TestPlanOutcome planOutcome,
                          TestRunSelectionDetails selectionDetails,
-                         RunAttempt runAttempt) {
+                         TestJvmContribution jvmContribution,
+                         TestRunIdentity runIdentity) {
+        this(testSuiteTrackers, testSuitesFailed, runnerTestSuites, suitesObserved, selectedTests,
+                methodTrackersFromTestRun, testStats, libraryImpactDrainResult, ignoredTestSuiteCount,
+                planOutcome, selectionDetails, jvmContribution, runIdentity, RunAttempt.FIRST);
+    }
+
+    /**
+     * Construct a result carrying a resolved attempt; see {@link #withRunAttempt(RunAttempt)}.
+     *
+     * @param testSuiteTrackers          see the public constructor
+     * @param testSuitesFailed           see the public constructor
+     * @param runnerTestSuites           see the public constructor
+     * @param suitesObserved             see the public constructor
+     * @param selectedTests              see the public constructor
+     * @param methodTrackersFromTestRun  see the public constructor
+     * @param testStats                  see the public constructor
+     * @param libraryImpactDrainResult   see the public constructor
+     * @param ignoredTestSuiteCount      see the public constructor
+     * @param planOutcome                see the public constructor
+     * @param selectionDetails           see the public constructor
+     * @param jvmContribution            see the public constructor
+     * @param runIdentity                see the public constructor
+     * @param runAttempt                 the attempt core resolved for the plan
+     */
+    private TestRunResult(Map<String, TestSuiteTracker> testSuiteTrackers,
+                          Set<String> testSuitesFailed,
+                          Set<String> runnerTestSuites,
+                          Set<String> suitesObserved,
+                          Set<String> selectedTests,
+                          Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
+                          TestStats testStats,
+                          LibraryImpactDrainResult libraryImpactDrainResult,
+                          int ignoredTestSuiteCount,
+                          TestPlanOutcome planOutcome,
+                          TestRunSelectionDetails selectionDetails,
+                          TestJvmContribution jvmContribution,
+                          TestRunIdentity runIdentity,
+                          RunAttempt runAttempt) {
         this.testSuiteTrackers = testSuiteTrackers;
         this.testSuitesFailed = testSuitesFailed;
         this.runnerTestSuites = runnerTestSuites;
@@ -105,10 +137,25 @@ public class TestRunResult {
         this.testStats = testStats;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.ignoredTestSuiteCount = ignoredTestSuiteCount;
-        this.suitesRanThisAttempt = suitesRanThisAttempt;
-        this.suitesFailedThisAttempt = suitesFailedThisAttempt;
+        this.planOutcome = planOutcome;
         this.selectionDetails = selectionDetails;
+        this.jvmContribution = jvmContribution;
+        this.runIdentity = runIdentity;
         this.runAttempt = runAttempt;
+    }
+
+    /**
+     * Copy this result with the attempt core resolved for its plan. Package-private: only
+     * {@link TestRunnerService} resolves attempts.
+     *
+     * @param resolvedAttempt the plan's attempt
+     * @return a copy carrying the attempt
+     */
+    TestRunResult withRunAttempt(final RunAttempt resolvedAttempt) {
+        return new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites, suitesObserved,
+                selectedTests, methodTrackersFromTestRun, testStats, libraryImpactDrainResult,
+                ignoredTestSuiteCount, planOutcome, selectionDetails, jvmContribution, runIdentity,
+                resolvedAttempt);
     }
 
     /**
@@ -209,7 +256,7 @@ public class TestRunResult {
      * suites, and an empty selection alongside ignored suites means there was nothing to run in the
      * first place.
      *
-     * <p>Read from {@link #getSuitesRanThisAttempt()} rather than the cumulative tracker map, so the
+     * <p>Read from {@link #getPlanOutcome()} rather than the cumulative tracker map, so the
      * question is asked of the attempt being persisted. A Surefire retry attempt executes the suites
      * holding the failed tests, so it does not read as an empty run; a retry contributes no run stats
      * regardless (see {@code CoreStatsIncrement.getNumRuns}).
@@ -218,7 +265,7 @@ public class TestRunResult {
      *         least one to
      */
     public boolean ranNoExpectedSuites() {
-        if (suitesRanThisAttempt > 0) {
+        if (!planOutcome.getSuitesRan().isEmpty()) {
             return false;
         }
 
@@ -227,25 +274,19 @@ public class TestRunResult {
         return everySuiteExpected || suitesWereSelected;
     }
 
-    /**
-     * @return the count of test suites that finished in this listener attempt only. On Surefire
-     *         retry the {@link #getTestSuiteTrackers()} map carries forward earlier attempts'
-     *         entries (intentionally - the mapping path needs the cumulative coverage), so its
-     *         {@code size()} over-counts for the history row. This counter is per-attempt and
-     *         is the value persisted to {@code tia_test_run_history.num_suites_ran}.
-     */
-    public int getSuitesRanThisAttempt() {
-        return suitesRanThisAttempt;
+    /** @return what this test plan finished, failed, exercised and skipped */
+    public TestPlanOutcome getPlanOutcome() {
+        return planOutcome;
     }
 
-    /**
-     * @return the count of test suites that failed in this listener attempt only - unlike
-     *         {@link #getTestSuitesFailed()}, which is JVM-wide. This is the value persisted to
-     *         {@code tia_test_run_history.num_suites_failed}, so it pairs with
-     *         {@link #getSuitesRanThisAttempt()} on the same row.
-     */
-    public int getSuitesFailedThisAttempt() {
-        return suitesFailedThisAttempt;
+    /** @return this test JVM's running totals for the run */
+    public TestJvmContribution getJvmContribution() {
+        return jvmContribution;
+    }
+
+    /** @return the run id and start time the build tool assigned */
+    public TestRunIdentity getRunIdentity() {
+        return runIdentity;
     }
 
     /**
@@ -259,7 +300,10 @@ public class TestRunResult {
     }
 
     /**
-     * @return which attempt at the test task's run this result describes
+     * @return which attempt at the run this plan is: the first attempt, or a retry of failed tests
+     *         in the same or a fresh JVM. Core resolves it at persist time from the run's
+     *         contributions (see {@link RunAttemptResolver}); before then it reads
+     *         {@link RunAttempt#FIRST}
      */
     public RunAttempt getRunAttempt() {
         return runAttempt;

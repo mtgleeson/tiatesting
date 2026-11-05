@@ -92,7 +92,7 @@ class TestRunnerServiceHistoryDetailTest {
 
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2, 0, details, RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(2, 0, 0L), details, new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when - persist with history enabled for a single-host run
         long runStart = System.currentTimeMillis();
@@ -150,7 +150,7 @@ class TestRunnerServiceHistoryDetailTest {
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", null, 1));
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 7, 0, 0, 0, 0, 0, SelectionMode.SELECTIVE);
         TestRunResult result = new TestRunResult(trackers, new HashSet<>(), runnerTestSuites,
-                runnerTestSuites, new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0, details, RunAttempt.FIRST);
+                runnerTestSuites, new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L), details, new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when - the internal trigger write throws
         assertDoesNotThrow(() -> throwingService.persistTestRunData(false, true, "boom-commit",
@@ -182,7 +182,7 @@ class TestRunnerServiceHistoryDetailTest {
         Set<String> runnerTestSuites = new HashSet<>(Arrays.asList("com.example.ATest"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0, null, RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L), null, new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
         service.persistTestRunData(false, true, "no-detail-commit", "main",

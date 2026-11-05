@@ -314,8 +314,8 @@ class TestRunnerServiceSealOrderTest {
         trackers.put("com.example.SomeTest", tracker);
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -331,8 +331,8 @@ class TestRunnerServiceSealOrderTest {
         trackers.put("com.example.SomeTest", new TestSuiteTracker("com.example.SomeTest"));
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -686,7 +686,8 @@ class TestRunnerServiceSealOrderTest {
         @Override
         public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
                                            long actualDurationMs, int suitesRan, int suitesFailed,
-                                           Set<String> suitesObserved, long suitesDurationMs) {
+                                           Set<String> suitesObserved, long suitesDurationMs,
+                                           final List<TestRunContribution> contributions) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

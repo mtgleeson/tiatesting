@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -156,7 +157,7 @@ class DistributedRunnerPersistTest {
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L, Collections.<TestRunContribution>emptyList()));
         assertNotNull(runnerPersist.completeGroup(6000L, TestSuiteRunnabilityClassifier.disabled()));
 
         // when
@@ -204,7 +205,7 @@ class DistributedRunnerPersistTest {
         persistPlan("run-2", 1);
 
         // when
-        boolean applied = runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L);
+        boolean applied = runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L, Collections.<TestRunContribution>emptyList());
 
         // then
         assertFalse(applied, "a progress report on a dead claim must report failure rather than "
@@ -262,7 +263,7 @@ class DistributedRunnerPersistTest {
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L, Collections.<TestRunContribution>emptyList()));
         assertNotNull(runnerPersist.completeGroup(6000L, TestSuiteRunnabilityClassifier.disabled()));
 
         // when
@@ -322,7 +323,7 @@ class DistributedRunnerPersistTest {
                 "com.example.Suite0Test", "com.example.Suite1Test", "com.example.Suite2Test"));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 3, 0, suites(0, 3), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 3, 0, suites(0, 3), 0L, Collections.<TestRunContribution>emptyList()));
         ClassFileFixture.classIn(classesDir, "com.example.FooApiClient").method("fetch", null).write();
 
         // when
@@ -351,7 +352,7 @@ class DistributedRunnerPersistTest {
         persistSingleGroupPlan(RUN_ID, SelectionMode.SELECTIVE, new ArrayList<>(suites(0, 3)));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, suites(0, 2), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, suites(0, 2), 0L, Collections.<TestRunContribution>emptyList()));
         ClassFileFixture.classIn(classesDir, "com.example.Suite2Test")
                 .method("works", "org.junit.jupiter.api.Test").write();
 
@@ -380,7 +381,7 @@ class DistributedRunnerPersistTest {
                 "com.example.Suite0Test", "com.example.Suite1Test"));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L, Collections.<TestRunContribution>emptyList()));
         ClassFileFixture.classIn(classesDir, "com.example.AbstractBase").access(Opcodes.ACC_ABSTRACT).write();
         ClassFileFixture.classIn(classesDir, "com.example.Suite1Test")
                 .method("works", "org.junit.jupiter.api.Test").write();
@@ -411,7 +412,7 @@ class DistributedRunnerPersistTest {
                 "com.example.Suite0Test"));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L, Collections.<TestRunContribution>emptyList()));
 
         // when
         DistributedRunGroup completed = runnerPersist.completeGroup(6000L,
@@ -435,7 +436,7 @@ class DistributedRunnerPersistTest {
         persistSingleGroupPlan(RUN_ID, SelectionMode.SEED, new ArrayList<>(suites(0, 2)));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L, Collections.<TestRunContribution>emptyList()));
         Path corrupt = classesDir.resolve("com/example/Suite1Test.class");
         Files.createDirectories(corrupt.getParent());
         Files.write(corrupt, new byte[]{1, 2, 3});
@@ -465,7 +466,7 @@ class DistributedRunnerPersistTest {
         persistSingleGroupPlan(RUN_ID, SelectionMode.SELECTIVE, new ArrayList<>(suites(0, 2)));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L, Collections.<TestRunContribution>emptyList()));
         Path corrupt = classesDir.resolve("com/example/Suite1Test.class");
         Files.createDirectories(corrupt.getParent());
         Files.write(corrupt, new byte[]{1, 2, 3});
@@ -548,8 +549,8 @@ class DistributedRunnerPersistTest {
         // when - the first test plan reports 50 distinct suites run (all 50 observed) with 3
         // failures; the retry reports the 2 suites it re-ran while the observed count - the JVM's
         // cumulative total, not this call's own contribution - reaches 53
-        assertTrue(runnerPersist.reportGroupProgress(4000L, 50, 3, suites(0, 50), 0L));
-        assertTrue(runnerPersist.reportGroupProgress(500L, 2, 0, suites(0, 53), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(4000L, 50, 3, suites(0, 50), 0L, Collections.<TestRunContribution>emptyList()));
+        assertTrue(runnerPersist.reportGroupProgress(500L, 2, 0, suites(0, 53), 0L, Collections.<TestRunContribution>emptyList()));
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);

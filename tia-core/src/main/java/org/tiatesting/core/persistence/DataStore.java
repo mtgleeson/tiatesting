@@ -684,13 +684,15 @@ public interface DataStore extends AutoCloseable {
      *                         when suite timing was not collected (a run that does not own
      *                         the mapping), which the sealer reads as "no decomposition
      *                         available", not "no overhead"
+     * @param contributions this runner JVM's contribution rows to its run, upserted in the same
+     *                      guarded transaction so a runner whose claim is no longer live writes none
      * @return {@code true} when the guarded update applied, {@code false} when this runner's
      *         claim is no longer live
      */
     boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                 final long actualDurationMs, final int suitesRan,
                                 final int suitesFailed, final Set<String> suitesObserved,
-                                final long suitesDurationMs);
+                                final long suitesDurationMs, final List<TestRunContribution> contributions);
 
     /**
      * Flip a runner's group to {@code COMPLETED}, releasing the barrier in {@link #electSealer}.

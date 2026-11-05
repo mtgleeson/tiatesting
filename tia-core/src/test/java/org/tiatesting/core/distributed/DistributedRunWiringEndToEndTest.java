@@ -1,5 +1,7 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.testrunner.TestJvmContribution;
+import org.tiatesting.core.testrunner.TestRunResultFixture;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -328,7 +330,7 @@ class DistributedRunWiringEndToEndTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(), discoveredSuites(),
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, new TestStats(),
-                null, 1, 1, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                null, 1, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -353,7 +355,7 @@ class DistributedRunWiringEndToEndTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(), discoveredSuites(),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)), methodTrackers, new TestStats(),
-                null, 1, 2, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                null, 1, TestRunResultFixture.syntheticPlanOutcome(2, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -553,7 +555,7 @@ class DistributedRunWiringEndToEndTest {
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)),
                 new HashSet<>(Collections.singletonList(SUITE_A)),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)), methodTrackers, new TestStats(),
-                null, 0, 1, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                null, 0, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when - the one test plan this JVM manages persists its partial share, and the build tool
         //        then makes its explicit completion
@@ -618,7 +620,7 @@ class DistributedRunWiringEndToEndTest {
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)), methodTrackers, new TestStats(),
-                null, 0, 2, 1, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                null, 0, TestRunResultFixture.syntheticPlanOutcome(2, 1, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when - the one test plan persists, and the build tool completes the group once no more
         //        retries arrive - the retry that would have run again never got the chance to persist

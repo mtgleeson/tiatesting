@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.persistence.dialect.SqlDialect;
 
 import java.sql.*;
@@ -19,15 +20,20 @@ import static org.tiatesting.core.persistence.TiaSchema.*;
  */
 class DistributedRunGroupRepository extends JdbcRepository {
 
+    private final TestRunContributionRepository contributionRepository;
+
     /**
      * Construct the repository over the datastore's shared JDBC plumbing.
      *
      * @param dialect the SQL dialect rendering vendor-specific statements
      * @param connections opens a connection with the per-branch schema selected
      * @param schemaManager bootstraps the schema before first use
+     * @param contributionRepository writes a runner JVM's contribution inside the guarded progress report
      */
-    DistributedRunGroupRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager) {
+    DistributedRunGroupRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager,
+           TestRunContributionRepository contributionRepository) {
         super(dialect, connections, schemaManager);
+        this.contributionRepository = contributionRepository;
     }
 
     /**
@@ -359,13 +365,16 @@ class DistributedRunGroupRepository extends JdbcRepository {
      *                         far, written as the greater of this value and whatever was already
      *                         stored - not summed, since the caller's tracker map is already
      *                         cumulative across retries
+     * @param contributions this runner JVM's contribution rows, upserted in the same guarded
+     *                      transaction so a runner whose claim is no longer live writes none
      * @return {@code true} when the guarded update applied, {@code false} when this runner's
      *         claim is no longer live
      */
     boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                        final long actualDurationMs, final int suitesRan,
                                        final int suitesFailed, final Set<String> suitesObserved,
-                                       final long suitesDurationMs) {
+                                       final long suitesDurationMs,
+                                       final List<TestRunContribution> contributions) {
         String progressSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_ACTUAL_DURATION_MS
                 + " = COALESCE(" + COL_ACTUAL_DURATION_MS + ", 0) + ?, " + COL_SUITES_RAN + " = GREATEST(COALESCE("
                 + COL_SUITES_RAN + ", 0), ?), " + COL_SUITES_FAILED + " = ?, " + COL_SUITES_DURATION_MS
@@ -407,6 +416,7 @@ class DistributedRunGroupRepository extends JdbcRepository {
                     statement.setInt(4, groupNumber);
                     statement.executeUpdate();
                 }
+                contributionRepository.upsertContributions(connection, contributions);
                 connection.commit();
                 return true;
             } catch (SQLException | RuntimeException e) {

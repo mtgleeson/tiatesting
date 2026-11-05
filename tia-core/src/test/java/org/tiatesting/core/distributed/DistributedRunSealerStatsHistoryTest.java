@@ -1,5 +1,8 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.TestRunContribution;
+import org.tiatesting.core.testrunner.TestJvmContribution;
+import org.tiatesting.core.testrunner.TestRunResultFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -690,9 +693,9 @@ class DistributedRunSealerStatsHistoryTest {
 
         // when - the runner reports twice for its one group, as a retried JVM does, each time with
         // the 2 distinct suites it has executed
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 3_000L, 2, 1, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L),
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 3_000L, 2, 1, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L, Collections.<TestRunContribution>emptyList()),
                 "test setup expects the first attempt's report to be accepted");
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L),
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L, Collections.<TestRunContribution>emptyList()),
                 "test setup expects the retry's report to be accepted");
         assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L, Collections.<String>emptySet()),
                 "test setup expects the completion to be accepted");
@@ -1158,7 +1161,7 @@ class DistributedRunSealerStatsHistoryTest {
         assertEquals(groupNumber, claimed.getGroupNumber(),
                 "test setup expects the groups to be claimed in order");
         assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                suitesRan, suitesFailed, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesRan), suitesDurationMs),
+                suitesRan, suitesFailed, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesRan), suitesDurationMs, Collections.<TestRunContribution>emptyList()),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L,
                 Collections.<String>emptySet()),
@@ -1302,7 +1305,7 @@ class DistributedRunSealerStatsHistoryTest {
         stats.setNumRuns(1);
         return new TestRunResult(trackers, new HashSet<String>(), runnerSuites, runnerSuites,
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, stats,
-                null, 1, 1, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                null, 1, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**

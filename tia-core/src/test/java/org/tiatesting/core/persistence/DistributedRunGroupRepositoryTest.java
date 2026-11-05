@@ -21,10 +21,12 @@ class DistributedRunGroupRepositoryTest {
     void claimsThePlannedGroupOnceAndReadsItsSuites(@TempDir Path dir) {
         try (H2RepositoryFixture db = new H2RepositoryFixture(dir).withSchema()) {
             // given a persisted one-group plan
-            new DistributedRunRepository(db.dialect, db.connections, db.schemaManager)
+            new DistributedRunRepository(db.dialect, db.connections, db.schemaManager,
+                    new TestRunContributionRepository(db.dialect, db.connections, db.schemaManager))
                     .persistDistributedRunPlan(DistributedRunRepositoryTest.onePlan("run-1"));
             DistributedRunGroupRepository repository =
-                    new DistributedRunGroupRepository(db.dialect, db.connections, db.schemaManager);
+                    new DistributedRunGroupRepository(db.dialect, db.connections, db.schemaManager,
+                    new TestRunContributionRepository(db.dialect, db.connections, db.schemaManager));
 
             // when two runners claim in turn
             DistributedRunGroup claimed = repository.claimNextPendingGroup("run-1", "runner-a", 5000L);

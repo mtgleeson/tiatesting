@@ -1,5 +1,6 @@
 package org.tiatesting.core.testrunner;
 
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -355,8 +356,8 @@ class TestRunnerServiceDistributedPersistTest {
                 firstAttempt.getTestSuitesFailed(), firstAttempt.getRunnerTestSuites(),
                 firstAttempt.getSuitesObserved(), firstAttempt.getSelectedTests(),
                 firstAttempt.getMethodTrackersFromTestRun(), firstAttempt.getTestStats(), null,
-                firstAttempt.getIgnoredTestSuiteCount(), 1, 1, TestRunSelectionDetails.empty(),
-                RunAttempt.RERUN_SAME_JVM);
+                firstAttempt.getIgnoredTestSuiteCount(), TestRunResultFixture.syntheticPlanOutcome(1, 1, 0L),
+                TestRunSelectionDetails.empty(), firstAttempt.getJvmContribution(), firstAttempt.getRunIdentity());
 
         // when
         service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
@@ -385,7 +386,7 @@ class TestRunnerServiceDistributedPersistTest {
         TestRunResult retryWithNoFailuresOfItsOwn = new TestRunResult(retry.getTestSuiteTrackers(),
                 retry.getTestSuitesFailed(), retry.getRunnerTestSuites(), retry.getSuitesObserved(),
                 retry.getSelectedTests(), retry.getMethodTrackersFromTestRun(), retry.getTestStats(), null,
-                retry.getIgnoredTestSuiteCount(), 1, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                retry.getIgnoredTestSuiteCount(), TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
         service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
@@ -587,7 +588,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerSuites, observed, observed, new HashMap<Integer, MethodImpactTracker>(),
-                new TestStats(), null, 0, 2, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(2, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -706,8 +707,8 @@ class TestRunnerServiceDistributedPersistTest {
                 "com.example.FailedTest"));
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerTestSuites, new HashSet<String>(), selected,
-                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 3, 0, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 3, TestRunResultFixture.syntheticPlanOutcome(0, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -826,7 +827,7 @@ class TestRunnerServiceDistributedPersistTest {
                 "com.example.FailedTest"));
 
         return new TestRunResult(trackers, failed, runnerSuites, runnerSuites, selected,
-                methodTrackers, new TestStats(), null, 3, 2, failed.size(), TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                methodTrackers, new TestStats(), null, 3, TestRunResultFixture.syntheticPlanOutcome(2, failed.size(), 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -850,7 +851,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), suiteNames, suiteNames, suiteNames,
                 new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0,
-                suiteRunTimesMs.length, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                TestRunResultFixture.syntheticPlanOutcome(suiteRunTimesMs.length, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -861,8 +862,8 @@ class TestRunnerServiceDistributedPersistTest {
     private TestRunResult makeEmptyResult() {
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 new HashSet<String>(), new HashSet<String>(), new HashSet<String>(),
-                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0, 0, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(0, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -882,7 +883,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerSuites, observed, observed, new HashMap<Integer, MethodImpactTracker>(),
-                new TestStats(), null, 0, 2, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(2, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -1009,11 +1010,12 @@ class TestRunnerServiceDistributedPersistTest {
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final Set<String> suitesObserved, final long suitesDurationMs) {
+                                           final Set<String> suitesObserved, final long suitesDurationMs,
+                                           final List<TestRunContribution> contributions) {
             callOrder.add("reportGroupProgress");
             observedSuitesReported.add(new HashSet<>(suitesObserved));
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
+                    suitesRan, suitesFailed, suitesObserved, suitesDurationMs, contributions);
         }
 
         /**

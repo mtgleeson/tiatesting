@@ -7,6 +7,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.SelectionMode;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
@@ -196,15 +197,18 @@ public final class DistributedRunnerPersist {
      *                         sealer to recover this runner's fixed per-JVM overhead, which the
      *                         build pays once rather than once per group - see
      *                         {@link DistributedRunTotals}
+     * @param contributions this runner JVM's contribution rows to its run, upserted in the same
+     *                      guarded transaction so a runner whose claim is no longer live writes none
      * @return true when the guarded update applied, false when this runner's claim is no longer
      *         live
      */
     public boolean reportGroupProgress(final long actualDurationMs, final int suitesRan,
                                        final int suitesFailed, final Set<String> suitesObserved,
-                                       final long suitesDurationMs) {
+                                       final long suitesDurationMs,
+                                       final List<TestRunContribution> contributions) {
         boolean applied = dataStore.reportGroupProgress(context.getRunId(),
                 context.getGroupNumber().intValue(), context.getRunnerKey(), actualDurationMs,
-                suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
+                suitesRan, suitesFailed, suitesObserved, suitesDurationMs, contributions);
 
         if (!applied) {
             log.warn("Distributed run '{}': runner '{}' could not report progress on group {} - {}. "

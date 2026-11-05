@@ -82,8 +82,10 @@ public class JdbcDataStore implements DataStore {
         this.testRunHistoryRepository = new TestRunHistoryRepository(dialect, this::getConnection, schemaManager);
         this.testRunContributionRepository = new TestRunContributionRepository(dialect, this::getConnection, schemaManager);
         this.libraryRepository = new LibraryRepository(dialect, this::getConnection, schemaManager);
-        this.distributedRunRepository = new DistributedRunRepository(dialect, this::getConnection, schemaManager);
-        this.distributedRunGroupRepository = new DistributedRunGroupRepository(dialect, this::getConnection, schemaManager);
+        this.distributedRunRepository = new DistributedRunRepository(dialect, this::getConnection, schemaManager,
+                testRunContributionRepository);
+        this.distributedRunGroupRepository = new DistributedRunGroupRepository(dialect, this::getConnection,
+                schemaManager, testRunContributionRepository);
         this.distributedMethodStagingRepository = new DistributedMethodStagingRepository(dialect, this::getConnection, schemaManager);
         this.mappingReader = new MappingReader(dialect, this::getConnection, schemaManager);
         this.mappingWriter = new MappingWriter(dialect, this::getConnection, schemaManager);
@@ -633,8 +635,10 @@ public class JdbcDataStore implements DataStore {
     public boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                        final long actualDurationMs, final int suitesRan,
                                        final int suitesFailed, final Set<String> suitesObserved,
-                                       final long suitesDurationMs) {
-        return distributedRunGroupRepository.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs, suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
+                                       final long suitesDurationMs,
+                                       final List<TestRunContribution> contributions) {
+        return distributedRunGroupRepository.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
+                suitesRan, suitesFailed, suitesObserved, suitesDurationMs, contributions);
     }
 
     /**

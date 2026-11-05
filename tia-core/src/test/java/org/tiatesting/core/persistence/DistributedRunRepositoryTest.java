@@ -26,7 +26,8 @@ class DistributedRunRepositoryTest {
         try (H2RepositoryFixture db = new H2RepositoryFixture(dir).withSchema()) {
             // given a run repository and a one-group plan
             DistributedRunRepository repository =
-                    new DistributedRunRepository(db.dialect, db.connections, db.schemaManager);
+                    new DistributedRunRepository(db.dialect, db.connections, db.schemaManager,
+                    new TestRunContributionRepository(db.dialect, db.connections, db.schemaManager));
             DistributedRunPlan plan = onePlan("run-1");
 
             // when the plan is persisted and the run read back
@@ -47,7 +48,8 @@ class DistributedRunRepositoryTest {
         try (H2RepositoryFixture db = new H2RepositoryFixture(dir).withSchema()) {
             // given a persisted run with no groups left to complete
             DistributedRunRepository repository =
-                    new DistributedRunRepository(db.dialect, db.connections, db.schemaManager);
+                    new DistributedRunRepository(db.dialect, db.connections, db.schemaManager,
+                    new TestRunContributionRepository(db.dialect, db.connections, db.schemaManager));
             DistributedRun run = DistributedRun.open("run-1", "main", "commit-1", 0, 1, null,
                     0L, 1234L, SelectionMode.SELECTIVE, null);
             repository.persistDistributedRunPlan(new DistributedRunPlan(run,

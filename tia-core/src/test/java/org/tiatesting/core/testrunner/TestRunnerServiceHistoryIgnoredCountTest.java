@@ -83,8 +83,8 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.ATest", "com.example.BTest", "com.example.CTest", "com.example.DTest"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, 4, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, TestRunResultFixture.syntheticPlanOutcome(4, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when - persist with history enabled
         long runStart = System.currentTimeMillis();
@@ -121,8 +121,8 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.UserDisabledD", "com.example.UserDisabledE", "com.example.UserDisabledF"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 4, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(4, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
         service.persistTestRunData(false, true, "abc123", "main", System.currentTimeMillis(), testRunResult, null);
@@ -145,8 +145,8 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         // given - no trackers, no runner suites, selector ignored nothing
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 0, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(0, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
         service.persistTestRunData(false, true, "first-run-commit", "main",
@@ -180,8 +180,8 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         trackers.put("com.example.RetriedB", new TestSuiteTracker("com.example.RetriedB"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(2, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
         service.persistTestRunData(false, true, "retry-commit", "main",
@@ -209,8 +209,8 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         }
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 5, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(5, 0, 0L),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
         service.persistTestRunData(false, true, "first-attempt-commit", "main",

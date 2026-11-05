@@ -45,6 +45,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class TestRunnerServiceFreshJvmRetryTest {
 
+    // The build every plan of a test belongs to, unless a test means a new build: a retry is only
+    // recognised against a first attempt of the same run.
+    private static final TestRunIdentity BUILD = TestRunResultFixture.runIdentity(TestRunResultFixture.RUN_ID);
+
     private static final String SUITE_A = "com.example.ATest";
     private static final String SUITE_B = "com.example.BTest";
     private static final String CLASS_X = "com/example/X.java";
@@ -97,10 +101,11 @@ class TestRunnerServiceFreshJvmRetryTest {
     @Test
     void freshJvmRetry_unionsItsCoverageWithTheStoredCoverage() {
         // given
-        persist(run(RunAttempt.FIRST, tracker(SUITE_A, 1_000L, false, cls(CLASS_X, 1, 2), cls(CLASS_Y, 3))));
+        persist(run(new TestJvmContribution(), BUILD,
+                tracker(SUITE_A, 1_000L, true, cls(CLASS_X, 1, 2), cls(CLASS_Y, 3))));
 
-        // when
-        persist(run(RunAttempt.RERUN_NEW_JVM, tracker(SUITE_A, 50L, false, cls(CLASS_X, 2, 4))));
+        // when a fresh JVM retries the failed suite
+        persist(run(new TestJvmContribution(), BUILD, tracker(SUITE_A, 50L, false, cls(CLASS_X, 2, 4))));
 
         // then
         Map<String, Set<Integer>> expected = new TreeMap<>();
@@ -116,10 +121,11 @@ class TestRunnerServiceFreshJvmRetryTest {
     @Test
     void firstAttempt_replacesTheStoredCoverage() {
         // given
-        persist(run(RunAttempt.FIRST, tracker(SUITE_A, 1_000L, false, cls(CLASS_X, 1, 2), cls(CLASS_Y, 3))));
+        persist(run(new TestJvmContribution(), BUILD,
+                tracker(SUITE_A, 1_000L, false, cls(CLASS_X, 1, 2), cls(CLASS_Y, 3))));
 
         // when
-        persist(run(RunAttempt.FIRST, tracker(SUITE_A, 1_000L, false, cls(CLASS_X, 2, 4))));
+        persist(run(new TestJvmContribution(), BUILD, tracker(SUITE_A, 1_000L, false, cls(CLASS_X, 2, 4))));
 
         // then
         Map<String, Set<Integer>> expected = new TreeMap<>();
@@ -135,10 +141,10 @@ class TestRunnerServiceFreshJvmRetryTest {
     @Test
     void freshJvmRetry_countsTheRunButKeepsTheStoredAverage() {
         // given
-        persist(run(RunAttempt.FIRST, tracker(SUITE_A, 1_000L, true, cls(CLASS_X, 1))));
+        persist(run(new TestJvmContribution(), BUILD, tracker(SUITE_A, 1_000L, true, cls(CLASS_X, 1))));
 
-        // when
-        persist(run(RunAttempt.RERUN_NEW_JVM, tracker(SUITE_A, 50L, false, cls(CLASS_X, 1))));
+        // when a fresh JVM retries the failed suite
+        persist(run(new TestJvmContribution(), BUILD, tracker(SUITE_A, 50L, false, cls(CLASS_X, 1))));
 
         // then
         TestStats stats = dataStore.getTestSuitesTracked().get(SUITE_A).getTestStats();
@@ -156,17 +162,18 @@ class TestRunnerServiceFreshJvmRetryTest {
     @Test
     void freshJvmRetry_leavesTheDeveloperDisabledFlagsAlone() {
         // given
-        persist(run(RunAttempt.FIRST, tracker(SUITE_A, 1_000L, true, cls(CLASS_X, 1)),
+        persist(run(new TestJvmContribution(), BUILD, tracker(SUITE_A, 1_000L, true, cls(CLASS_X, 1)),
                 tracker(SUITE_B, 1_000L, false, cls(CLASS_Y, 3))));
 
-        // when
-        persist(run(RunAttempt.RERUN_NEW_JVM, tracker(SUITE_A, 50L, false, cls(CLASS_X, 1))));
+        // when a fresh JVM retries the failed suite
+        persist(run(new TestJvmContribution(), BUILD, tracker(SUITE_A, 50L, false, cls(CLASS_X, 1))));
 
         // then
         assertFalse(dataStore.getTestSuitesTracked().get(SUITE_B).isDeveloperDisabled());
 
-        // and when the same shape is a first attempt, the flag is derived
-        persist(run(RunAttempt.FIRST, tracker(SUITE_A, 1_000L, false, cls(CLASS_X, 1))));
+        // and when the same shape is the first attempt of a new build, the flag is derived
+        persist(run(new TestJvmContribution(), TestRunResultFixture.runIdentity(),
+                tracker(SUITE_A, 1_000L, false, cls(CLASS_X, 1))));
         assertTrue(dataStore.getTestSuitesTracked().get(SUITE_B).isDeveloperDisabled());
     }
 
@@ -177,12 +184,13 @@ class TestRunnerServiceFreshJvmRetryTest {
     @Test
     void retries_contributeNoTiaLevelStats() {
         // given
-        persist(run(RunAttempt.FIRST, tracker(SUITE_A, 1_000L, true, cls(CLASS_X, 1))));
+        TestJvmContribution firstJvm = new TestJvmContribution();
+        persist(run(firstJvm, BUILD, tracker(SUITE_A, 1_000L, true, cls(CLASS_X, 1))));
         long runsAfterFirstAttempt = dataStore.getTiaCore().getTestStats().getNumRuns();
 
-        // when
-        persist(run(RunAttempt.RERUN_SAME_JVM, tracker(SUITE_A, 50L, false, cls(CLASS_X, 1))));
-        persist(run(RunAttempt.RERUN_NEW_JVM, tracker(SUITE_A, 50L, false, cls(CLASS_X, 1))));
+        // when the failed suite is retried in the same JVM, then in a fresh one
+        persist(run(firstJvm, BUILD, tracker(SUITE_A, 50L, false, cls(CLASS_X, 1))));
+        persist(run(new TestJvmContribution(), BUILD, tracker(SUITE_A, 50L, false, cls(CLASS_X, 1))));
 
         // then
         assertEquals(1L, runsAfterFirstAttempt);
@@ -202,11 +210,14 @@ class TestRunnerServiceFreshJvmRetryTest {
      * Build a run result for a JVM whose runner discovered both suites, Tia selected both, and the
      * given trackers executed. The run's Tia-level stats record one run.
      *
-     * @param attempt which attempt the run is
+     * @param jvm the test JVM the plan ran in; reusing one across results makes a later plan a
+     *            same-JVM retry when it re-runs only suites that failed in it
+     * @param build the run the plan belongs to; a retry must share its first attempt's run
      * @param trackers the suites that executed, with their coverage and stats
      * @return the result
      */
-    private static TestRunResult run(final RunAttempt attempt, final TestSuiteTracker... trackers) {
+    private static TestRunResult run(final TestJvmContribution jvm, final TestRunIdentity build,
+                                     final TestSuiteTracker... trackers) {
         Map<String, TestSuiteTracker> executed = new HashMap<>();
         Map<Integer, MethodImpactTracker> methods = new HashMap<>();
         Set<String> failed = new HashSet<>();
@@ -227,7 +238,8 @@ class TestRunnerServiceFreshJvmRetryTest {
         runStats.setNumSuccessRuns(failed.isEmpty() ? 1 : 0);
         runStats.setNumFailRuns(failed.isEmpty() ? 0 : 1);
         return new TestRunResult(executed, failed, ALL_SUITES, executed.keySet(), ALL_SUITES, methods,
-                runStats, null, 0, executed.size(), failed.size(), TestRunSelectionDetails.empty(), attempt);
+                runStats, null, 0, TestRunResultFixture.planOutcome(executed.keySet(), failed, 0L),
+                TestRunSelectionDetails.empty(), jvm, build);
     }
 
     /**
