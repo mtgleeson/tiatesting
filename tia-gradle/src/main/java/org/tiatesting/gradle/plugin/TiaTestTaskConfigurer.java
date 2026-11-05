@@ -32,7 +32,7 @@ import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
-import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.util.StringUtil;
@@ -185,15 +185,13 @@ public class TiaTestTaskConfigurer {
                     } catch (IllegalStateException e) {
                         throw new GradleException(e.getMessage(), e);
                     }
-                    // Number this task execution's test JVMs. The test-retry plugin re-runs failed
-                    // tests in fresh JVMs inside this same task action, each with these same
-                    // properties, so a counter reset here - once per execution, before any JVM
-                    // starts - is what lets a retry round know it is not the real run and persist
-                    // as an addition to it rather than overwrite it. See TestJvmSequence.
-                    File testJvmSequenceFile = new File(testTask.getTemporaryDir(), TestJvmSequence.FILE_NAME);
-                    TestJvmSequence.reset(testJvmSequenceFile);
-                    testTask.systemProperty(TestJvmSequence.PROP_TEST_JVM_SEQUENCE_FILE,
-                            testJvmSequenceFile.getAbsolutePath());
+                    // A new run for every execution of this task: its parallel forks and the fresh
+                    // JVMs the test-retry plugin starts inside this same action all receive these
+                    // properties, so they contribute to one run. See TestRunIdentity.
+                    TestRunIdentity testRunIdentity = TestRunIdentity.newRun(System.currentTimeMillis());
+                    for (Map.Entry<String, String> property : testRunIdentity.toProperties().entrySet()) {
+                        testTask.systemProperty(property.getKey(), property.getValue());
+                    }
                     // The compiled test classes this task owns. They tell the forked JVM which
                     // suites still exist in the project, so a suite it did not run is not mistaken
                     // for one deleted from the repository - which is what a run split across JVMs
@@ -1048,8 +1046,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * Tia does not support that. While updating the mapping, coverage is attributed per suite only
      * when suites run one after another in one JVM, the forks' persists race, and one fork's seal
      * clears flags another still needs. While recording run history (the default, even with mapping
-     * off), the test JVM counter numbers every fork after the first as a test-retry round, so their
-     * history rows are flagged reruns and credited no savings. Warned rather than refused because the
+     * off), each fork writes its own history row, each credited savings against the full baseline.
+     * Warned rather than refused because the
      * build still runs its tests correctly, and the README has only ever recommended a single fork.
      * See "Multi-fork persist" in the "Persist flow and crash safety" chapter of {@code WIKI.md}. A
      * distributed test task is refused instead, by {@link #refuseATestTaskThatForksMoreThanOneJvm}.
@@ -1065,10 +1063,9 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
             return;
         }
         String consequence = updatesMapping
-                ? "coverage can be attributed to the wrong suites, the forks' results can overwrite each other, "
-                        + "and every fork after the first is recorded as a test-retry round"
-                : "every fork after the first is recorded in the run history as a test-retry round, credited "
-                        + "no savings";
+                ? "coverage can be attributed to the wrong suites, and the forks' results can overwrite each other"
+                : "each fork records its own row in the run history, each credited savings against the full "
+                        + "baseline";
         LOGGER.warn("Tia is enabled for test task '{}', which sets {}. Running a test task's suites in more "
                 + "than one JVM is not supported: {}. Use maxParallelForks = 1 and forkEvery = 0 for this test "
                 + "task.", testTask.getPath(), forkingSetting, consequence);

@@ -7,11 +7,12 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.agent.ForkSystemProperties;
-import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.testrunner.TestRunIdentity;
 
 import java.io.File;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -77,29 +78,27 @@ class TiaTestTaskConfigurerTestClassesDirsTest {
     }
 
     /**
-     * The task action resets the test JVM counter for this execution and forwards its path, so a
-     * test-retry round's fresh JVM can tell it is not the real run - even when a previous execution
-     * of the task left the counter at a later round.
+     * Every execution of the test task is a new run, handed to every JVM it forks - its parallel
+     * forks and its test-retry rounds alike.
      *
      * @param projectDir a temporary directory to root the Gradle project at
-     * @throws Exception if the counter file cannot be written or read
+     * @throws Exception if the task action fails
      */
     @org.junit.jupiter.api.Test
-    void theTestJvmCounterIsResetAndForwardedToTheFork(@TempDir File projectDir) throws Exception {
+    void eachTaskExecutionForwardsANewRunIdentity(@TempDir File projectDir) throws Exception {
         // given
         Test testTask = testTaskWithTiaApplied(projectDir);
         enableTia(projectExtension(testTask), projectDir);
-        File counter = new File(testTask.getTemporaryDir(), TestJvmSequence.FILE_NAME);
-        java.nio.file.Files.write(counter.toPath(), "3".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
         // when
         runTiaTaskAction(testTask);
+        Object firstRunId = testTask.getSystemProperties().get(TestRunIdentity.PROP_TEST_RUN_ID);
+        runTiaTaskAction(testTask);
 
         // then
-        assertEquals(counter.getAbsolutePath(),
-                testTask.getSystemProperties().get(TestJvmSequence.PROP_TEST_JVM_SEQUENCE_FILE));
-        assertEquals("0", new String(java.nio.file.Files.readAllBytes(counter.toPath()),
-                java.nio.charset.StandardCharsets.UTF_8));
+        assertNotNull(firstRunId);
+        assertNotNull(testTask.getSystemProperties().get(TestRunIdentity.PROP_TEST_RUN_START_MS));
+        assertNotEquals(firstRunId, testTask.getSystemProperties().get(TestRunIdentity.PROP_TEST_RUN_ID));
     }
 
     /**
