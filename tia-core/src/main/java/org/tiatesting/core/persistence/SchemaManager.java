@@ -50,8 +50,9 @@ class SchemaManager {
      * Memoized per datastore instance: the schema can't disappear within a JVM, so repeat calls
      * skip even that check.
      * An existing DB also gets the TEMPORARY group-suite flag column check - see {@link
-     * #hasGroupSuiteFlagColumns(Connection)} - and the TEMPORARY test-support counter column check -
-     * see {@link #hasTestSupportCounterColumns(Connection)}.
+     * #hasGroupSuiteFlagColumns(Connection)} - the TEMPORARY test-support counter column check -
+     * see {@link #hasTestSupportCounterColumns(Connection)} - and the TEMPORARY test run tables
+     * check - see {@link #addTestRunTables()}.
      *
      * @param connection the connection to check on
      * @return {@code true} if the Tia DB already existed before this call (or an earlier call
@@ -72,6 +73,9 @@ class SchemaManager {
         }
         if (dbExisted && !hasTestSupportCounterColumns(connection)) {
             addTestSupportCounterColumns();
+        }
+        if (dbExisted && !checkTableExists(connection, TABLE_TIA_TEST_RUN)) {
+            addTestRunTables();
         }
 
         schemaEnsured = true;
@@ -329,6 +333,9 @@ class SchemaManager {
             statement.addBatch(createTestRunHistoryTableSql);
             statement.addBatch(createTestRunHistoryIndexSql);
             statement.addBatch(buildCreateTestRunHistoryTriggerTableSql());
+            statement.addBatch(buildCreateTestRunTableSql());
+            statement.addBatch(buildCreateTestRunJvmTableSql());
+            statement.addBatch(buildCreateTestRunJvmGroupIndexSql());
             statement.addBatch(buildCreateDistributedRunTableSql());
             statement.addBatch(buildCreateDistributedRunGroupTableSql());
             statement.addBatch(buildCreateDistributedRunGroupSuiteTableSql());
@@ -553,6 +560,75 @@ class SchemaManager {
                 + COL_TEST_COUNT + " INT NOT NULL, "
                 + "FOREIGN KEY (" + COL_HISTORY_ID + ") REFERENCES " + TABLE_TIA_TEST_RUN_HISTORY
                 + "(" + COL_ID + ") ON DELETE CASCADE)";
+    }
+
+    /**
+     * Build the DDL for the {@code tia_test_run} table: one row per run, single-host or distributed.
+     * It is the parent of the run's {@code tia_test_run_jvm} contributions and the row every JVM of
+     * the run locks while it rebuilds the run's history rows. See the "Test run history" chapter in
+     * {@code WIKI.md}.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the run table
+     */
+    private static String buildCreateTestRunTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_RUN + " ("
+                + COL_ID + " VARCHAR(255) NOT NULL PRIMARY KEY, "
+                + COL_START_MS + " BIGINT NOT NULL)";
+    }
+
+    /**
+     * Build the DDL for the {@code tia_test_run_jvm} table: one row per (run, test JVM, attempt
+     * kind) holding that JVM's running totals. The suite-name columns are unbounded because they list
+     * failures, and a rerun's suites, by name.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the contribution table
+     */
+    private static String buildCreateTestRunJvmTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_RUN_JVM + " ("
+                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
+                + COL_JVM_ID + " VARCHAR(64) NOT NULL, "
+                + COL_RERUN + " BOOLEAN NOT NULL, "
+                + COL_GROUP_NUMBER + " INT, "
+                + COL_SUITES_RAN + " INT NOT NULL, "
+                + COL_SUITES_FAILED + " VARCHAR, "
+                + COL_RERUN_SUITES + " VARCHAR, "
+                + COL_TEST_TIME_MS + " BIGINT NOT NULL, "
+                + COL_SUITES_TIME_MS + " BIGINT NOT NULL, "
+                + COL_FIRST_START_MS + " BIGINT NOT NULL, "
+                + COL_LAST_END_MS + " BIGINT NOT NULL, "
+                + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_JVM_ID + ", " + COL_RERUN + "), "
+                + "FOREIGN KEY (" + COL_RUN_ID + ") REFERENCES " + TABLE_TIA_TEST_RUN
+                + "(" + COL_ID + ") ON DELETE CASCADE)";
+    }
+
+    /**
+     * Build the DDL for the index backing a distributed group's contribution lookup.
+     *
+     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the contribution group index
+     */
+    private static String buildCreateTestRunJvmGroupIndexSql() {
+        return "CREATE INDEX IF NOT EXISTS " + IDX_TEST_RUN_JVM_GROUP + " ON "
+                + TABLE_TIA_TEST_RUN_JVM + " (" + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ")";
+    }
+
+    /**
+     * TEMPORARY one-off migration: create {@code tia_test_run} and {@code tia_test_run_jvm} on a
+     * database created before they existed. Remove it and its call in {@link #ensureSchema} once the
+     * shared database has them - Tia otherwise has no migrations (see the class javadoc). Runs on a
+     * fresh connection, like {@link #createTiaDB()}, and every statement is {@code IF NOT EXISTS}.
+     *
+     * @throws TiaPersistenceException if a statement fails
+     */
+    private void addTestRunTables() {
+        log.info("Adding the {} and {} tables at {}", TABLE_TIA_TEST_RUN, TABLE_TIA_TEST_RUN_JVM, jdbcUrl);
+        try (Connection connection = connections.get();
+             Statement statement = connection.createStatement()) {
+            statement.execute(buildCreateTestRunTableSql());
+            statement.execute(buildCreateTestRunJvmTableSql());
+            statement.execute(buildCreateTestRunJvmGroupIndexSql());
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
     }
 
     /**

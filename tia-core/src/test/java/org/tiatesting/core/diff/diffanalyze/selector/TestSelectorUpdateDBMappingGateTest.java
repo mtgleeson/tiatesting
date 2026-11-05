@@ -19,6 +19,7 @@ import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
@@ -481,6 +482,42 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override
         public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) {
             delegate.persistTestRunHistoryEntry(entry);
+        }
+        /**
+         * Delegate to the real store.
+         *
+         * @param runId the run
+         * @param runStartMs the run start
+         * @param contributions the contributions
+         * @param historyEntries the history builder
+         * @return the created history ids
+         */
+        @Override
+        public Set<String> persistTestRunContribution(String runId, long runStartMs,
+                List<TestRunContribution> contributions,
+                java.util.function.Function<List<TestRunContribution>, List<TestRunHistoryEntry>> historyEntries) {
+            return delegate.persistTestRunContribution(runId, runStartMs, contributions, historyEntries);
+        }
+        /**
+         * Delegate to the real store.
+         *
+         * @param runId the run
+         * @return the contributions
+         */
+        @Override
+        public List<TestRunContribution> readTestRunContributions(String runId) {
+            return delegate.readTestRunContributions(runId);
+        }
+        /**
+         * Delegate to the real store.
+         *
+         * @param runId the run
+         * @param excludingJvmId the asking JVM
+         * @return the failed suites
+         */
+        @Override
+        public Set<String> readTestRunFailedSuites(String runId, String excludingJvmId) {
+            return delegate.readTestRunFailedSuites(runId, excludingJvmId);
         }
 
         @Override

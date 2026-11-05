@@ -117,6 +117,16 @@ final class TiaSchema {
     static final String COL_SUITES_DURATION_MS = "suites_duration_ms";
     static final String COL_OBSERVED = "observed";
     static final String COL_UNRUNNABLE = "unrunnable";
+    static final String TABLE_TIA_TEST_RUN = "tia_test_run";
+    static final String TABLE_TIA_TEST_RUN_JVM = TABLE_TIA_TEST_RUN + "_jvm";
+    static final String COL_START_MS = "start_ms";
+    static final String COL_JVM_ID = "jvm_id";
+    static final String COL_RERUN_SUITES = "rerun_suites";
+    static final String COL_TEST_TIME_MS = "test_time_ms";
+    static final String COL_SUITES_TIME_MS = "suites_time_ms";
+    static final String COL_FIRST_START_MS = "first_start_ms";
+    static final String COL_LAST_END_MS = "last_end_ms";
+    static final String IDX_TEST_RUN_JVM_GROUP = "idx_test_run_jvm_group";
     static final String IDX_DISTRIBUTED_RUN_GROUP_STATUS = "idx_distributed_run_group_status";
     static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
 

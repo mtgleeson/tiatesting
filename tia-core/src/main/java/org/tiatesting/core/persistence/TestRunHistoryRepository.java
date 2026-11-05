@@ -35,24 +35,38 @@ class TestRunHistoryRepository extends JdbcRepository {
      * @param entry the history row to write
      */
     void persistTestRunHistoryEntry(final TestRunHistoryEntry entry) {
-        Connection connection = getConnection();
-
-        try {
+        try (Connection connection = getConnection()) {
             schemaManager.ensureSchema(connection);
-            String sql = dialect.upsert(TABLE_TIA_TEST_RUN_HISTORY,
-                    Arrays.asList(COL_ID, COL_RUN_TIMESTAMP, COL_BRANCH, COL_COMMIT_VALUE,
-                            COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
-                            COL_DURATION_MS, COL_UPDATED_DB_MAPPING, COL_TIME_SAVINGS,
-                            COL_SAVINGS_PERCENT, COL_WALL_CLOCK_SAVINGS,
-                            COL_WALL_CLOCK_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS,
-                            COL_GROUP_COUNT, COL_GROUPS_AVAILABLE, COL_RUN_SOURCE, COL_HOST_NAME,
-                            COL_NUM_MODIFIED_TEST_FILES,
-                            COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
-                            COL_NUM_PENDING_LIBRARY, COL_RERUN, COL_SELECTION_MODE,
-                            COL_NUM_TEST_SUPPORT_DEPENDANTS),
-                    Collections.singletonList(COL_ID));
+            upsertHistoryEntry(connection, entry);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
 
-            PreparedStatement ps = connection.prepareStatement(sql);
+    /**
+     * Upsert one run-history row on the caller's connection, inside the caller's transaction. Shared
+     * by {@link #persistTestRunHistoryEntry} and the contribution write, which rebuilds a run's rows
+     * under the run lock.
+     *
+     * @param connection the caller's open connection
+     * @param entry the history row to write
+     * @throws SQLException if the upsert fails
+     */
+    void upsertHistoryEntry(final Connection connection, final TestRunHistoryEntry entry) throws SQLException {
+        String sql = dialect.upsert(TABLE_TIA_TEST_RUN_HISTORY,
+                Arrays.asList(COL_ID, COL_RUN_TIMESTAMP, COL_BRANCH, COL_COMMIT_VALUE,
+                        COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
+                        COL_DURATION_MS, COL_UPDATED_DB_MAPPING, COL_TIME_SAVINGS,
+                        COL_SAVINGS_PERCENT, COL_WALL_CLOCK_SAVINGS,
+                        COL_WALL_CLOCK_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS,
+                        COL_GROUP_COUNT, COL_GROUPS_AVAILABLE, COL_RUN_SOURCE, COL_HOST_NAME,
+                        COL_NUM_MODIFIED_TEST_FILES,
+                        COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
+                        COL_NUM_PENDING_LIBRARY, COL_RERUN, COL_SELECTION_MODE,
+                        COL_NUM_TEST_SUPPORT_DEPENDANTS),
+                Collections.singletonList(COL_ID));
+
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, entry.getId());
             ps.setLong(2, entry.getRunTimestampMs());
             ps.setString(3, entry.getBranch());
@@ -88,14 +102,24 @@ class TestRunHistoryRepository extends JdbcRepository {
                     : entry.getSelectionMode().name());
             setNullableInt(ps, 27, entry.getNumTestSupportDependants());
             ps.executeUpdate();
-            log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
+        }
+        log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
+    }
+
+    /**
+     * Report whether a history row already exists, on the caller's connection.
+     *
+     * @param connection the caller's open connection
+     * @param historyId the history row id
+     * @return true when the row exists
+     * @throws SQLException if the query fails
+     */
+    boolean historyRowExists(final Connection connection, final String historyId) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement("SELECT 1 FROM " + TABLE_TIA_TEST_RUN_HISTORY
+                + " WHERE " + COL_ID + " = ?")) {
+            ps.setString(1, historyId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
             }
         }
     }

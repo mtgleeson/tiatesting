@@ -9,6 +9,7 @@ import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
@@ -20,6 +21,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 public interface DataStore extends AutoCloseable {
 
@@ -378,6 +380,42 @@ public interface DataStore extends AutoCloseable {
      * @param entry the entry to persist
      */
     void persistTestRunHistoryEntry(final TestRunHistoryEntry entry);
+
+    /**
+     * Record one test JVM's contribution to a run and, when a history builder is given, rebuild the
+     * run's history rows from every contribution the run now has - all in one transaction holding the
+     * run's row lock, so the stored rows are always a consistent aggregate of every JVM that has
+     * persisted. See the "Test run history" chapter in {@code WIKI.md}.
+     *
+     * @param runId the run the contributions belong to
+     * @param runStartMs the run's start time, stored if this call creates the run's row
+     * @param contributions this JVM's contributions, one per attempt kind it has run
+     * @param historyEntries builds the run's history rows from all its contributions, or null to
+     *                       write no history (a run with the history log switched off)
+     * @return the ids of history rows this call created rather than updated; empty when
+     *         {@code historyEntries} is null
+     */
+    Set<String> persistTestRunContribution(String runId, long runStartMs,
+                                           List<TestRunContribution> contributions,
+                                           Function<List<TestRunContribution>, List<TestRunHistoryEntry>> historyEntries);
+
+    /**
+     * Read every contribution stored for a run.
+     *
+     * @param runId the single-host test run id or the distributed run id
+     * @return the run's contributions, empty when none
+     */
+    List<TestRunContribution> readTestRunContributions(String runId);
+
+    /**
+     * Read the suites other test JVMs of a run recorded as failed, so a fresh JVM can tell a retry of
+     * failed tests from a first attempt.
+     *
+     * @param runId the run to read
+     * @param excludingJvmId the asking JVM, whose own failures are left out
+     * @return the failed suite names, empty when none
+     */
+    Set<String> readTestRunFailedSuites(String runId, String excludingJvmId);
 
     /**
      * Read all persisted test-run history rows, ordered by {@code runTimestampMs} descending
