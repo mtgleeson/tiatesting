@@ -202,6 +202,28 @@ as Tia javaagent options and the agent republishes them in `premain`. Gradle's `
 system properties on the fork directly, so it needs no agent for this. The files themselves are the
 same, written and read by the same `tia-core` code.
 
+### Keeping JaCoCo out of a fork that collects no coverage
+
+A Maven run that does not update the mapping (`tiaUpdateDBMapping=false`, for example a local
+`tiaCheckLocalChanges` run) has no use for the JaCoCo agent, so `prepare-agent` keeps it off the
+fork's command line. Tia's and JaCoCo's `prepare-agent` goals both edit the `argLine` property and
+are bound to the same phase, so they run in the order the plugins are declared in the POM, and
+Tia handles each order differently:
+
+- **JaCoCo declared first:** its agent is already on `argLine` when Tia's goal runs, and
+  `AgentMojo.addVMArguments` removes it.
+- **Tia declared first:** there is nothing to remove yet, and JaCoCo would prepend its agent
+  afterwards. `AgentMojo.skipJacocoWhenNotNeeded` sets the `jacoco.skip` project property instead,
+  and Maven resolves the later JaCoCo goal's `skip` parameter from the project properties when that
+  goal runs, so it skips itself.
+
+Leaving the agent in matters beyond the wasted instrumentation: it runs in TCP server mode, so with
+Surefire `forkCount > 1` every fork tries to bind the same port and all but one abort at startup. A
+`-Djacoco.skip=false` on the command line, or an explicit `<skip>` in the JaCoCo configuration,
+takes precedence over the project property and keeps the agent in. Gradle needs neither step:
+the Tia Gradle plugin applies the `jacoco` plugin and switches a test task's agent to TCP server
+mode only when that task updates the mapping.
+
 ---
 
 

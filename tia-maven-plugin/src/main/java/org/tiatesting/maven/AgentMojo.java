@@ -51,6 +51,11 @@ public class AgentMojo extends AbstractTiaMojo {
     static final String SUREFIRE_ARG_LINE = "argLine";
 
     /**
+     * The property bound to the {@code skip} parameter of every jacoco-maven-plugin goal.
+     */
+    static final String JACOCO_SKIP_PROPERTY = "jacoco.skip";
+
+    /**
      * Warned when a distributed runner is given tiaSelectAllTests or tiaReseed. The plan step
      * decides the mode for the whole build and records it on the run row; a runner only claims its
      * share of that plan.
@@ -177,6 +182,7 @@ public class AgentMojo extends AbstractTiaMojo {
         final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
+        skipJacocoWhenNotNeeded(projectProperties);
 
         // trying to configure the surefire plugin programtically below to work for tia doesn't seem to work
         // I can update the configuration for the surefire plugin but the change don't seem to get read.
@@ -746,6 +752,36 @@ public class AgentMojo extends AbstractTiaMojo {
 
         args.add(getVMArgument(agentJarFile, agentOptions));
         return CommandLineSupport.quote(args);
+    }
+
+    /**
+     * Stop a JaCoCo {@code prepare-agent} that runs after this goal from adding its agent, on a run
+     * that does not update the mapping and so collects no coverage.
+     *
+     * <p>{@link #addVMArguments} can only remove a JaCoCo agent that is already on the argLine,
+     * which is the case when jacoco-maven-plugin is declared before Tia. Both goals bind to the same
+     * phase, so with Tia declared first JaCoCo runs afterwards and prepends its agent once Tia is
+     * done. The agent is then left in every forked test JVM, and with Surefire {@code forkCount > 1}
+     * each fork tries to bind the same TCP server port and all but one abort. Maven resolves a
+     * goal's parameters from the project properties when the goal runs, so setting
+     * {@code jacoco.skip} here makes the later JaCoCo goal skip itself. Between the two,
+     * JaCoCo is kept out of the test JVM whichever plugin is declared first. A {@code -D} on the
+     * command line or an explicit {@code <skip>} in the JaCoCo configuration still wins.
+     *
+     * <p>The property applies to every later JaCoCo goal in the module, not only
+     * {@code prepare-agent}, which is safe because Tia owns JaCoCo when it is enabled: the agent
+     * runs in TCP server mode and writes no execution data file for other goals to read.
+     *
+     * @param projectProperties the project properties the later JaCoCo goals are resolved from
+     */
+    void skipJacocoWhenNotNeeded(final Properties projectProperties) {
+        if (!isTiaEnabled() || isTiaUpdateDBMapping()) {
+            return;
+        }
+
+        getLog().info("Tia is enabled but not updating the DB. Jacoco is not needed. Setting "
+                + JACOCO_SKIP_PROPERTY + "=true.");
+        projectProperties.setProperty(JACOCO_SKIP_PROPERTY, "true");
     }
 
     /**
