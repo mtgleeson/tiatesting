@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Execution-coverage test for the operations that close a distributed run -
- * {@link DataStore#reportGroupProgress(String, int, String, long, int, int, Set, long)},
+ * {@link DataStore#reportGroupProgress(String, int, String, long, int, int, Set, long, List)},
  * {@link DataStore#completeGroup(String, int, String, long)},
  * {@link DataStore#electSealer(String, String, long)},
  * {@link DataStore#markDistributedRunSealed(String)} and the distributed columns on

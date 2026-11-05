@@ -35,7 +35,7 @@ import java.util.Set;
  *       catalogue is rebuilt wholesale from the suite-to-method edge table, so writing it while
  *       another group is still running would drop every method reachable only from that group's
  *       suites. Only the run's sealer may write it, after the barrier.</li>
- *   <li>{@link #reportGroupProgress(long, int, int, Set, long)} is called on every persist, at the point
+ *   <li>{@link #reportGroupProgress(long, int, int, Set, long, List)} is called on every persist, at the point
  *       in the persist that used to record the same measurements as part of the combined
  *       completion call. It is not subject to the ordering below, since it never releases the
  *       barrier - only the status flip does. It also assumes one JVM works one group end to end;
@@ -232,7 +232,7 @@ public final class DistributedRunnerPersist {
      * last write, since it is what releases the barrier the sealer's catalogue rebuild waits on -
      * which is why it is called once for the whole build tool step, from {@link
      * DistributedRunCompleter#completeAndSeal}, and not once per finished test plan. Carries no
-     * measurements of its own; {@link #reportGroupProgress(long, int, int, Set, long)} records those
+     * measurements of its own; {@link #reportGroupProgress(long, int, int, Set, long, List)} records those
      * on every persist, and this call only flags never-runnable suites and flips the group's status.
      *
      * <p>Only the unobserved suites are classified, so a classifier mistake can at worst excuse the
@@ -317,7 +317,7 @@ public final class DistributedRunnerPersist {
     /**
      * Say what the group row actually holds after a guarded write this class made was refused, so
      * the failure log names the case that happened rather than asserting the most likely one. Used
-     * on both {@link #completeGroup(long, TestSuiteRunnabilityClassifier)}'s and {@link #reportGroupProgress(long, int, int, Set, long)}'s
+     * on both {@link #completeGroup(long, TestSuiteRunnabilityClassifier)}'s and {@link #reportGroupProgress(long, int, int, Set, long, List)}'s
      * failure paths, so its wording is deliberately guard-neutral rather than assuming a completion
      * was attempted. The guard's row count cannot tell the cases apart - a run superseded by a newer
      * build's plan write, a group re-claimed by another runner, a group this runner has already

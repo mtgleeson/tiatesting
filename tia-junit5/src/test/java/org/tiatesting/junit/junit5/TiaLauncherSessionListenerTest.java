@@ -1,5 +1,6 @@
 package org.tiatesting.junit.junit5;
 
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,8 @@ class TiaLauncherSessionListenerTest {
 
     private static final String[] MANAGED_PROPERTIES = {
             "tiaEnabled", "tiaUpdateDBMapping", "tiaUpdateDBTestRunHistory", "tiaBranch",
-            "tiaCommitValue", "tiaProjectDir"
+            "tiaCommitValue", "tiaProjectDir",
+            TestRunIdentity.PROP_TEST_RUN_ID, TestRunIdentity.PROP_TEST_RUN_START_MS
     };
 
     @TempDir
@@ -112,6 +114,8 @@ class TiaLauncherSessionListenerTest {
         System.setProperty("tiaUpdateDBTestRunHistory", "false");
         System.setProperty("tiaBranch", "main");
         System.setProperty("tiaCommitValue", "commit-1");
+        System.setProperty(TestRunIdentity.PROP_TEST_RUN_ID, "run-1");
+        System.setProperty(TestRunIdentity.PROP_TEST_RUN_START_MS, "1000");
         System.setProperty("tiaProjectDir", workspaceWithNoRepository.getAbsolutePath());
         LauncherSession session = mock(LauncherSession.class);
         Launcher launcher = mock(Launcher.class);

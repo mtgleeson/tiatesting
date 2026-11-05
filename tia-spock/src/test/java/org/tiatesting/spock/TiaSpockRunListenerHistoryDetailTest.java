@@ -3,6 +3,11 @@ package org.tiatesting.spock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.spockframework.runtime.model.ErrorInfo;
+import org.spockframework.runtime.model.FeatureInfo;
+import org.spockframework.runtime.model.MethodInfo;
+import org.spockframework.runtime.model.MethodKind;
+import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
@@ -13,7 +18,7 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.testrunner.RunAttempt;
+import org.tiatesting.core.testrunner.TestRunIdentity;
 
 import java.io.File;
 import java.time.Instant;
@@ -112,7 +117,7 @@ class TiaSpockRunListenerHistoryDetailTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 0, 2, 1, 4, SelectionMode.SELECTIVE);
         TiaSpockRunListener listener = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 0, false, true, null,
-                details, null, RunAttempt.FIRST);
+                details, null, new TestRunIdentity("spock-run-" + System.nanoTime(), 1_000L));
 
         // when - the one spec this JVM ran finishes, then the run is persisted
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
@@ -147,7 +152,7 @@ class TiaSpockRunListenerHistoryDetailTest {
         // extension produces on the distributed path
         TiaSpockRunListener listener = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 0, false, true, null,
-                TestRunSelectionDetails.empty(), null, RunAttempt.FIRST);
+                TestRunSelectionDetails.empty(), null, new TestRunIdentity("spock-run-" + System.nanoTime(), 1_000L));
 
         // when
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
@@ -161,22 +166,29 @@ class TiaSpockRunListenerHistoryDetailTest {
     }
 
     /**
-     * A listener in a Gradle test-retry round - a fresh JVM the extension resolved as a rerun -
-     * persists its history row flagged as a rerun and credited no savings, while the real run's
-     * listener does not.
+     * A listener in a Gradle test-retry round - a fresh JVM of the same run that re-runs only the
+     * spec the real run failed - persists its history row flagged as a rerun and credited no
+     * savings, while the real run's listener does not.
      */
     @Test
     void finishAllTests_inATestRetryRound_persistsARerunRow() {
-        // given
+        // given the real run's JVM, whose one spec failed
+        TestRunIdentity run = new TestRunIdentity("spock-run", 1_000L);
+        SpecInfo spec = spec("ATest");
         TiaSpockRunListener firstAttempt = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 3, false, true, null,
-                TestRunSelectionDetails.empty(), null, RunAttempt.FIRST);
+                TestRunSelectionDetails.empty(), null, run);
+        firstAttempt.beforeSpec(spec);
+        firstAttempt.error(new ErrorInfo(featureMethod(spec), new AssertionError("flaky")));
+        firstAttempt.afterSpec(spec);
         firstAttempt.finishAllTests(Collections.singleton("com.example.ATest"), 1_000L);
         TiaSpockRunListener retryRound = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 3, false, true, null,
-                TestRunSelectionDetails.empty(), null, RunAttempt.RERUN_NEW_JVM);
+                TestRunSelectionDetails.empty(), null, run);
 
-        // when
+        // when a fresh JVM of the same run re-runs the failed spec, which passes
+        retryRound.beforeSpec(spec);
+        retryRound.afterSpec(spec);
         retryRound.finishAllTests(Collections.singleton("com.example.ATest"), 2_000L);
 
         // then
@@ -185,5 +197,37 @@ class TiaSpockRunListenerHistoryDetailTest {
         assertTrue(history.get(0).isRerun(), "the retry round's row, most recent first");
         assertEquals(0L, history.get(0).getTimeSavingsMs());
         assertFalse(history.get(1).isRerun(), "the real run's row");
+    }
+
+    /**
+     * Build a spec in the {@code com.example} package.
+     *
+     * @param name the spec's simple name
+     * @return the spec
+     */
+    private static SpecInfo spec(final String name) {
+        SpecInfo specInfo = new SpecInfo();
+        specInfo.setPackage("com.example");
+        specInfo.setName(name);
+        return specInfo;
+    }
+
+    /**
+     * Build a feature method declared by a spec, with its feature parented to the same spec.
+     *
+     * @param declaringSpec the spec that declares the feature
+     * @return the feature method
+     */
+    private static MethodInfo featureMethod(final SpecInfo declaringSpec) {
+        FeatureInfo feature = new FeatureInfo();
+        feature.setParent(declaringSpec);
+        feature.setName("a feature");
+        MethodInfo method = new MethodInfo();
+        method.setParent(declaringSpec);
+        method.setName("a feature");
+        method.setKind(MethodKind.FEATURE);
+        method.setFeature(feature);
+        feature.setFeatureMethod(method);
+        return method;
     }
 }

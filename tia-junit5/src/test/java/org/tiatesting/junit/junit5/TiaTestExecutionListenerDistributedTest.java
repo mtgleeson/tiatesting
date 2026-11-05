@@ -1,5 +1,6 @@
 package org.tiatesting.junit.junit5;
 
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,7 +66,8 @@ class TiaTestExecutionListenerDistributedTest {
             ForkSystemProperties.PROP_TEST_CLASSES_DIRS, "test",
             H2ConnectionSettings.PROP_DB_FILE_PATH, H2ConnectionSettings.PROP_DB_URL,
             DistributedForkProperties.PROP_DISTRIBUTED, DistributedForkProperties.PROP_RUN_ID,
-            DistributedForkProperties.PROP_RUNNER_KEY, DistributedForkProperties.PROP_GROUP_NUMBER
+            DistributedForkProperties.PROP_RUNNER_KEY, DistributedForkProperties.PROP_GROUP_NUMBER,
+            TestRunIdentity.PROP_TEST_RUN_ID, TestRunIdentity.PROP_TEST_RUN_START_MS
     };
 
     private Map<String, String> savedProperties;
@@ -106,6 +108,8 @@ class TiaTestExecutionListenerDistributedTest {
         // agent: the listener reads both from system properties rather than from a repository.
         System.setProperty("tiaBranch", BRANCH);
         System.setProperty("tiaCommitValue", PLAN_COMMIT);
+        System.setProperty(TestRunIdentity.PROP_TEST_RUN_ID, "run-1");
+        System.setProperty(TestRunIdentity.PROP_TEST_RUN_START_MS, "1000");
         System.setProperty(H2ConnectionSettings.PROP_DB_FILE_PATH, tempDir.getAbsolutePath());
         System.setProperty("tiaSelectedTests", SUITE);
     }

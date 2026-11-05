@@ -41,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Cover the four operations that close a distributed run against embedded H2:
- * {@link DataStore#reportGroupProgress(String, int, String, long, int, int, Set, long)} (the progress
+ * {@link DataStore#reportGroupProgress(String, int, String, long, int, int, Set, long, List)} (the progress
  * report, where {@code actualDurationMs} accumulates, {@code suitesFailed} replaces and each
  * observed suite's row is flagged), {@link DataStore#completeGroup(String, int, String, long)}
  * (the guarded status flip that is also the straggler protection and the completeness guard),

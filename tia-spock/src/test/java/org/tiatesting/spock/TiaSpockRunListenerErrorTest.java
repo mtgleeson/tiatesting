@@ -8,7 +8,7 @@ import org.spockframework.runtime.model.MethodInfo;
 import org.spockframework.runtime.model.MethodKind;
 import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.model.TestRunSelectionDetails;
-import org.tiatesting.core.testrunner.RunAttempt;
+import org.tiatesting.core.testrunner.TestRunIdentity;
 
 import java.util.Collections;
 
@@ -46,7 +46,7 @@ class TiaSpockRunListenerErrorTest {
         baseSpec.setSubSpec(spec);
 
         listener = new TiaSpockRunListener("main", "commit-1", null, Collections.singleton(SPEC), 0,
-                false, false, null, TestRunSelectionDetails.empty(), null, RunAttempt.FIRST);
+                false, false, null, TestRunSelectionDetails.empty(), null, new TestRunIdentity("spock-run", 1_000L));
         listener.beforeSpec(spec);
     }
 

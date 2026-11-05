@@ -2,11 +2,11 @@ package org.tiatesting.junit.junit5;
 
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
+import org.tiatesting.core.testrunner.TestJvmContribution;
 
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * This encapsulates test run data that needs to be shared between test runs/sessions.
@@ -67,10 +67,11 @@ public class SharedTestRunData {
     private final Set<String> testSuitesFailed;
 
     /*
-     * How many test plans this JVM has started. The first is the real run; every later one is a Surefire re-run of
-     * failed tests, whose history row is flagged as a rerun and credited no savings.
+     * This JVM's running totals for its run, restated to the datastore on every persist. Lives here so every test
+     * plan of the JVM - a Surefire per-class plan, a rerun with a new listener - adds to the same totals. See
+     * TestJvmContribution.
      */
-    private final AtomicInteger testPlansStarted = new AtomicInteger();
+    private final TestJvmContribution jvmContribution = new TestJvmContribution();
 
     /**
      * Create empty shared state for a new test JVM, before its first test plan.
@@ -112,11 +113,9 @@ public class SharedTestRunData {
     }
 
     /**
-     * Record that a test plan has started in this JVM and return its position.
-     *
-     * @return 1 for the JVM's first test plan (the real run), 2 or more for each re-run after it
+     * @return this JVM's running totals for its run
      */
-    public int nextTestPlanNumber() {
-        return testPlansStarted.incrementAndGet();
+    public TestJvmContribution getJvmContribution() {
+        return jvmContribution;
     }
 }

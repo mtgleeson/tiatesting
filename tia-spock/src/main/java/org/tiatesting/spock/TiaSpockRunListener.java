@@ -14,11 +14,14 @@ import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TestStats;
-import org.tiatesting.core.testrunner.RunAttempt;
+import org.tiatesting.core.testrunner.TestJvmContribution;
+import org.tiatesting.core.testrunner.TestPlanOutcome;
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
 
 import java.io.IOException;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -59,9 +62,14 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final TestRunSelectionDetails selectionDetails;
     private final DistributedRunnerContext distributedRunnerContext;
     /*
-    Which attempt at the test task's run this JVM is: the real run, or a Gradle test-retry round.
+    The run this JVM belongs to, published by the build tool with the selection.
      */
-    private final RunAttempt runAttempt;
+    private final TestRunIdentity testRunIdentity;
+    /*
+    This JVM's running totals for its run. Spock makes one test plan per JVM and this listener is
+    created once per JVM, so the listener holds them.
+     */
+    private final TestJvmContribution jvmContribution = new TestJvmContribution();
     private boolean stopStepRan;
 
     /**
@@ -90,9 +98,9 @@ public class TiaSpockRunListener extends AbstractRunListener {
      * @param distributedRunnerContext the run id, runner identity and claimed group when this build
      *                                 is one runner of a distributed run, or {@code null} for an
      *                                 ordinary single-host build
-     * @param runAttempt               which attempt at the test task's run this JVM is - the real
-     *                                 run, or a Gradle test-retry round, which persists as an
-     *                                 addition to the first attempt and is flagged as a rerun
+     * @param testRunIdentity          the run this JVM belongs to, published by the build tool;
+     *                                 every JVM of the run - a parallel fork or a Gradle test-retry
+     *                                 round - contributes under it
      */
     public TiaSpockRunListener(final String branch, final String headCommit,
                                final DataStore dataStore, Set<String> selectedTests,
@@ -102,7 +110,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
                                final LibraryImpactDrainResult libraryImpactDrainResult,
                                final TestRunSelectionDetails selectionDetails,
                                final DistributedRunnerContext distributedRunnerContext,
-                               final RunAttempt runAttempt){
+                               final TestRunIdentity testRunIdentity){
         this.testRunnerService = new TestRunnerService(dataStore);
         this.coverageClient = new JacocoClient();
         this.testSuiteTrackers = new ConcurrentHashMap<>();
@@ -119,7 +127,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.selectionDetails = selectionDetails;
         this.distributedRunnerContext = distributedRunnerContext;
-        this.runAttempt = runAttempt;
+        this.testRunIdentity = testRunIdentity;
         this.headCommit = headCommit;
         this.branch = branch;
 
@@ -237,15 +245,16 @@ public class TiaSpockRunListener extends AbstractRunListener {
         // own specSkipped hook. Merged here, once, rather than as each skip happens, since this is
         // the one point every skip this JVM will ever see has already been recorded by.
         suitesObserved.addAll(SharedSpockSkipObservation.suitesObservedViaSkip());
-        // Spock is not affected by the JUnit5 retry-inflation bug: finishAllTests fires
-        // exactly once per JVM (guarded by stopStepRan) and beforeSpec uses Map.put so retried
-        // specs overwrite the same key. So the cumulative testSuiteTrackers.size() equals the
-        // per-attempt count - there's no separate counter to thread through. The same holds for the
-        // failed set: with one persist per JVM, the JVM-wide set is the attempt's own.
+        // Spock makes one test plan per JVM - finishAllTests fires once (guarded by stopStepRan) - so
+        // this JVM's sets are its one plan's outcome. The specs that started are the ones it
+        // exercised; with the failed specs added, that is what the rerun rule reads.
+        Set<String> exercised = new LinkedHashSet<>(testSuiteTrackers.keySet());
+        exercised.addAll(testSuitesFailed);
+        TestPlanOutcome planOutcome = new TestPlanOutcome(testSuitesProcessed, testSuitesFailed, exercised,
+                SharedSpockSkipObservation.suitesObservedViaSkip(), testRunStartTime);
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult,
-                ignoredTestSuiteCount, testSuiteTrackers.size(), testSuitesFailed.size(), selectionDetails,
-                runAttempt);
+                ignoredTestSuiteCount, planOutcome, selectionDetails, jvmContribution, testRunIdentity);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

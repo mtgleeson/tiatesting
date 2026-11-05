@@ -1,5 +1,6 @@
 package org.tiatesting.junit.junit5;
 
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,6 +16,7 @@ import org.junit.platform.engine.support.descriptor.MethodSource;
 import org.junit.platform.engine.support.descriptor.UriSource;
 import org.junit.platform.launcher.TestIdentifier;
 import org.junit.platform.launcher.TestPlan;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
@@ -37,7 +39,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Covers which JUnit Platform results the listener counts as a suite failure: a test or container
  * finishing {@code FAILED} anywhere within a suite fails it, and an assumption abort does not. Also
  * covers how the failed set carries across Surefire re-runs: it holds each suite's latest outcome in
- * the JVM, whether a re-run gets a new listener instance (Surefire up to 3.5.3) or reuses one.
+ * the JVM, whether a re-run gets a new listener instance (Surefire up to 3.5.3) or reuses one, and
+ * what each test plan contributes to the JVM's totals for its run.
  *
  * <p>The listener runs with mapping off and the history log on - enabled, but with no JaCoCo client
  * to reach, since a suite's completion would otherwise open a socket to the coverage agent. The
@@ -57,7 +60,8 @@ class TiaTestExecutionListenerFailureTest {
 
     private static final String[] MANAGED_PROPERTIES = {
             "tiaEnabled", "tiaUpdateDBMapping", "tiaUpdateDBTestRunHistory", "tiaBranch",
-            "tiaCommitValue", "tiaSelectedTests", "test", H2ConnectionSettings.PROP_DB_FILE_PATH
+            "tiaCommitValue", "tiaSelectedTests", "test", H2ConnectionSettings.PROP_DB_FILE_PATH,
+            TestRunIdentity.PROP_TEST_RUN_ID, TestRunIdentity.PROP_TEST_RUN_START_MS
     };
 
     private Map<String, String> savedProperties;
@@ -89,6 +93,8 @@ class TiaTestExecutionListenerFailureTest {
         System.setProperty("tiaUpdateDBMapping", "false");
         System.setProperty("tiaBranch", "main");
         System.setProperty("tiaCommitValue", "commit-1");
+        System.setProperty(TestRunIdentity.PROP_TEST_RUN_ID, "run-1");
+        System.setProperty(TestRunIdentity.PROP_TEST_RUN_START_MS, "1000");
         System.setProperty(H2ConnectionSettings.PROP_DB_FILE_PATH, tempDir.getAbsolutePath());
         System.setProperty("tiaSelectedTests", SUITE);
 
@@ -356,6 +362,66 @@ class TiaTestExecutionListenerFailureTest {
             assertEquals(2, history.size());
             assertTrue(history.get(0).isRerun(), "the re-run's row, most recent first");
             assertFalse(history.get(1).isRerun(), "the first attempt's row");
+        } finally {
+            dataStore.close();
+        }
+    }
+
+    /**
+     * Verifies two test plans in one fork - Surefire with {@code forkCount > 1} runs each class as
+     * its own plan - add up to one first-attempt contribution, rather than the second plan being
+     * taken for a rerun.
+     */
+    @Test
+    void twoTestPlansInOneForkAddUpToOneFirstAttemptContribution() {
+        // given a fork that runs two classes as two test plans
+        SimpleDescriptor other = container(engine, "other", ClassSource.from(OTHER_SUITE));
+        SharedTestRunData shared = new SharedTestRunData();
+        TiaTestExecutionListener firstPlan = startedListener(shared);
+        runSuite(firstPlan, suite, TestExecutionResult.successful());
+        firstPlan.testPlanExecutionFinished(testPlan());
+
+        // when
+        TiaTestExecutionListener secondPlan = startedListener(shared);
+        runSuite(secondPlan, other, TestExecutionResult.successful());
+        secondPlan.testPlanExecutionFinished(testPlan());
+
+        // then
+        List<TestRunContribution> rows = readContributions();
+        assertEquals(1, rows.size());
+        assertFalse(rows.get(0).isRerun());
+        assertEquals(2, rows.get(0).getSuitesRan());
+    }
+
+    /**
+     * Verifies a plan that only skipped a class - one Tia ignored - contributes a plan that ran
+     * nothing.
+     */
+    @Test
+    void aPlanThatOnlySkipsAClassContributesNothingRan() {
+        // given
+        SimpleDescriptor other = container(engine, "other", ClassSource.from(OTHER_SUITE));
+        TiaTestExecutionListener listener = startedListener();
+
+        // when
+        listener.executionSkipped(id(other), "ignored by Tia");
+        listener.testPlanExecutionFinished(testPlan());
+
+        // then
+        List<TestRunContribution> rows = readContributions();
+        assertEquals(1, rows.size());
+        assertEquals(0, rows.get(0).getSuitesRan());
+    }
+
+    /**
+     * Read the contributions of the run these tests publish, from the datastore the listener wrote to.
+     *
+     * @return the run's contributions
+     */
+    private static List<TestRunContribution> readContributions() {
+        DataStore dataStore = DataStoreFactory.fromSystemProperties("main");
+        try {
+            return dataStore.readTestRunContributions("run-1");
         } finally {
             dataStore.close();
         }
