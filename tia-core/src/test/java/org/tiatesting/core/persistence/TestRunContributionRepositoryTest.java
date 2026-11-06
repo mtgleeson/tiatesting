@@ -107,9 +107,29 @@ class TestRunContributionRepositoryTest {
                     null, historyRepository(db));
 
             // when
-            Set<String> failed = repository.readFailedSuites("run-1", "jvm-a");
+            Set<String> failed = repository.readFailedSuites("run-1", null, "jvm-a");
 
             // then
+            assertEquals(Collections.singleton("B"), failed);
+        }
+    }
+
+    @Test
+    void aDistributedJvmReadsOnlyItsOwnGroupsFailures(@TempDir Path dir) {
+        try (H2RepositoryFixture db = new H2RepositoryFixture(dir).withSchema()) {
+            // given a failure in group 0 and one in group 1
+            TestRunContributionRepository repository = repository(db);
+            repository.persistContribution("run-1", 1000L, Arrays.asList(
+                    new TestRunContribution("run-1", "jvm-a", false, 0, 1, Collections.singleton("A"),
+                            Collections.<String>emptySet(), 100L, 0L, 1000L, 1100L),
+                    new TestRunContribution("run-1", "jvm-b", false, 1, 1, Collections.singleton("B"),
+                            Collections.<String>emptySet(), 100L, 0L, 1000L, 1100L)),
+                    null, historyRepository(db));
+
+            // when a fresh JVM of group 1 asks
+            Set<String> failed = repository.readFailedSuites("run-1", 1, "jvm-retry");
+
+            // then only its own group's failure is seen
             assertEquals(Collections.singleton("B"), failed);
         }
     }

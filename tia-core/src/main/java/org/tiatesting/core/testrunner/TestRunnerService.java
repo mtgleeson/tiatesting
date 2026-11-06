@@ -143,7 +143,8 @@ public class TestRunnerService {
         final String runId = distributedRunnerContext != null
                 ? distributedRunnerContext.getRunId() : unresolvedResult.getRunIdentity().getRunId();
         final TestRunResult testRunResult =
-                unresolvedResult.withRunAttempt(resolveRunAttempt(unresolvedResult, runId));
+                unresolvedResult.withRunAttempt(resolveRunAttempt(unresolvedResult, runId,
+                        distributedRunnerContext != null ? distributedRunnerContext.getGroupNumber() : null));
         testRunResult.getJvmContribution().record(testRunResult.getRunAttempt().isRerun(),
                 testRunResult.getPlanOutcome(), runStartTimestampMs, runStartTimestampMs + durationMs,
                 sumMeasuredSuiteRunTimes(testRunResult.getTestSuiteTrackers()));
@@ -202,16 +203,20 @@ public class TestRunnerService {
     }
 
     /**
-     * Resolve a plan's attempt from the run's contributions. See {@link RunAttemptResolver}.
+     * Resolve a plan's attempt from the run's contributions. See {@link RunAttemptResolver}. A
+     * distributed runner's JVM reads only its own group's failures, so a suite outside the plan that
+     * every runner runs is not taken for a retry on the second runner.
      *
      * @param testRunResult the plan's result, carrying the plan outcome and this JVM's totals
      * @param runId the run the plan belongs to
+     * @param groupNumber the distributed group the JVM works, or null on a single-host run
      * @return the plan's attempt
      */
-    private RunAttempt resolveRunAttempt(final TestRunResult testRunResult, final String runId) {
+    private RunAttempt resolveRunAttempt(final TestRunResult testRunResult, final String runId,
+                                         final Integer groupNumber) {
         final TestJvmContribution jvm = testRunResult.getJvmContribution();
         return RunAttemptResolver.resolve(testRunResult.getPlanOutcome(), jvm,
-                () -> dataStore.readTestRunFailedSuites(runId, jvm.getJvmId()));
+                () -> dataStore.readTestRunFailedSuites(runId, groupNumber, jvm.getJvmId()));
     }
 
     /**

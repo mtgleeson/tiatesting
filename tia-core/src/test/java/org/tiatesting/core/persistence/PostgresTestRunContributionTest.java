@@ -151,7 +151,7 @@ class PostgresTestRunContributionTest {
                 Arrays.asList(contribution("jvm-a", 1, "A"), contribution("jvm-b", 1, "B")), null);
 
         // when
-        Set<String> failed = postgresStore.readTestRunFailedSuites("run-1", "jvm-a");
+        Set<String> failed = postgresStore.readTestRunFailedSuites("run-1", null, "jvm-a");
 
         // then
         assertEquals(Collections.singleton("B"), failed);

@@ -393,6 +393,42 @@ class TestRunnerServiceDistributedPersistTest {
     }
 
     /**
+     * A suite outside the plan is run by every runner. The second runner's fresh JVM must not take
+     * its run of the suite for a retry because the first runner, working another group, failed it:
+     * the cross-JVM rerun lookup reads only the asking JVM's own group.
+     */
+    @Test
+    void aSuiteAnotherGroupFailedIsAFirstAttemptOnThisGroup() {
+        // given runner A's JVM failed the suite in group 0
+        persistPlan(RUN_ID, 2);
+        DistributedRunnerContext runnerA = claimGroup(RUN_ID, "runner-a");
+        DistributedRunnerContext runnerB = claimGroup(RUN_ID, "runner-b");
+        service.persistTestRunData(false, true, "new-commit", "main", System.currentTimeMillis(),
+                makeResult(), runnerA);
+        TestRunResult runnerBsFirstPlan = new TestRunResult(new HashMap<String, TestSuiteTracker>(),
+                new HashSet<String>(), Collections.singleton("com.example.FailedTest"),
+                Collections.singleton("com.example.FailedTest"), Collections.singleton("com.example.FailedTest"),
+                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 3,
+                TestRunResultFixture.planOutcome(Collections.singleton("com.example.FailedTest"),
+                        Collections.<String>emptySet()),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
+
+        // when runner B's fresh JVM runs the same suite in group 1
+        service.persistTestRunData(false, true, "new-commit", "main", System.currentTimeMillis(),
+                runnerBsFirstPlan, runnerB);
+
+        // then its contribution is a first attempt, not a rerun
+        List<TestRunContribution> groupOne = new ArrayList<>();
+        for (TestRunContribution contribution : dataStore.readTestRunContributions(RUN_ID)) {
+            if (Integer.valueOf(runnerB.getGroupNumber()).equals(contribution.getGroupNumber())) {
+                groupOne.add(contribution);
+            }
+        }
+        assertEquals(1, groupOne.size());
+        assertFalse(groupOne.get(0).isRerun());
+    }
+
+    /**
      * The group also records how much of that duration went on named suites, summed from the run
      * result's own trackers rather than passed in as a number. That split is what lets the sealer
      * charge each runner's fixed per-JVM overhead once for the build instead of once per group; see

@@ -409,13 +409,17 @@ public interface DataStore extends AutoCloseable {
 
     /**
      * Read the suites other test JVMs of a run recorded as failed, so a fresh JVM can tell a retry of
-     * failed tests from a first attempt.
+     * failed tests from a first attempt. On a distributed run only the asking JVM's own group is read:
+     * a retry re-runs failures of its own group, and a suite outside the plan, which every runner
+     * runs, must not read as a retry on the second runner because the first one failed it.
      *
      * @param runId the run to read
+     * @param groupNumber the asking JVM's distributed group, or null on a single-host run to read
+     *                    every JVM of the run
      * @param excludingJvmId the asking JVM, whose own failures are left out
      * @return the failed suite names, empty when none
      */
-    Set<String> readTestRunFailedSuites(String runId, String excludingJvmId);
+    Set<String> readTestRunFailedSuites(String runId, Integer groupNumber, String excludingJvmId);
 
     /**
      * Read all persisted test-run history rows, ordered by {@code runTimestampMs} descending

@@ -117,18 +117,37 @@ class TestRunContributionRepository extends JdbcRepository {
 
     /**
      * Implements {@link DataStore#readTestRunFailedSuites}: the union of the failures other JVMs of
-     * the run recorded, first attempt and reruns together.
+     * the run - or, on a distributed run, of the asking JVM's group - recorded, first attempt and
+     * reruns together. Only rows with a failure are read; the group filter uses the
+     * {@code (run_id, group_number)} index.
      *
      * @param runId the run to read
+     * @param groupNumber the asking JVM's distributed group, or null to read every JVM of the run
      * @param excludingJvmId the asking JVM, whose own failures it already holds in memory
      * @return the failed suite names, empty when none
      */
-    Set<String> readFailedSuites(final String runId, final String excludingJvmId) {
+    Set<String> readFailedSuites(final String runId, final Integer groupNumber, final String excludingJvmId) {
+        String sql = "SELECT " + COL_SUITES_FAILED + " FROM " + TABLE_TIA_TEST_RUN_JVM + " WHERE " + COL_RUN_ID
+                + " = ?" + (groupNumber != null ? " AND " + COL_GROUP_NUMBER + " = ?" : "") + " AND "
+                + COL_JVM_ID + " <> ? AND " + COL_SUITES_FAILED + " IS NOT NULL";
         Set<String> failed = new LinkedHashSet<>();
-        for (TestRunContribution contribution : readContributions(runId)) {
-            if (!contribution.getJvmId().equals(excludingJvmId)) {
-                failed.addAll(contribution.getSuitesFailed());
+        try (Connection connection = getConnection()) {
+            schemaManager.ensureSchema(connection);
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                int index = 1;
+                ps.setString(index++, runId);
+                if (groupNumber != null) {
+                    ps.setInt(index++, groupNumber);
+                }
+                ps.setString(index, excludingJvmId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        failed.addAll(splitSuites(rs.getString(1)));
+                    }
+                }
             }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
         }
         return failed;
     }

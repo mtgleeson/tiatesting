@@ -487,8 +487,9 @@ public class JdbcDataStore implements DataStore {
      * <p>Delegates to {@link TestRunContributionRepository#readFailedSuites}.
      */
     @Override
-    public Set<String> readTestRunFailedSuites(final String runId, final String excludingJvmId) {
-        return testRunContributionRepository.readFailedSuites(runId, excludingJvmId);
+    public Set<String> readTestRunFailedSuites(final String runId, final Integer groupNumber,
+                                               final String excludingJvmId) {
+        return testRunContributionRepository.readFailedSuites(runId, groupNumber, excludingJvmId);
     }
 
     /**

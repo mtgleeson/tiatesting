@@ -133,8 +133,9 @@ many JVMs the run uses. The failures it checks are:
 - this JVM's own, from its earlier plans (`TestJvmContribution.failedSuites()`); a match is
   `RERUN_SAME_JVM`;
 - otherwise, for a JVM's **first** plan only, the run's other JVMs' failures, read from their
-  contribution rows (`DataStore.readTestRunFailedSuites(runId, excludingJvmId)`); a match is
-  `RERUN_NEW_JVM`. A JVM that has already recorded a plan is a fork whose later plans are its own
+  contribution rows (`DataStore.readTestRunFailedSuites(runId, groupNumber, excludingJvmId)`); a
+  match is `RERUN_NEW_JVM`. On a distributed run the read covers only the asking JVM's own group:
+  a Gradle test-retry JVM on a runner works the runner's group, so its retries are still found. A JVM that has already recorded a plan is a fork whose later plans are its own
   reruns or further first-attempt classes, so it never needs the read.
 
 The run is identified by the `tiaTestRunId` the build tool hands every test JVM (see [Test runner
@@ -150,10 +151,11 @@ test-retry worker handed no class - is never a rerun; it joins its JVM's first a
 time, but not its span, to the run's figures (see "Duration and wall clock" in [Test-run history
 log](test-run-history.md)).
 
-**Known limitation - a suite outside the plan.** The other-JVM read covers the whole run, not one
-distributed group. A suite no group was assigned - a test class compiled after `dist-plan` scanned
-the classes - is run by every runner, and the second runner to run it, finding it failed by the
-first, records it as a rerun.
+**Why the distributed read is per group.** A suite no group was assigned - a test class compiled
+after `dist-plan` scanned the classes - is run by every runner. Read across the whole run, the second
+runner to run it would find it failed by the first and record its own first run of it as a rerun,
+moving it out of the build's first-attempt row. Reading only the asking JVM's group keeps each
+runner's first attempt its own.
 
 **What a retry does differently:**
 

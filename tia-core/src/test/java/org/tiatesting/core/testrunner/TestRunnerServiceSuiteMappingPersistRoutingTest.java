@@ -222,12 +222,13 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
          * Delegate to the real store.
          *
          * @param runId the run
+         * @param groupNumber the asking JVM's group, or null
          * @param excludingJvmId the asking JVM
          * @return the failed suites
          */
         @Override
-        public Set<String> readTestRunFailedSuites(String runId, String excludingJvmId) {
-            return delegate.readTestRunFailedSuites(runId, excludingJvmId);
+        public Set<String> readTestRunFailedSuites(String runId, Integer groupNumber, String excludingJvmId) {
+            return delegate.readTestRunFailedSuites(runId, groupNumber, excludingJvmId);
         }
         @Override public List<TestRunHistoryEntry> readTestRunHistory() { return delegate.readTestRunHistory(); }
         @Override public void persistTestRunTriggers(String historyId, List<TestRunTrigger> triggers) { delegate.persistTestRunTriggers(historyId, triggers); }
