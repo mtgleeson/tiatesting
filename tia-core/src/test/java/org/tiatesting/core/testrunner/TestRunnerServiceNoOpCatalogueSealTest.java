@@ -100,7 +100,7 @@ class TestRunnerServiceNoOpCatalogueSealTest {
                 nothingSelected, null);
 
         // then
-        assertFalse(nothingSelected.ranNoExpectedSuites());
+        assertFalse(nothingSelected.ranNoExpectedSuites(true));
         assertFalse(dataStore.lastSealedRunData.isMethodCatalogueRewritten());
         assertEquals("commit-2", dataStore.getTiaCore().getCommitValue());
         assertEquals(1, dataStore.readTestRunHistory().size());
@@ -178,8 +178,8 @@ class TestRunnerServiceNoOpCatalogueSealTest {
         observed.put(OTHER_METHOD_ID, new MethodImpactTracker(OTHER_METHOD_NAME, 8, 10));
 
         return new TestRunResult(trackers, new HashSet<>(), runnerSuites, runnerSuites,
-                new HashSet<>(runnerSuites), observed, new TestStats(), null, 0, runnerSuites.size(), 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(runnerSuites), observed, new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(runnerSuites.size(), 0),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -191,8 +191,8 @@ class TestRunnerServiceNoOpCatalogueSealTest {
      */
     private TestRunResult nothingSelectedResult(Set<String> runnerSuites) {
         return new TestRunResult(new HashMap<>(), new HashSet<>(), runnerSuites, new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, runnerSuites.size(), 0, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, runnerSuites.size(), TestRunResultFixture.syntheticPlanOutcome(0, 0),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**

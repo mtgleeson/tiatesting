@@ -36,7 +36,7 @@ wholeRunOverhead  = fixed + capture × trackedSuites      (from the all-tests ba
 meanGroupOverhead = fixed + capture × meanGroupSuites    (from the build's group rows)
 ```
 
-Every runner already reports `suites_duration_ms` alongside `actual_duration_ms`, so the per-group overhead is measured rather than guessed. `DistributedRunOverheadModel` solves the pair at seal time and folds the answer into rolling averages on `tia_core`; `TestSelector.overheadModel` reads them back and they win over the fall-back. See ["The two-part overhead model"](distributed-test-runs.md#the-two-part-overhead-model).
+Every runner already reports its suite time alongside its plan time, so the per-group overhead is measured rather than guessed. `DistributedRunOverheadModel` solves the pair at seal time and folds the answer into rolling averages on `tia_core`; `TestSelector.overheadModel` reads them back and they win over the fall-back. See ["The two-part overhead model"](distributed-test-runs.md#the-two-part-overhead-model).
 
 The mean per-group overhead is used here, where `DistributedRunTotals` takes the minimum from the same measurement. That is deliberate and the two must not be reconciled: the totals are subtracting from a duration the build actually took, so they need a floor no runner can fall below, while this is a forecast and a forecast wants the expected value.
 

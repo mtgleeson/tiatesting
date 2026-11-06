@@ -1,5 +1,6 @@
 package org.tiatesting.core.testrunner;
 
+import java.util.Collections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
@@ -134,8 +136,8 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         }
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, suiteNames.length, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(suiteNames.length, 0),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -191,6 +193,43 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         @Override public List<PendingLibraryForcedSelection> readPendingLibraryForcedSelections(String groupArtifact) { return delegate.readPendingLibraryForcedSelections(groupArtifact); }
         @Override public void deletePendingLibraryForcedSelections(String groupArtifact, long publishSeq) { delegate.deletePendingLibraryForcedSelections(groupArtifact, publishSeq); }
         @Override public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) { delegate.persistTestRunHistoryEntry(entry); }
+        /**
+         * Delegate to the real store.
+         *
+         * @param runId the run
+         * @param runStartMs the run start
+         * @param contributions the contributions
+         * @param historyEntries the history builder
+         * @return the created history ids
+         */
+        @Override
+        public Set<String> persistTestRunContribution(String runId, long runStartMs,
+                List<TestRunContribution> contributions,
+                java.util.function.Function<List<TestRunContribution>, List<TestRunHistoryEntry>> historyEntries) {
+            return delegate.persistTestRunContribution(runId, runStartMs, contributions, historyEntries);
+        }
+        /**
+         * Delegate to the real store.
+         *
+         * @param runId the run
+         * @return the contributions
+         */
+        @Override
+        public List<TestRunContribution> readTestRunContributions(String runId) {
+            return delegate.readTestRunContributions(runId);
+        }
+        /**
+         * Delegate to the real store.
+         *
+         * @param runId the run
+         * @param groupNumber the asking JVM's group, or null
+         * @param excludingJvmId the asking JVM
+         * @return the failed suites
+         */
+        @Override
+        public Set<String> readTestRunFailedSuites(String runId, Integer groupNumber, String excludingJvmId) {
+            return delegate.readTestRunFailedSuites(runId, groupNumber, excludingJvmId);
+        }
         @Override public List<TestRunHistoryEntry> readTestRunHistory() { return delegate.readTestRunHistory(); }
         @Override public void persistTestRunTriggers(String historyId, List<TestRunTrigger> triggers) { delegate.persistTestRunTriggers(historyId, triggers); }
         @Override public List<TestRunTrigger> readTestRunTriggers(String historyId) { return delegate.readTestRunTriggers(historyId); }
@@ -336,17 +375,14 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
          * @param runId ignored
          * @param groupNumber ignored
          * @param runnerKey ignored
-         * @param actualDurationMs ignored
-         * @param suitesRan ignored
-         * @param suitesFailed ignored
          * @param suitesObserved ignored
+         * @param contributions ignored
          * @return never returns
          * @throws UnsupportedOperationException always
          */
         @Override
-        public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
-                                           long actualDurationMs, int suitesRan, int suitesFailed,
-                                           Set<String> suitesObserved, long suitesDurationMs) {
+        public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey, Set<String> suitesObserved,
+                                           final List<TestRunContribution> contributions) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

@@ -208,8 +208,8 @@ class PostgresPersistTest {
         assertEquals("commit-1", libraries.get(LIB).getMappingBaselineCommit());
 
         // when a test-run-history entry is persisted
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create(BRANCH, "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, true);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create(BRANCH, "abc123", String.valueOf(1_700_000_000_000L), true, 1_700_000_000_000L,
+                10, 2, 1, 5_000L, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
         postgresStore.persistTestRunHistoryEntry(entry);
 
         // then it round-trips through tia_test_run_history's ON CONFLICT (id) upsert, rerun flag

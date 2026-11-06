@@ -7,6 +7,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.SelectionMode;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
@@ -34,12 +35,11 @@ import java.util.Set;
  *       catalogue is rebuilt wholesale from the suite-to-method edge table, so writing it while
  *       another group is still running would drop every method reachable only from that group's
  *       suites. Only the run's sealer may write it, after the barrier.</li>
- *   <li>{@link #reportGroupProgress(long, int, int, Set, long)} is called on every persist, at the point
+ *   <li>{@link #reportGroupProgress(Set, List)} is called on every persist, at the point
  *       in the persist that used to record the same measurements as part of the combined
  *       completion call. It is not subject to the ordering below, since it never releases the
- *       barrier - only the status flip does. It also assumes one JVM works one group end to end;
- *       see its own javadoc for what several JVMs reporting against the same group do to that
- *       assumption.</li>
+ *       barrier - only the status flip does. Every JVM that works the group reports, and their
+ *       contributions add up to the group's figures.</li>
  *   <li>{@link #completeGroup(long, TestSuiteRunnabilityClassifier)} is the <b>last</b> write the runner makes, because completing
  *       the group is what releases that barrier. A group marked complete ahead of its own mapping
  *       rows would let the sealer rebuild the catalogue from an edge set still missing them -
@@ -158,17 +158,16 @@ public final class DistributedRunnerPersist {
 
     /**
      * Report this test plan's progress on the runner's group, without releasing the barrier. Called
-     * on every persist - potentially several times per JVM, once per Surefire retry - so {@code
-     * actualDurationMs} accumulates onto whatever is already stored while {@code suitesFailed}
-     * replaces it outright, {@code suitesRan} is written via {@code GREATEST}, and each suite in
-     * {@code suitesObserved} has its row flagged observed, exactly as {@link
-     * DataStore#reportGroupProgress} documents - {@code suitesFailed} because it is current state,
-     * {@code suitesRan} because the set it comes from is already cumulative per JVM, so summing it
-     * would double-count, and the observed flags because a flag set once stays set, so reports add
-     * up to their union. The flags are what {@link #completeGroup(long, TestSuiteRunnabilityClassifier)}'s completeness guard later
-     * counts to decide whether the group's mapping rows are believed to cover everything it was
-     * assigned - observed suites, not {@code suitesRan}, since a suite the group observed but never
-     * executed (a disabled class, a filter, a deletion) still counts toward completeness.
+     * on every persist - potentially several times per JVM, once per test plan or Surefire retry,
+     * and from every JVM that works the group. Each suite in {@code suitesObserved} has its row
+     * flagged observed, and the JVM's contribution rows are upserted, exactly as {@link
+     * DataStore#reportGroupProgress} documents: a flag set once stays set, so reports add up to
+     * their union, and each JVM's contribution holds its own running totals, so several JVMs add up
+     * to the group's figures. The flags are what {@link #completeGroup(long,
+     * TestSuiteRunnabilityClassifier)}'s completeness guard later counts to decide whether the
+     * group's mapping rows are believed to cover everything it was assigned - observed suites, not
+     * suites ran, since a suite the group observed but never executed (a disabled class, a filter,
+     * a deletion) still counts toward completeness.
      *
      * <p>A false return is the same straggler protection {@link #completeGroup(long, TestSuiteRunnabilityClassifier)} guards on,
      * seen early: the claim died before this call, so there is nothing further to persist for this
@@ -176,12 +175,6 @@ public final class DistributedRunnerPersist {
      * check is the one meant to catch this before any write - a false return here means a
      * supersession landed in the narrow window after that check passed.
      *
-     * @param actualDurationMs this call's measured test-execution time, in ms, on the same clock a
-     *                         single-host run records its duration on, so the sealer's aggregate
-     *                         stays comparable with non-distributed history
-     * @param suitesRan the number of distinct suites this runner has executed so far, cumulative
-     *                  across every test plan in this JVM
-     * @param suitesFailed the number of this runner's suites currently failing
      * @param suitesObserved the suites this runner has observed so far (finished or skipped) that
      *                       are also assigned to this group, cumulative across every test plan in
      *                       this JVM. The caller (see {@code TestRunnerService#observedSuitesInGroup})
@@ -190,21 +183,15 @@ public final class DistributedRunnerPersist {
      *                       with this group's own assigned suites, so the report never carries the
      *                       foreign suites this JVM observed only because Tia's own deselection
      *                       disabled them
-     * @param suitesDurationMs the summed measured run time, in ms, of every suite this runner has
-     *                         timed so far - cumulative across every test plan in this JVM, and
-     *                         written via {@code GREATEST} for the same reason {@code suitesRan} is. Subtracted from {@code actualDurationMs} by the
-     *                         sealer to recover this runner's fixed per-JVM overhead, which the
-     *                         build pays once rather than once per group - see
-     *                         {@link DistributedRunTotals}
+     * @param contributions this runner JVM's contribution rows to its run, upserted in the same
+     *                      guarded transaction so a runner whose claim is no longer live writes none
      * @return true when the guarded update applied, false when this runner's claim is no longer
      *         live
      */
-    public boolean reportGroupProgress(final long actualDurationMs, final int suitesRan,
-                                       final int suitesFailed, final Set<String> suitesObserved,
-                                       final long suitesDurationMs) {
+    public boolean reportGroupProgress(final Set<String> suitesObserved,
+                                       final List<TestRunContribution> contributions) {
         boolean applied = dataStore.reportGroupProgress(context.getRunId(),
-                context.getGroupNumber().intValue(), context.getRunnerKey(), actualDurationMs,
-                suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
+                context.getGroupNumber().intValue(), context.getRunnerKey(), suitesObserved, contributions);
 
         if (!applied) {
             log.warn("Distributed run '{}': runner '{}' could not report progress on group {} - {}. "
@@ -213,10 +200,9 @@ public final class DistributedRunnerPersist {
                     context.getRunId(), context.getRunnerKey(), context.getGroupNumber(),
                     describeRejectedCompletion(Collections.<String>emptySet()));
         } else {
-            log.debug("Distributed run '{}': runner '{}' reported {} suite(s) ran, {} observed ({} "
-                            + "failed, {}ms) on group {}.", context.getRunId(), context.getRunnerKey(),
-                    suitesRan, suitesObserved.size(), suitesFailed, actualDurationMs,
-                    context.getGroupNumber());
+            log.debug("Distributed run '{}': runner '{}' reported {} observed suite(s) and {} "
+                            + "contribution row(s) on group {}.", context.getRunId(), context.getRunnerKey(),
+                    suitesObserved.size(), contributions.size(), context.getGroupNumber());
         }
         return applied;
     }
@@ -228,7 +214,7 @@ public final class DistributedRunnerPersist {
      * last write, since it is what releases the barrier the sealer's catalogue rebuild waits on -
      * which is why it is called once for the whole build tool step, from {@link
      * DistributedRunCompleter#completeAndSeal}, and not once per finished test plan. Carries no
-     * measurements of its own; {@link #reportGroupProgress(long, int, int, Set, long)} records those
+     * measurements of its own; {@link #reportGroupProgress(Set, List)} records those
      * on every persist, and this call only flags never-runnable suites and flips the group's status.
      *
      * <p>Only the unobserved suites are classified, so a classifier mistake can at worst excuse the
@@ -313,7 +299,7 @@ public final class DistributedRunnerPersist {
     /**
      * Say what the group row actually holds after a guarded write this class made was refused, so
      * the failure log names the case that happened rather than asserting the most likely one. Used
-     * on both {@link #completeGroup(long, TestSuiteRunnabilityClassifier)}'s and {@link #reportGroupProgress(long, int, int, Set, long)}'s
+     * on both {@link #completeGroup(long, TestSuiteRunnabilityClassifier)}'s and {@link #reportGroupProgress(Set, List)}'s
      * failure paths, so its wording is deliberately guard-neutral rather than assuming a completion
      * was attempted. The guard's row count cannot tell the cases apart - a run superseded by a newer
      * build's plan write, a group re-claimed by another runner, a group this runner has already

@@ -1,5 +1,8 @@
 package org.tiatesting.core.persistence;
 
+import org.tiatesting.core.distributed.GroupProgressFixture;
+
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +40,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Execution-coverage test for the operations that close a distributed run -
- * {@link DataStore#reportGroupProgress(String, int, String, long, int, int, Set, long)},
+ * {@link DataStore#reportGroupProgress(String, int, String, Set, List)},
  * {@link DataStore#completeGroup(String, int, String, long)},
  * {@link DataStore#electSealer(String, String, long)},
  * {@link DataStore#markDistributedRunSealed(String)} and the distributed columns on
@@ -208,7 +211,8 @@ class PostgresCompletionTest {
         // given
         persistPlanWithGroups("pg-complete-1", 2);
         postgresStore.claimNextPendingGroup("pg-complete-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-complete-1", 0, "runner-a", 4321L, 7, 2, suites(0, 1), 0L));
+        assertTrue(postgresStore.reportGroupProgress("pg-complete-1", 0, "runner-a", suites(0, 1),
+                GroupProgressFixture.contribution("pg-complete-1", 0, 4321L, 7, 2, 0L)));
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-complete-1", 0, "runner-a",
@@ -234,8 +238,10 @@ class PostgresCompletionTest {
         // given - two reports, each naming half of the group's 4 suites
         persistPlanWithOneGroupOfSuites("pg-union-1", 4);
         postgresStore.claimNextPendingGroup("pg-union-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-union-1", 0, "runner-a", 1000L, 2, 0, suites(0, 2), 0L));
-        assertTrue(postgresStore.reportGroupProgress("pg-union-1", 0, "runner-a", 1000L, 2, 0, suites(2, 4), 0L));
+        assertTrue(postgresStore.reportGroupProgress("pg-union-1", 0, "runner-a", suites(0, 2),
+                GroupProgressFixture.contribution("pg-union-1", 0, 1000L, 2, 0, 0L)));
+        assertTrue(postgresStore.reportGroupProgress("pg-union-1", 0, "runner-a", suites(2, 4),
+                GroupProgressFixture.contribution("pg-union-1", 0, 1000L, 2, 0, 0L)));
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-union-1", 0, "runner-a", 9000L,
@@ -257,8 +263,8 @@ class PostgresCompletionTest {
         postgresStore.claimNextPendingGroup("pg-straggler-1", "runner-b", 5000L);
 
         // when - a straggler reports
-        boolean applied = postgresStore.reportGroupProgress("pg-straggler-1", 0, "runner-a", 1000L, 1, 0,
-                suites(0, 1), 0L);
+        boolean applied = postgresStore.reportGroupProgress("pg-straggler-1", 0, "runner-a", suites(0, 1),
+                GroupProgressFixture.contribution("pg-straggler-1", 0, 1000L, 1, 0, 0L));
 
         // then
         assertFalse(applied);
@@ -276,7 +282,8 @@ class PostgresCompletionTest {
         // given - 4 assigned, 3 observed
         persistPlanWithOneGroupOfSuites("pg-unrunnable-1", 4);
         postgresStore.claimNextPendingGroup("pg-unrunnable-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", 1000L, 3, 0, suites(0, 3), 0L));
+        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", suites(0, 3),
+                GroupProgressFixture.contribution("pg-unrunnable-1", 0, 1000L, 3, 0, 0L)));
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-unrunnable-1", 0, "runner-a", 9000L,
@@ -295,7 +302,8 @@ class PostgresCompletionTest {
         // given - 4 assigned, 2 observed
         persistPlanWithOneGroupOfSuites("pg-unrunnable-1", 4);
         postgresStore.claimNextPendingGroup("pg-unrunnable-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", 1000L, 2, 0, suites(0, 2), 0L));
+        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", suites(0, 2),
+                GroupProgressFixture.contribution("pg-unrunnable-1", 0, 1000L, 2, 0, 0L)));
 
         // when - only one of the two missing suites is excused
         DistributedRunGroup completed = postgresStore.completeGroup("pg-unrunnable-1", 0, "runner-a", 9000L,
@@ -316,7 +324,8 @@ class PostgresCompletionTest {
         // given - 2 assigned, Suite0 observed, Suite1 missing
         persistPlanWithOneGroupOfSuites("pg-unrunnable-1", 2);
         postgresStore.claimNextPendingGroup("pg-unrunnable-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", 1000L, 1, 0, suites(0, 1), 0L));
+        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", suites(0, 1),
+                GroupProgressFixture.contribution("pg-unrunnable-1", 0, 1000L, 1, 0, 0L)));
 
         // when - the observed suite is wrongly passed as unrunnable
         DistributedRunGroup completed = postgresStore.completeGroup("pg-unrunnable-1", 0, "runner-a", 9000L,
@@ -335,7 +344,8 @@ class PostgresCompletionTest {
         // given
         persistPlanWithOneGroupOfSuites("pg-unrunnable-1", 3);
         postgresStore.claimNextPendingGroup("pg-unrunnable-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", 1000L, 1, 0, suites(1, 2), 0L));
+        assertTrue(postgresStore.reportGroupProgress("pg-unrunnable-1", 0, "runner-a", suites(1, 2),
+                GroupProgressFixture.contribution("pg-unrunnable-1", 0, 1000L, 1, 0, 0L)));
 
         // when
         List<String> unobserved = postgresStore.readUnobservedGroupSuites("pg-unrunnable-1", 0);
@@ -368,68 +378,37 @@ class PostgresCompletionTest {
     }
 
     /**
-     * Verify the accumulate-versus-replace split executes correctly on Postgres, where both the
-     * {@code COALESCE(column, 0) + ?} and {@code GREATEST(COALESCE(column, 0), ?)} arithmetic are
-     * new SQL rather than a new parameter. Two reports stand for two test plans in one JVM - an
-     * attempt and its retry - and the second reports fewer suites than the first: the duration must
-     * sum, while the failed, ran and observed counts must not, for two different reasons that must
-     * not be conflated: the failed count is replaced outright because it is current state (a passing
-     * retry must be able to shrink it back to zero), the ran count is written via {@code GREATEST}
-     * because its <em>source</em> - the caller's distinct executed set - is already cumulative
-     * across the JVM's test plans, and the observed count is the number of flagged rows, which only
-     * ever grows to the union of what the reports named.
+     * Verify a group's figures add up its runner JVMs' contributions on Postgres, whose upsert of
+     * the contribution rows is dialect SQL. A first-attempt JVM runs 30 of 40 observed suites with
+     * 3 failures, then a retry JVM re-runs only the 3 failures, all of which pass: the duration sums
+     * both JVMs, the ran count is the first attempt's alone, the failed count is the latest
+     * outcome, and the observed count is the union of flagged rows.
      */
     @Test
-    void shouldSumDurationAndKeepTheGreaterCountsAcrossTwoProgressReportsOnPostgres() {
+    void shouldAddUpTheGroupsJvmContributionsOnPostgres() {
         // given - attempt 1 runs 30 of 40 observed suites with 3 failures
         persistPlanWithOneGroupOfSuites("pg-progress-1", 40);
         postgresStore.claimNextPendingGroup("pg-progress-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-progress-1", 0, "runner-a", 20_000L, 30, 3, suites(0, 30), 0L));
+        Set<String> failures = new HashSet<>(Arrays.asList("F0", "F1", "F2"));
+        assertTrue(postgresStore.reportGroupProgress("pg-progress-1", 0, "runner-a", suites(0, 30),
+                Collections.singletonList(new TestRunContribution("pg-progress-1", "jvm-a", false, 0, 30,
+                        failures, Collections.<String>emptySet(), 20_000L, 18_000L, 1000L, 21_000L))));
 
-        // when - the retry re-runs only the 3 failures, all of which now pass
-        assertTrue(postgresStore.reportGroupProgress("pg-progress-1", 0, "runner-a", 5_000L, 3, 0, suites(0, 40), 0L));
+        // when - the retry JVM re-runs only the 3 failures, all of which now pass
+        assertTrue(postgresStore.reportGroupProgress("pg-progress-1", 0, "runner-a", suites(0, 40),
+                Collections.singletonList(new TestRunContribution("pg-progress-1", "jvm-r", true, 0, 3,
+                        Collections.<String>emptySet(), failures, 5_000L, 0L, 22_000L, 27_000L))));
 
         // then
         DistributedRunGroup stored = storedGroup("pg-progress-1", 0);
         assertEquals(Long.valueOf(25_000L), stored.getActualDurationMs(),
-                "actual_duration_ms is a counter and must sum across the JVM's test plans");
-        assertEquals(30, stored.getSuitesRan(),
-                "suites_ran counts distinct suites, so the retry's 3 must neither add to nor replace the 30");
-        assertEquals(0, stored.getSuitesFailed(),
-                "suites_failed is current state, so a passing retry must shrink it back to zero");
+                "the retry's time is real time, so the duration sums both JVMs");
+        assertEquals(Long.valueOf(20_000L), stored.getWallClockMs());
+        assertEquals(30, stored.getSuitesRan(), "a retry runs no new suite");
+        assertEquals(18_000L, stored.getSuitesDurationMs());
+        assertEquals(0, stored.getSuitesFailed(), "the retry passed every failure");
         assertEquals(40, stored.getSuitesObserved(),
-                "suites_observed counts flagged rows, so the two reports' overlap counts once - 70 "
-                        + "here would mean it double-counted");
-    }
-
-    /**
-     * Verify the suite-attributable share of a group's duration round-trips on Postgres and takes
-     * the same {@code GREATEST} treatment as the observed count rather than the {@code COALESCE +}
-     * treatment the duration itself takes. The column and its additive migration are new SQL here,
-     * not just a new parameter, and getting the accumulate-versus-replace split wrong would shrink
-     * every group's apparent overhead towards zero - which the sealer would then charge once as a
-     * near-zero correction, silently reverting to the plain sum it exists to replace.
-     */
-    @Test
-    void shouldNotAccumulateTheSuiteDurationAcrossTwoProgressReportsOnPostgres() {
-        // given - attempt 1 times 18s of suite work inside a 20s window
-        persistPlanWithOneGroupOfSuites("pg-suite-duration-1", 40);
-        postgresStore.claimNextPendingGroup("pg-suite-duration-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-suite-duration-1", 0, "runner-a", 20_000L,
-                30, 3, suites(0, 30), 18_000L));
-
-        // when - the retry re-reports the same already-cumulative suite total in a fresh 5s window
-        assertTrue(postgresStore.reportGroupProgress("pg-suite-duration-1", 0, "runner-a", 5_000L,
-                3, 0, suites(0, 40), 18_000L));
-
-        // then
-        DistributedRunGroup stored = storedGroup("pg-suite-duration-1", 0);
-        assertEquals(Long.valueOf(25_000L), stored.getActualDurationMs(),
-                "the duration still sums - the retry really did cost another 5s");
-        assertEquals(18_000L, stored.getSuitesDurationMs(),
-                "suites_duration_ms is already cumulative in the caller, so it must replace rather "
-                        + "than sum - 36000 here would mean it double-counted, and would leave the "
-                        + "group looking like it had 7s less overhead than it did");
+                "suites_observed counts flagged rows, so the two reports' overlap counts once");
     }
 
     /**
@@ -444,7 +423,8 @@ class PostgresCompletionTest {
         // given - 50 assigned suites, a report covering only 30 of them
         persistPlanWithOneGroupOfSuites("pg-guard-1", 50);
         postgresStore.claimNextPendingGroup("pg-guard-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-guard-1", 0, "runner-a", 24_000L, 30, 0, suites(0, 30), 0L));
+        assertTrue(postgresStore.reportGroupProgress("pg-guard-1", 0, "runner-a", suites(0, 30),
+                GroupProgressFixture.contribution("pg-guard-1", 0, 24_000L, 30, 0, 0L)));
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-guard-1", 0, "runner-a", 9000L,
@@ -467,7 +447,8 @@ class PostgresCompletionTest {
         // given - 50 assigned suites, all 50 observed but only 49 executed
         persistPlanWithOneGroupOfSuites("pg-guard-2", 50);
         postgresStore.claimNextPendingGroup("pg-guard-2", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-guard-2", 0, "runner-a", 40_000L, 49, 0, suites(0, 50), 0L));
+        assertTrue(postgresStore.reportGroupProgress("pg-guard-2", 0, "runner-a", suites(0, 50),
+                GroupProgressFixture.contribution("pg-guard-2", 0, 40_000L, 49, 0, 0L)));
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-guard-2", 0, "runner-a", 9000L,
@@ -491,7 +472,8 @@ class PostgresCompletionTest {
         persistPlanWithGroups("pg-seal-1", 2);
         postgresStore.claimNextPendingGroup("pg-seal-1", "runner-a", 5000L);
         postgresStore.claimNextPendingGroup("pg-seal-1", "runner-b", 5100L);
-        postgresStore.reportGroupProgress("pg-seal-1", 0, "runner-a", 100L, 1, 0, suites(0, 1), 0L);
+        postgresStore.reportGroupProgress("pg-seal-1", 0, "runner-a", suites(0, 1),
+                GroupProgressFixture.contribution("pg-seal-1", 0, 100L, 1, 0, 0L));
         postgresStore.completeGroup("pg-seal-1", 0, "runner-a", 9000L, Collections.<String>emptySet());
 
         // when
@@ -512,9 +494,11 @@ class PostgresCompletionTest {
         persistPlanWithGroups("pg-seal-2", 2);
         postgresStore.claimNextPendingGroup("pg-seal-2", "runner-a", 5000L);
         postgresStore.claimNextPendingGroup("pg-seal-2", "runner-b", 5100L);
-        postgresStore.reportGroupProgress("pg-seal-2", 0, "runner-a", 100L, 1, 0, suites(0, 1), 0L);
+        postgresStore.reportGroupProgress("pg-seal-2", 0, "runner-a", suites(0, 1),
+                GroupProgressFixture.contribution("pg-seal-2", 0, 100L, 1, 0, 0L));
         postgresStore.completeGroup("pg-seal-2", 0, "runner-a", 9000L, Collections.<String>emptySet());
-        postgresStore.reportGroupProgress("pg-seal-2", 1, "runner-b", 200L, 1, 0, suites(1, 2), 0L);
+        postgresStore.reportGroupProgress("pg-seal-2", 1, "runner-b", suites(1, 2),
+                GroupProgressFixture.contribution("pg-seal-2", 1, 200L, 1, 0, 0L));
         postgresStore.completeGroup("pg-seal-2", 1, "runner-b", 9100L, Collections.<String>emptySet());
 
         // when
@@ -576,7 +560,7 @@ class PostgresCompletionTest {
                 "ci-run-42", 1_800L, 4, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null, null, false, null);
         TestRunHistoryEntry singleHost = TestRunHistoryEntry.create(
-                BRANCH, "def456", 1_600_000_000_000L, 3, 1, 0, 300L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+                BRANCH, "def456", String.valueOf(1_600_000_000_000L), false, 1_600_000_000_000L, 3, 1, 0, 300L, 300L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         postgresStore.persistTestRunHistoryEntry(distributed);
@@ -591,7 +575,7 @@ class PostgresCompletionTest {
         assertEquals(Integer.valueOf(4), newest.getGroupCount());
         TestRunHistoryEntry oldest = history.get(1);
         assertNull(oldest.getRunId());
-        assertNull(oldest.getWallClockMs());
+        assertEquals(Long.valueOf(oldest.getDurationMs()), oldest.getWallClockMs());
         assertNull(oldest.getGroupCount());
     }
 }

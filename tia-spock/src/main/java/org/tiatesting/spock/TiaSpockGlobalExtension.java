@@ -14,7 +14,7 @@ import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
-import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.tiatesting.core.testrunner.TestRunnerService;
 
 import java.io.File;
@@ -100,9 +100,9 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                         ignoredTestSuiteCount,
                         tiaUpdateDBMapping, tiaUpdateDBTestRunHistory,
                         drainResult, selectionDetails, distributedRunnerContext,
-                        // A Gradle test-retry round is a fresh JVM - the counter the Gradle plugin
-                        // resets per task execution tells it apart from the real run.
-                        TestJvmSequence.attemptFromSystemProperties());
+                        // The run this JVM belongs to, published by the build tool with the
+                        // selection; core tells a Gradle test-retry round from the real run by it.
+                        TestRunIdentity.fromSystemProperties());
             } else {
                 // not updating the DB, no need to use the Spock listener
                 this.tiaTestingSpockRunListener = null;

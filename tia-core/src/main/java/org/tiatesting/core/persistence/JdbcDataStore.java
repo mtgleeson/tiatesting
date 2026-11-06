@@ -11,6 +11,7 @@ import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
@@ -22,6 +23,7 @@ import org.tiatesting.core.persistence.dialect.SqlDialect;
 
 import java.sql.*;
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * The JDBC {@link DataStore}: a facade that owns the connection lifecycle (the per-branch schema
@@ -50,6 +52,7 @@ public class JdbcDataStore implements DataStore {
     private boolean branchSchemaCreated;
     private final SchemaManager schemaManager;
     private final TestRunHistoryRepository testRunHistoryRepository;
+    private final TestRunContributionRepository testRunContributionRepository;
     private final LibraryRepository libraryRepository;
     private final DistributedRunRepository distributedRunRepository;
     private final DistributedRunGroupRepository distributedRunGroupRepository;
@@ -77,9 +80,12 @@ public class JdbcDataStore implements DataStore {
         this.schema = schema;
         this.schemaManager = new SchemaManager(dialect, this::getConnection, connectionProvider.jdbcUrl());
         this.testRunHistoryRepository = new TestRunHistoryRepository(dialect, this::getConnection, schemaManager);
+        this.testRunContributionRepository = new TestRunContributionRepository(dialect, this::getConnection, schemaManager);
         this.libraryRepository = new LibraryRepository(dialect, this::getConnection, schemaManager);
-        this.distributedRunRepository = new DistributedRunRepository(dialect, this::getConnection, schemaManager);
-        this.distributedRunGroupRepository = new DistributedRunGroupRepository(dialect, this::getConnection, schemaManager);
+        this.distributedRunRepository = new DistributedRunRepository(dialect, this::getConnection, schemaManager,
+                testRunContributionRepository);
+        this.distributedRunGroupRepository = new DistributedRunGroupRepository(dialect, this::getConnection,
+                schemaManager, testRunContributionRepository);
         this.distributedMethodStagingRepository = new DistributedMethodStagingRepository(dialect, this::getConnection, schemaManager);
         this.mappingReader = new MappingReader(dialect, this::getConnection, schemaManager);
         this.mappingWriter = new MappingWriter(dialect, this::getConnection, schemaManager);
@@ -457,6 +463,37 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * {@inheritDoc}
+     * <p>Delegates to {@link TestRunContributionRepository#persistContribution}.
+     */
+    @Override
+    public Set<String> persistTestRunContribution(final String runId, final long runStartMs,
+                                                  final List<TestRunContribution> contributions,
+                                                  final Function<List<TestRunContribution>, List<TestRunHistoryEntry>> historyEntries) {
+        return testRunContributionRepository.persistContribution(runId, runStartMs, contributions,
+                historyEntries, testRunHistoryRepository);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link TestRunContributionRepository#readContributions(String)}.
+     */
+    @Override
+    public List<TestRunContribution> readTestRunContributions(final String runId) {
+        return testRunContributionRepository.readContributions(runId);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link TestRunContributionRepository#readFailedSuites}.
+     */
+    @Override
+    public Set<String> readTestRunFailedSuites(final String runId, final Integer groupNumber,
+                                               final String excludingJvmId) {
+        return testRunContributionRepository.readFailedSuites(runId, groupNumber, excludingJvmId);
+    }
+
+    /**
+     * {@inheritDoc}
      * <p>Delegates to {@link TestRunHistoryRepository#readTestRunHistory}.
      */
     @Override
@@ -597,10 +634,10 @@ public class JdbcDataStore implements DataStore {
      */
     @Override
     public boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
-                                       final long actualDurationMs, final int suitesRan,
-                                       final int suitesFailed, final Set<String> suitesObserved,
-                                       final long suitesDurationMs) {
-        return distributedRunGroupRepository.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs, suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
+                                       final Set<String> suitesObserved,
+                                       final List<TestRunContribution> contributions) {
+        return distributedRunGroupRepository.reportGroupProgress(runId, groupNumber, runnerKey, suitesObserved,
+                contributions);
     }
 
     /**

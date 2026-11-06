@@ -303,7 +303,7 @@ class DistributedRunOverheadModelTest {
                                                          final long suitesDurationMs,
                                                          final int suiteExecutions) {
         return new DistributedRunGroup(RUN_ID, groupNumber, DistributedRunGroupStatus.COMPLETED,
-                "runner-" + groupNumber, 5000L, 6000L, 1000L, Long.valueOf(actualDurationMs),
+                "runner-" + groupNumber, 5000L, 6000L, 1000L, Long.valueOf(actualDurationMs), Long.valueOf(actualDurationMs),
                 suiteExecutions, 0, suiteExecutions, suitesDurationMs);
     }
 
@@ -315,6 +315,6 @@ class DistributedRunOverheadModelTest {
      */
     private static DistributedRunGroup unmeasured(final int groupNumber) {
         return new DistributedRunGroup(RUN_ID, groupNumber, DistributedRunGroupStatus.COMPLETED,
-                "runner-" + groupNumber, 5000L, 6000L, 1000L, null, 0, 0, 0, 0L);
+                "runner-" + groupNumber, 5000L, 6000L, 1000L, null, null, 0, 0, 0, 0L);
     }
 }

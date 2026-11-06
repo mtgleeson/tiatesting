@@ -19,7 +19,7 @@ class TestRunHistoryEntrySavingsTest {
     void create_carriesSavingsFigures(){
         // given / when
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                "main", "abc", 1000L, 3, 2, 0, 1000L, true, 4000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+                "main", "abc", String.valueOf(1000L), false, 1000L, 3, 2, 0, 1000L, 1000L, true, 4000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // then
         assertEquals(4000L, entry.getTimeSavingsMs());
@@ -48,7 +48,7 @@ class TestRunHistoryEntrySavingsTest {
     void runWallClock_isTheDurationForASingleHostRun(){
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                "main", "abc", 1000L, 3, 2, 0, 12_000L, true, 4000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+                "main", "abc", String.valueOf(1000L), false, 1000L, 3, 2, 0, 12_000L, 12_000L, true, 4000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         long wallClockMs = entry.getRunWallClockMs();
@@ -65,7 +65,7 @@ class TestRunHistoryEntrySavingsTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun("main", "abc",
                 "run-1", 1000L, 3, 2, 0, 20_000L, true, 0L, 0, 0L, 0, 8_000L, 3, 3,
-                RunOrigin.of(RunOrigin.SOURCE_CI, null), null);
+                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, false);
 
         // when
         long wallClockMs = entry.getRunWallClockMs();

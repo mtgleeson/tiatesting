@@ -19,7 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * Verifies {@link H2ConnectionProvider#get()} connection-acquisition resilience: server-mode
  * connections retry transient failures with a backoff before giving up, while embedded-mode
- * connections fail fast (a deterministic embedded failure will not heal on retry). The retry
+ * connections fail fast on anything but a file another JVM holds (a deterministic embedded failure
+ * will not heal on retry; the held-file wait is covered by {@code
+ * H2ConnectionProviderEmbeddedLockWaitTest}). The retry
  * logic moved here from {@code H2DataStore} in the pluggable-datastore extraction; the flaky
  * acquire and the backoff are exercised through package-private seams so no real server or real
  * delay is involved.
@@ -102,7 +104,8 @@ class H2ConnectionProviderRetryTest {
         H2ConnectionSettings embedded = H2ConnectionSettings.embedded("/tmp/does-not-matter");
         FlakyH2ConnectionProvider provider = new FlakyH2ConnectionProvider(embedded, Integer.MAX_VALUE);
 
-        // when / then - the deterministic embedded failure is surfaced immediately, no retry
+        // when / then - the deterministic embedded failure (not a held file) is surfaced
+        // immediately, no retry
         assertThrows(SQLException.class, provider::get);
         assertEquals(1, provider.acquireAttempts);
         assertEquals(0, provider.backoffs.size());

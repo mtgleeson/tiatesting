@@ -22,8 +22,8 @@ import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
-import org.tiatesting.core.testrunner.RunAttempt;
-import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.testrunner.TestPlanOutcome;
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.agent.RunSelectionDetailsCodec;
@@ -129,15 +129,24 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      */
     private volatile TestPlan testPlan;
     /*
-    The JVM shared state, kept to number each test plan this listener starts - see
-    SharedTestRunData#nextTestPlanNumber.
+    The JVM shared state, kept for this JVM's contribution to its run - see
+    SharedTestRunData#getJvmContribution.
      */
     private final SharedTestRunData sharedTestRunData;
     /*
-    Which attempt the current test plan is: the real run, a Surefire re-run in this JVM, or a Gradle
-    test-retry round in a fresh JVM.
+    The run this JVM belongs to, published by the build tool with the selection. Null when the
+    listener is disabled.
      */
-    private volatile RunAttempt runAttempt = RunAttempt.FIRST;
+    private final TestRunIdentity testRunIdentity;
+    /*
+    The suites this test plan ran a test of, or recorded a failure for, cleared when each plan starts.
+    What the rerun rule reads: see TestPlanOutcome.
+     */
+    private final Set<String> suitesExercisedThisAttempt = ConcurrentHashMap.newKeySet();
+    /*
+    The suites this test plan skipped, cleared when each plan starts.
+     */
+    private final Set<String> suitesSkippedThisAttempt = ConcurrentHashMap.newKeySet();
     /*
     The class containers currently executing, innermost first. JUnit Jupiter runs a class's own
     tests and then its @Nested classes inside it, so when a nested class starts, the coverage
@@ -225,6 +234,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         // for why this JVM does not resolve them itself.
         this.headCommit = enabled ? ForkSystemProperties.commitValueFromSystemProperties() : null;
         this.branch = enabled ? ForkSystemProperties.branchFromSystemProperties() : null;
+        this.testRunIdentity = enabled ? TestRunIdentity.fromSystemProperties() : null;
         DataStore dataStore = enabled ? DataStoreFactory.fromSystemProperties(this.branch) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDirs = System.getProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS);
@@ -314,10 +324,10 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     /**
      * This is executed only once for all tests in the session/run/test plan.
      * For re-runs, this will be run again - with a new TestExecutionListener instance up to Surefire
-     * 3.5.3. The per-attempt sets are cleared here so each attempt's history row counts only that
-     * attempt, whether or not the instance is new, and the attempt is resolved so a re-run's row is
-     * flagged as a rerun - a Surefire rerun by its plan number, a Gradle test-retry round by the test
-     * JVM counter (see {@link #resolveRunAttempt}).
+     * 3.5.3 - and with Surefire {@code forkCount > 1} once per test class. The per-plan sets are
+     * cleared here so each plan's outcome counts only that plan, whether or not the instance is new.
+     * Which attempt the plan is gets decided by core at persist time, from the run's contributions
+     * (see {@code RunAttemptResolver}).
      *
      * @param testPlan The test plan being executed.
      */
@@ -327,11 +337,11 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             return;
         }
         this.testPlan = testPlan;
-        this.runAttempt = resolveRunAttempt(sharedTestRunData.nextTestPlanNumber(),
-                TestJvmSequence.attemptFromSystemProperties());
         testRunStartTime = clock.getAsLong();
         suitesFinishedThisAttempt.clear();
         suitesFailedThisAttempt.clear();
+        suitesExercisedThisAttempt.clear();
+        suitesSkippedThisAttempt.clear();
         synchronized (suitesInProgress) {
             suitesInProgress.clear();
         }
@@ -345,26 +355,6 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         if (testRunStats.getNumRuns() > 0) {
             testSuiteTrackers.values().forEach(testSuiteTracker -> resetStatsForSubsequentRun(testSuiteTracker.getTestStats()));
         }
-    }
-
-    /**
-     * Decide which attempt a test plan is. A Gradle test-retry round is a fresh JVM, so its first
-     * test plan is numbered 1 like the real run's; only the test JVM counter the Gradle plugin resets
-     * per test task execution tells it apart, and when that counter says this JVM is a retry, every
-     * test plan in it is. Otherwise the plan number decides: the first plan in the JVM is the real
-     * run and any later one is a Surefire rerun in the same JVM. Maven forwards no counter, so its
-     * JVM attempt is always {@link RunAttempt#FIRST}. See the "Failed-suite tracking" chapter in
-     * {@code WIKI.md}.
-     *
-     * @param testPlanNumber this test plan's number within the JVM, starting at 1
-     * @param jvmAttempt the attempt the test JVM counter resolved for this JVM
-     * @return the attempt the test plan's persist describes
-     */
-    static RunAttempt resolveRunAttempt(final int testPlanNumber, final RunAttempt jvmAttempt) {
-        if (jvmAttempt == RunAttempt.RERUN_NEW_JVM) {
-            return RunAttempt.RERUN_NEW_JVM;
-        }
-        return testPlanNumber == 1 ? RunAttempt.FIRST : RunAttempt.RERUN_SAME_JVM;
     }
 
     /**
@@ -474,12 +464,14 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             // this JVM has observed the suite (as skipped), independent of any test-classes directory
             // override applied to runnerTestSuites - see the field's javadoc.
             suitesObserved.add(testSuiteName);
+            suitesSkippedThisAttempt.add(testSuiteName);
             // A skipped class's @Nested classes get no event of their own, but they were skipped too.
             // Unreported, a distributed group holding them could never count them as observed, and
             // so could never complete.
             for (String nestedSuite : nestedSuitesOf(testIdentifier)){
                 runnerTestSuites.add(nestedSuite);
                 suitesObserved.add(nestedSuite);
+                suitesSkippedThisAttempt.add(nestedSuite);
             }
         }
 
@@ -511,6 +503,13 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             return;
         }
 
+        if (testIdentifier.isTest()){
+            String testSuiteName = getTestSuiteName(testIdentifier);
+            if (testSuiteName != null){
+                suitesExercisedThisAttempt.add(testSuiteName);
+            }
+        }
+
         if (testExecutionResult.getStatus() == TestExecutionResult.Status.FAILED){
             testFailure(testIdentifier);
         }
@@ -535,6 +534,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
         this.testSuitesFailed.add(testSuiteName);
         this.suitesFailedThisAttempt.add(testSuiteName);
+        this.suitesExercisedThisAttempt.add(testSuiteName);
         updateTrackerStatsForFailedRun(testSuiteName);
     }
 
@@ -661,10 +661,12 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         TestStats testStats = updateDBMapping ? getStatsForTestRun() : null;
         LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
                 System.getProperty("tiaDrainResultFile"));
+        TestPlanOutcome planOutcome = new TestPlanOutcome(suitesFinishedThisAttempt, suitesFailedThisAttempt,
+                suitesExercisedThisAttempt, suitesSkippedThisAttempt);
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
-                ignoredTestSuiteCount, suitesFinishedThisAttempt.size(), suitesFailedThisAttempt.size(),
-                selectionDetails, runAttempt);
+                ignoredTestSuiteCount, planOutcome, selectionDetails, sharedTestRunData.getJvmContribution(),
+                testRunIdentity);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

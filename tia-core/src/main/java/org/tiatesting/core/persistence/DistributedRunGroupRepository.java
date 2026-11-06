@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.persistence.dialect.SqlDialect;
 
 import java.sql.*;
@@ -19,15 +20,20 @@ import static org.tiatesting.core.persistence.TiaSchema.*;
  */
 class DistributedRunGroupRepository extends JdbcRepository {
 
+    private final TestRunContributionRepository contributionRepository;
+
     /**
      * Construct the repository over the datastore's shared JDBC plumbing.
      *
      * @param dialect the SQL dialect rendering vendor-specific statements
      * @param connections opens a connection with the per-branch schema selected
      * @param schemaManager bootstraps the schema before first use
+     * @param contributionRepository writes a runner JVM's contribution inside the guarded progress report
      */
-    DistributedRunGroupRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager) {
+    DistributedRunGroupRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager,
+           TestRunContributionRepository contributionRepository) {
         super(dialect, connections, schemaManager);
+        this.contributionRepository = contributionRepository;
     }
 
     /**
@@ -36,6 +42,9 @@ class DistributedRunGroupRepository extends JdbcRepository {
      * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first
      * call any caller makes on a freshly created per-branch schema and the distributed-run
      * tables are otherwise only created there.
+     *
+     * <p>Each group's figures are derived from its runner JVMs' contributions, read on the same
+     * connection, so a runner that used several JVMs reports their total.
      *
      * @param runId the run identifier
      * @return the run's groups in group-number order, empty if the run is unknown
@@ -54,10 +63,51 @@ class DistributedRunGroupRepository extends JdbcRepository {
                     }
                 }
             }
+            if (groups.isEmpty()) {
+                return groups;
+            }
+            List<TestRunContribution> contributions = contributionRepository.readContributions(connection, runId);
+            List<DistributedRunGroup> withFigures = new ArrayList<>(groups.size());
+            for (DistributedRunGroup group : groups) {
+                withFigures.add(group.withFigures(contributionsOf(contributions, group.getGroupNumber())));
+            }
+            return withFigures;
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }
-        return groups;
+    }
+
+    /**
+     * Pick one group's contributions out of a run's.
+     *
+     * @param contributions every contribution of the run
+     * @param groupNumber the group to keep
+     * @return the contributions recorded against that group, in their original order
+     */
+    static List<TestRunContribution> contributionsOf(final List<TestRunContribution> contributions,
+                                                     final int groupNumber) {
+        List<TestRunContribution> groupContributions = new ArrayList<>();
+        for (TestRunContribution contribution : contributions) {
+            if (contribution.getGroupNumber() != null && contribution.getGroupNumber() == groupNumber) {
+                groupContributions.add(contribution);
+            }
+        }
+        return groupContributions;
+    }
+
+    /**
+     * Attach a group's figures, derived from its runner JVMs' contributions read on the caller's
+     * connection.
+     *
+     * @param connection the caller's open connection
+     * @param group the group as mapped from its row
+     * @return the group carrying its derived figures
+     * @throws SQLException if the contributions cannot be read
+     */
+    private DistributedRunGroup withStoredFigures(final Connection connection, final DistributedRunGroup group)
+            throws SQLException {
+        return group.withFigures(contributionsOf(
+                contributionRepository.readContributions(connection, group.getRunId()), group.getGroupNumber()));
     }
 
     /**
@@ -230,7 +280,7 @@ class DistributedRunGroupRepository extends JdbcRepository {
                     if (resultSet.next()) {
                         DistributedRunGroup heldGroup = mapGroupRow(resultSet);
                         return heldGroup.getStatus() == DistributedRunGroupStatus.CLAIMED
-                                ? heldGroup : null;
+                                ? withStoredFigures(connection, heldGroup) : null;
                     }
                 }
             }
@@ -288,7 +338,7 @@ class DistributedRunGroupRepository extends JdbcRepository {
                         statement.setInt(2, candidateGroupNumber);
                         try (ResultSet resultSet = statement.executeQuery()) {
                             resultSet.next();
-                            return mapGroupRow(resultSet);
+                            return withStoredFigures(connection, mapGroupRow(resultSet));
                         }
                     }
                 }
@@ -310,36 +360,22 @@ class DistributedRunGroupRepository extends JdbcRepository {
     /**
      * Implements {@link DataStore#reportGroupProgress}.
      *
-     * <p>One transaction of three steps. First a guarded single-row {@code UPDATE ... WHERE run_id
+     * <p>One transaction of four steps. First a guarded single-row {@code UPDATE ... WHERE run_id
      * = ? AND group_number = ? AND status = 'CLAIMED' AND runner_key = ?}, the same
-     * straggler-protection predicate {@link #completeGroup} is guarded on; when it matches no row
-     * the transaction is rolled back and nothing at all is written - in particular no suite is
-     * flagged observed for a runner whose claim is dead. Then the {@code observed} flag is set on
-     * the named suites' {@code tia_distributed_run_group_suite} rows, and finally {@code
-     * suites_observed} is rewritten as the count of flagged rows. Flags only go from false to true,
-     * so the count is the union of every report against the group - several JVMs included - and
-     * can never regress. {@code actual_duration_ms} is written as {@code
-     * COALESCE(column, 0) + ?} so several calls in the same JVM (one per Surefire retry) sum
-     * instead of the last one overwriting the ones before it - retry time is real time. The {@code
-     * COALESCE} is load-bearing: the plan write binds it with {@link JdbcRows#setNullableLong} as SQL
-     * {@code NULL}, so the first report of a JVM adds onto a real {@code NULL} column. {@code
-     * suites_failed} is written as a plain {@code = ?}, since it is current state rather than a
-     * counter and a passing retry must be able to shrink it back to zero. {@code suites_ran} is
-     * written as {@code GREATEST(COALESCE(column, 0), ?)}: it counts the <em>distinct</em> suites
-     * the runner executed, which the caller draws from the JVM's shared tracker map - already
-     * cumulative across every test plan - so a retry re-reports the same suites rather than adding
-     * new ones, and a Gradle test-retry round, a fresh JVM that ran only the retried suites,
-     * reports fewer. Summing would count a retried suite once per attempt, where the build's one
-     * history row counts its failed suites once. {@code GREATEST} rather than a plain {@code = ?}
-     * replace is what keeps a same-JVM retry's report from ever regressing the stored value below an
-     * earlier, more-complete one; see {@link DataStore#reportGroupProgress} for the precondition this
-     * still assumes (one JVM per group) and what several JVMs reporting against the same group do to
-     * it. {@code suites_duration_ms} is written the same way and for the same reason: it is summed from the JVM's shared suite-tracker map, which already carries every
-     * suite timed by every test plan this JVM has made, so a retry re-reports the same total rather
-     * than a fresh increment - accumulating it would double-count the first attempt's suites while
-     * {@code actual_duration_ms} legitimately grows by the retry's own window. That asymmetry is
-     * deliberate: it is what leaves a retry's cost outside the suite-attributable total and inside
-     * the group's overhead remainder.
+     * straggler-protection predicate {@link #completeGroup} is guarded on; it changes nothing (it
+     * sets the runner key to itself) and exists only to prove the claim is live. When it matches no
+     * row the transaction is rolled back and nothing at all is written - in particular no suite is
+     * flagged observed and no contribution recorded for a runner whose claim is dead. Then the
+     * {@code observed} flag is set on the named suites' {@code tia_distributed_run_group_suite}
+     * rows, {@code suites_observed} is rewritten as the count of flagged rows, and the runner JVM's
+     * contribution rows are upserted. Flags only go from false to true, so the count is the union of
+     * every report against the group and can never regress.
+     *
+     * <p>The group's figures - duration, wall clock, suites ran and failed, suite time - are not
+     * stored on the group row: every read derives them from the contributions (see {@link
+     * DistributedRunGroup#withFigures}). Each contribution row holds one JVM's running totals, so a
+     * retry in the same JVM replaces its row and several JVMs reporting against one group - Surefire
+     * forks, a Gradle test-retry JVM - add up.
      *
      * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since reporting progress could be the
      * first contact any caller in this process makes with a freshly created per-branch schema.
@@ -347,30 +383,20 @@ class DistributedRunGroupRepository extends JdbcRepository {
      * @param runId the distributed run the group belongs to
      * @param groupNumber the group's zero-based index within the run
      * @param runnerKey the calling runner's stable identity
-     * @param actualDurationMs this call's measured test-execution time, in ms, added to whatever
-     *                         is already stored
-     * @param suitesRan the number of distinct suites the runner has executed so far, written as
-     *                  the greater of this value and whatever was already stored
-     * @param suitesFailed the number of suites currently failing, replacing whatever was stored
      * @param suitesObserved the names of this group's assigned suites the runner has observed so
      *                       far (finished or skipped), flagged {@code observed}; names not assigned
      *                       to the group match no row
-     * @param suitesDurationMs the summed measured run time of every suite this runner has timed so
-     *                         far, written as the greater of this value and whatever was already
-     *                         stored - not summed, since the caller's tracker map is already
-     *                         cumulative across retries
+     * @param contributions this runner JVM's contribution rows, upserted in the same guarded
+     *                      transaction so a runner whose claim is no longer live writes none
      * @return {@code true} when the guarded update applied, {@code false} when this runner's
      *         claim is no longer live
      */
     boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
-                                       final long actualDurationMs, final int suitesRan,
-                                       final int suitesFailed, final Set<String> suitesObserved,
-                                       final long suitesDurationMs) {
-        String progressSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_ACTUAL_DURATION_MS
-                + " = COALESCE(" + COL_ACTUAL_DURATION_MS + ", 0) + ?, " + COL_SUITES_RAN + " = GREATEST(COALESCE("
-                + COL_SUITES_RAN + ", 0), ?), " + COL_SUITES_FAILED + " = ?, " + COL_SUITES_DURATION_MS
-                + " = GREATEST(COALESCE(" + COL_SUITES_DURATION_MS + ", 0), ?) WHERE " + COL_RUN_ID + " = ? AND "
-                + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ?";
+                                final Set<String> suitesObserved,
+                                final List<TestRunContribution> contributions) {
+        String guardSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_RUNNER_KEY + " = ? WHERE "
+                + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS + " = ? AND "
+                + COL_RUNNER_KEY + " = ?";
         String observedCountSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_SUITES_OBSERVED
                 + " = (SELECT COUNT(*) FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " WHERE "
                 + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND " + COL_OBSERVED + " = TRUE) WHERE "
@@ -383,15 +409,12 @@ class DistributedRunGroupRepository extends JdbcRepository {
             connection.setAutoCommit(false);
             try {
                 int rowsUpdated;
-                try (PreparedStatement statement = connection.prepareStatement(progressSql)) {
-                    statement.setLong(1, actualDurationMs);
-                    statement.setInt(2, suitesRan);
-                    statement.setInt(3, suitesFailed);
-                    statement.setLong(4, suitesDurationMs);
-                    statement.setString(5, runId);
-                    statement.setInt(6, groupNumber);
-                    statement.setString(7, DistributedRunGroupStatus.CLAIMED.name());
-                    statement.setString(8, runnerKey);
+                try (PreparedStatement statement = connection.prepareStatement(guardSql)) {
+                    statement.setString(1, runnerKey);
+                    statement.setString(2, runId);
+                    statement.setInt(3, groupNumber);
+                    statement.setString(4, DistributedRunGroupStatus.CLAIMED.name());
+                    statement.setString(5, runnerKey);
                     rowsUpdated = statement.executeUpdate();
                 }
                 if (rowsUpdated != 1) {
@@ -407,6 +430,7 @@ class DistributedRunGroupRepository extends JdbcRepository {
                     statement.setInt(4, groupNumber);
                     statement.executeUpdate();
                 }
+                contributionRepository.upsertContributions(connection, contributions);
                 connection.commit();
                 return true;
             } catch (SQLException | RuntimeException e) {
@@ -474,11 +498,11 @@ class DistributedRunGroupRepository extends JdbcRepository {
      * reported number means a suite can never count twice, and reports from several JVMs against
      * the same group add up to their union.
      *
-     * <p>The guard counts observed suites, not {@code suites_ran}, deliberately.
-     * {@code suites_ran} counts only suites that finished, and a class-level {@code @Disabled}
+     * <p>The guard counts observed suites, not the suites ran, deliberately.
+     * The suites ran count only suites that finished, and a class-level {@code @Disabled}
      * suite (or one excluded by a Surefire/Gradle filter, or deleted since the last mapping run)
      * never finishes even though the planner still assigned it to this group - guarding on
-     * {@code suites_ran} would then block a group forever on a suite Tia never expected to run.
+     * the suites ran would then block a group forever on a suite Tia never expected to run.
      * The observed flags come from what {@link
      * org.tiatesting.core.testrunner.TestRunResult#getSuitesObserved()} reports - every suite the
      * runner's own JVM saw finish or saw skipped, never a project-wide directory scan - so a group
@@ -507,8 +531,8 @@ class DistributedRunGroupRepository extends JdbcRepository {
      * and returns {@code null} without reading anything back, since there is by definition nothing
      * this runner wrote to return. Row count 1 re-reads the row through
      * {@link #mapGroupRow} rather than reconstructing it, so the returned group carries the stored
-     * claim timestamp, estimate and the figures {@link #reportGroupProgress} accumulated rather
-     * than only this call's inputs.
+     * claim timestamp and estimate, and figures derived from the contributions
+     * {@link #reportGroupProgress} recorded, rather than only this call's inputs.
      *
      * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since a runner completing its group could
      * be the first contact any caller in this process makes with a freshly created per-branch
@@ -597,6 +621,7 @@ class DistributedRunGroupRepository extends JdbcRepository {
                         completed = mapGroupRow(resultSet);
                     }
                 }
+                completed = withStoredFigures(connection, completed);
                 connection.commit();
                 return completed;
             } catch (SQLException | RuntimeException e) {
@@ -641,8 +666,9 @@ class DistributedRunGroupRepository extends JdbcRepository {
      * {@link #readDistributedRunGroups} so the two cannot drift apart on how a group row maps. It
      * also means the group returned after a successful claim (or an already-claimed lookup) is read
      * back from the table rather than reconstructed field-by-field from what the caller asked for -
-     * the estimated time, suites-ran and suites-failed columns are not part of the claim call's
-     * inputs and must come from the stored row.
+     * the estimated time is not part of the claim call's inputs and must come from the stored row.
+     * The figures are left empty; callers attach them from the group's contributions with {@link
+     * DistributedRunGroup#withFigures}.
      *
      * @param resultSet the result set, positioned on the row to map
      * @return the mapped group
@@ -657,10 +683,11 @@ class DistributedRunGroupRepository extends JdbcRepository {
                 getNullableLong(resultSet, COL_CLAIMED_AT),
                 getNullableLong(resultSet, COL_COMPLETED_AT),
                 resultSet.getLong(COL_ESTIMATED_MS),
-                getNullableLong(resultSet, COL_ACTUAL_DURATION_MS),
-                resultSet.getInt(COL_SUITES_RAN),
-                resultSet.getInt(COL_SUITES_FAILED),
+                null,
+                null,
+                0,
+                0,
                 resultSet.getInt(COL_SUITES_OBSERVED),
-                resultSet.getLong(COL_SUITES_DURATION_MS));
+                0L);
     }
 }

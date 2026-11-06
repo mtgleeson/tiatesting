@@ -194,6 +194,28 @@ No test JVM constructs a VCS reader on either build tool. See the
 ["What the post-plan steps need from the version control system"](distributed-test-runs.md) section
 for why that matters for distributed runners.
 
+### The run identity crosses this boundary too
+
+The step that selects the tests also starts the **run** every test JVM contributes to: it creates a
+random `tiaTestRunId` and records `tiaTestRunStartMs` (`TestRunIdentity.newRun`), and hands both
+over with the rest of the selection - in `fork.properties` on Maven (`AgentMojo.writeForkPropertiesFile`),
+as test task system properties on Gradle (set in the test task's `doFirst`). One `prepare-agent`
+execution is one run on Maven, so a module whose Surefire and Failsafe share its selection share one
+run; one test task execution is one run on Gradle, test-retry rounds included, since every round's
+JVM gets the same system properties.
+
+The test JVM reads them back with `TestRunIdentity.fromSystemProperties()`, which fails naming the
+property when either is absent - a JVM with no run could neither add itself to its siblings' history
+row nor tell a retry from a first attempt. Every JVM of the run - a parallel fork, a Surefire
+per-class plan, a Gradle test-retry JVM - then records its contribution under that id, and the run's
+history rows and the rerun rule are both built from those contributions; see "Runs and
+contributions" in [Test-run history log](test-run-history.md) and "Retries" in [Failed-suite
+tracking](failed-suite-tracking.md). This replaced a per-task counter file the Gradle plugin used to
+number test JVMs, which could not tell a parallel worker from a retry round.
+
+On Gradle the properties are set in `doFirst`, after the task's inputs have been fingerprinted, so
+a new id per execution does not stop the test task being `UP-TO-DATE`.
+
 ### Why the paths reach the fork differently
 
 Maven Surefire builds the fork's command line from static plugin configuration, so the only thing

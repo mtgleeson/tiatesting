@@ -38,9 +38,9 @@ class HtmlHistoryDetailReportTest {
         List<TestRunTrigger> triggers = Arrays.asList(lowCountMethod, highCountMethod, staticRule);
 
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 0, 2, 4, 0, SelectionMode.SELECTIVE);
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
-                1_700_000_000_000L, 10, 2, 0, 12345L, true, 4000L, 40,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), details, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 10, 2, 0, 12345L, 12345L, true, 4000L, 40,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), details);
 
         // when
         new HtmlHistoryDetailReport("html", tempDir).generateReport(entry, triggers, 3);
@@ -86,7 +86,7 @@ class HtmlHistoryDetailReportTest {
         // given - 60s baseline; 1 of 6 groups used for 2s: 58s (97%) serial, 8s (80%) wall clock
         TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
                 "ci-run-1", 1_700_000_000_000L, 3, 7, 0, 2_000L, true, 58_000L, 97, 8_000L, 80,
-                2_000L, 1, 6, RunOrigin.of(RunOrigin.SOURCE_CI, null), null);
+                2_000L, 1, 6, RunOrigin.of(RunOrigin.SOURCE_CI, null), null, false);
 
         // when
         String html = generateAndRead(entry, tempDir);
@@ -117,9 +117,9 @@ class HtmlHistoryDetailReportTest {
     void generateReport_singleHostRun_rendersEqualSavingsAndDashedGroups(@TempDir File tempDir)
             throws Exception {
         // given
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
-                1_700_000_000_000L, 10, 2, 0, 12_000L, true, 4_000L, 25,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 10, 2, 0, 12_000L, 12_000L, true, 4_000L, 25,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null);
 
         // when
         String html = generateAndRead(entry, tempDir);
@@ -145,9 +145,9 @@ class HtmlHistoryDetailReportTest {
     @Test
     void generateReport_rerun_rendersRerunYes(@TempDir File tempDir) throws Exception {
         // given
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
-                1_700_000_000_000L, 1, 9, 0, 4_000L, true, 0L, 0,
-                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null, true);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", String.valueOf(1_700_000_000_000L), true,
+                1_700_000_000_000L, 1, 9, 0, 4_000L, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null);
 
         // when
         String html = generateAndRead(entry, tempDir);
@@ -167,10 +167,10 @@ class HtmlHistoryDetailReportTest {
     @Test
     void generateReport_reseed_rendersTheModeAndTheOverrideNote(@TempDir File tempDir) throws Exception {
         // given
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
-                1_700_000_000_000L, 10, 0, 0, 4_000L, true, 0L, 0,
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 10, 0, 0, 4_000L, 4_000L, true, 0L, 0,
                 RunOrigin.of(RunOrigin.SOURCE_CI, "agent"),
-                TestRunSelectionDetails.forFullRun(SelectionMode.RESEED), false);
+                TestRunSelectionDetails.forFullRun(SelectionMode.RESEED));
 
         // when
         String html = generateAndRead(entry, tempDir);
@@ -193,15 +193,15 @@ class HtmlHistoryDetailReportTest {
     void generateReport_everyFieldLabelCarriesATooltip(@TempDir File tempDir) throws Exception {
         // given - a forced single-host run, so the Selection line renders, then a selective run
         // with every selection counter recorded, so the selection-source lines render
-        TestRunHistoryEntry forced = TestRunHistoryEntry.create("main", "abc123",
-                1_700_000_000_000L, 10, 0, 0, 4_000L, true, 0L, 0,
+        TestRunHistoryEntry forced = TestRunHistoryEntry.create("main", "abc123", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 10, 0, 0, 4_000L, 4_000L, true, 0L, 0,
                 RunOrigin.of(RunOrigin.SOURCE_CI, "agent"),
-                TestRunSelectionDetails.forFullRun(SelectionMode.SELECT_ALL), false);
-        TestRunHistoryEntry selective = TestRunHistoryEntry.create("main", "def456",
-                1_700_000_500_000L, 10, 2, 0, 4_000L, true, 0L, 0,
+                TestRunSelectionDetails.forFullRun(SelectionMode.SELECT_ALL));
+        TestRunHistoryEntry selective = TestRunHistoryEntry.create("main", "def456", String.valueOf(1_700_000_500_000L), false,
+                1_700_000_500_000L, 10, 2, 0, 4_000L, 4_000L, true, 0L, 0,
                 RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"),
                 new TestRunSelectionDetails(Collections.<TestRunTrigger>emptyList(), 1, 1, 0, 1, 1, 1,
-                        SelectionMode.SELECTIVE), false);
+                        SelectionMode.SELECTIVE));
 
         // when
         String forcedHtml = generateAndRead(forced, tempDir);
@@ -255,9 +255,9 @@ class HtmlHistoryDetailReportTest {
     @Test
     void generateReport_rendersNoBreakdownNoteWhenNothingRecorded(@TempDir File tempDir) throws Exception {
         // given - an entry with no triggers and no selection counters recorded at all
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "def456",
-                1_700_000_500_000L, 5, 0, 0, 6789L, false, 0L, 0,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), null, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "def456", String.valueOf(1_700_000_500_000L), false,
+                1_700_000_500_000L, 5, 0, 0, 6789L, 6789L, false, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), null);
 
         // when
         new HtmlHistoryDetailReport("html", tempDir).generateReport(entry, Collections.<TestRunTrigger>emptyList(), 0);

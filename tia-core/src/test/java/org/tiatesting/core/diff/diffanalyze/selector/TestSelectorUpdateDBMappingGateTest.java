@@ -19,6 +19,7 @@ import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
@@ -482,6 +483,43 @@ class TestSelectorUpdateDBMappingGateTest {
         public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) {
             delegate.persistTestRunHistoryEntry(entry);
         }
+        /**
+         * Delegate to the real store.
+         *
+         * @param runId the run
+         * @param runStartMs the run start
+         * @param contributions the contributions
+         * @param historyEntries the history builder
+         * @return the created history ids
+         */
+        @Override
+        public Set<String> persistTestRunContribution(String runId, long runStartMs,
+                List<TestRunContribution> contributions,
+                java.util.function.Function<List<TestRunContribution>, List<TestRunHistoryEntry>> historyEntries) {
+            return delegate.persistTestRunContribution(runId, runStartMs, contributions, historyEntries);
+        }
+        /**
+         * Delegate to the real store.
+         *
+         * @param runId the run
+         * @return the contributions
+         */
+        @Override
+        public List<TestRunContribution> readTestRunContributions(String runId) {
+            return delegate.readTestRunContributions(runId);
+        }
+        /**
+         * Delegate to the real store.
+         *
+         * @param runId the run
+         * @param groupNumber the asking JVM's group, or null
+         * @param excludingJvmId the asking JVM
+         * @return the failed suites
+         */
+        @Override
+        public Set<String> readTestRunFailedSuites(String runId, Integer groupNumber, String excludingJvmId) {
+            return delegate.readTestRunFailedSuites(runId, groupNumber, excludingJvmId);
+        }
 
         @Override
         public void persistTestRunTriggers(String historyId, List<TestRunTrigger> triggers) {
@@ -643,17 +681,14 @@ class TestSelectorUpdateDBMappingGateTest {
          * @param runId ignored
          * @param groupNumber ignored
          * @param runnerKey ignored
-         * @param actualDurationMs ignored
-         * @param suitesRan ignored
-         * @param suitesFailed ignored
          * @param suitesObserved ignored
+         * @param contributions ignored
          * @return never returns
          * @throws UnsupportedOperationException always
          */
         @Override
-        public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
-                                           long actualDurationMs, int suitesRan, int suitesFailed,
-                                           Set<String> suitesObserved, long suitesDurationMs) {
+        public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey, Set<String> suitesObserved,
+                                           final List<TestRunContribution> contributions) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

@@ -32,7 +32,7 @@ import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
-import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.util.StringUtil;
@@ -185,15 +185,13 @@ public class TiaTestTaskConfigurer {
                     } catch (IllegalStateException e) {
                         throw new GradleException(e.getMessage(), e);
                     }
-                    // Number this task execution's test JVMs. The test-retry plugin re-runs failed
-                    // tests in fresh JVMs inside this same task action, each with these same
-                    // properties, so a counter reset here - once per execution, before any JVM
-                    // starts - is what lets a retry round know it is not the real run and persist
-                    // as an addition to it rather than overwrite it. See TestJvmSequence.
-                    File testJvmSequenceFile = new File(testTask.getTemporaryDir(), TestJvmSequence.FILE_NAME);
-                    TestJvmSequence.reset(testJvmSequenceFile);
-                    testTask.systemProperty(TestJvmSequence.PROP_TEST_JVM_SEQUENCE_FILE,
-                            testJvmSequenceFile.getAbsolutePath());
+                    // A new run for every execution of this task: its parallel forks and the fresh
+                    // JVMs the test-retry plugin starts inside this same action all receive these
+                    // properties, so they contribute to one run. See TestRunIdentity.
+                    TestRunIdentity testRunIdentity = TestRunIdentity.newRun(System.currentTimeMillis());
+                    for (Map.Entry<String, String> property : testRunIdentity.toProperties().entrySet()) {
+                        testTask.systemProperty(property.getKey(), property.getValue());
+                    }
                     // The compiled test classes this task owns. They tell the forked JVM which
                     // suites still exist in the project, so a suite it did not run is not mistaken
                     // for one deleted from the repository - which is what a run split across JVMs
@@ -237,8 +235,7 @@ public class TiaTestTaskConfigurer {
                         claimDistributedRun(project, testTask, tiaTaskExtension, workspaceIdentity);
                     } else {
                         warnWhenATiaTaskForksMoreThanOneJvm(testTask,
-                                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
-                                !Boolean.FALSE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
+                                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()));
                         selectTestsAndHandOff(project, testTask, tiaTaskExtension, workspaceIdentity, resolver,
                                 selectionMode);
                     }
@@ -837,8 +834,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      *         (nothing is forwarded to the fork or recorded in the registry in that case, either)
      * @throws IllegalStateException if the distributed-run preconditions fail (Tia disabled, a
      *                                multi-project reactor, an embedded database, or local-changes
-     *                                checking enabled), if this test task would run its group in
-     *                                more than one JVM (see {@link
+     *                                checking enabled), if this test task updates the mapping and
+     *                                would run its group in more than one JVM (see {@link
      *                                #refuseATestTaskThatForksMoreThanOneJvm}), if no run is planned
      *                                under the configured
      *                                run id, if the plan was built against a different commit than
@@ -870,7 +867,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
                 plugin.getDbUrl(), plugin.getDbDialect(),
                 Boolean.TRUE.equals(tiaTaskExtension.getCheckLocalChanges()),
                 Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()));
-        refuseATestTaskThatForksMoreThanOneJvm(testTask);
+        refuseATestTaskThatForksMoreThanOneJvm(testTask, Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()));
 
         DistributedRunConfig config = DistributedRunConfig.forRunner(tiaTaskExtension.getRunId(),
                 tiaTaskExtension.getDistributedRunnerKey());
@@ -995,8 +992,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
     }
 
     /**
-     * Refuse a distributed test task that would run its group in more than one JVM, rather than let
-     * the run hang, for a failure that is even less legible without the refusal.
+     * Refuse a distributed test task that updates the mapping and would run its group in more than
+     * one JVM.
      *
      * <p>Called from {@link #claimDistributedRun}, which runs in the test task's own {@code doFirst}
      * action - so this fails the build when the test task <b>starts</b>, not at configuration time
@@ -1005,73 +1002,73 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * value of {@code maxParallelForks} and {@code forkEvery}, after everything that configures the
      * task has had its say, and it still fails before a single worker JVM is forked.
      *
-     * <p>{@code suites_observed} - the figure the completion's completeness guard reads - depends on
-     * one JVM working one group end to end, because it is written as {@code GREATEST(stored, value)}
-     * over a set that is only cumulative within a single JVM. See {@link
-     * DataStore#reportGroupProgress} for that contract. Both {@code maxParallelForks > 1} and
-     * {@code forkEvery > 0} break it here: {@link #claimDistributedRun} claims once, in the daemon,
-     * and forwards the one run id, runner key and group number as system properties, which Gradle
-     * hands to every worker JVM. Worse, Gradle really does split the group's suites across those
-     * workers, so no single worker ever observes the whole group: {@code GREATEST} settles on the
-     * largest worker's count, strictly less than the group's assigned total, the guard never passes,
-     * the group never completes and the run never seals. Nothing fails while that happens - the
-     * completion is a no-op both build tools treat as normal - so the user would get a green build
-     * and a Tia database that silently stopped advancing.
+     * <p>A mapping run needs one JVM per suite sequence: coverage is attributed to a suite only when
+     * suites run one after another in one JVM, so several worker JVMs splitting the group's suites
+     * would record wrong mappings. A run with the mapping off may fork freely: every worker JVM
+     * reports its own contribution and observed suites against the one claimed group, the observed
+     * flags union across them, and their contributions add up to the group's figures. See {@link
+     * DataStore#reportGroupProgress}.
      *
      * <p>The check is exact rather than a heuristic: this action runs in the daemon, which holds the
      * {@link Test} task, so it reads the two settings straight off it. Nothing beyond those two
      * properties is inspected.
      *
      * @param testTask the distributed test task to check the forking settings of
-     * @throws IllegalStateException if the test task sets {@code maxParallelForks} above one or
-     *                                {@code forkEvery} above zero
+     * @param updatesMapping whether the task updates the mapping; nothing is refused when it does not
+     * @throws IllegalStateException if the task updates the mapping and sets {@code maxParallelForks}
+     *                                above one or {@code forkEvery} above zero
      */
-    private void refuseATestTaskThatForksMoreThanOneJvm(final Test testTask) {
+    private void refuseATestTaskThatForksMoreThanOneJvm(final Test testTask, final boolean updatesMapping) {
         String forkingSetting = multiJvmForkingSetting(testTask);
-        if (forkingSetting == null) {
+        if (forkingSetting == null || !updatesMapping) {
             return;
         }
 
         throw new IllegalStateException("Test task '" + testTask.getPath() + "' is configured for a "
-                + "distributed test run, but also sets " + forkingSetting + ". A distributed run "
-                + "needs one JVM per group: the group is claimed once here in the daemon and its "
-                + "run id, runner key and group number are forwarded to every worker JVM Gradle "
-                + "starts, while Gradle splits the group's suites across those workers - so no "
-                + "single worker ever observes the whole group, the completion's suites-observed "
-                + "guard would never be satisfied, the group would never complete and the run would "
-                + "never seal. Remove that setting from this test task and take the parallelism from "
-                + "the plan instead - more CI jobs, each one runner claiming one group.");
+                + "distributed test run that updates the mapping, but also sets " + forkingSetting
+                + ". A mapping run needs one JVM per suite sequence: Tia attributes coverage to a "
+                + "suite only when suites run one after another in one JVM, so splitting the group "
+                + "across worker JVMs would record wrong mappings. Remove that setting from this test "
+                + "task and take the parallelism from the plan instead - more CI jobs, each one "
+                + "runner claiming one group - or run with updateDBMapping off.");
     }
 
     /**
-     * Warn when a test task Tia writes to the database for runs its suites in more than one JVM.
-     * Tia does not support that. While updating the mapping, coverage is attributed per suite only
-     * when suites run one after another in one JVM, the forks' persists race, and one fork's seal
-     * clears flags another still needs. While recording run history (the default, even with mapping
-     * off), the test JVM counter numbers every fork after the first as a test-retry round, so their
-     * history rows are flagged reruns and credited no savings. Warned rather than refused because the
-     * build still runs its tests correctly, and the README has only ever recommended a single fork.
-     * See "Multi-fork persist" in the "Persist flow and crash safety" chapter of {@code WIKI.md}. A
-     * distributed test task is refused instead, by {@link #refuseATestTaskThatForksMoreThanOneJvm}.
+     * Warn when a test task that updates the mapping runs its suites in more than one JVM. Tia does
+     * not support that: coverage is attributed per suite only when suites run one after another in
+     * one JVM, the forks' persists race, and one fork's seal clears flags another still needs. Warned
+     * rather than refused because the build still runs its tests correctly. A task that only records
+     * run history is not warned: its forks add up to one history row. See "Multi-fork persist" in the
+     * "Persist flow and crash safety" chapter of {@code WIKI.md}. A distributed mapping task is
+     * refused instead, by {@link #refuseATestTaskThatForksMoreThanOneJvm}.
      *
      * @param testTask the test task about to run with Tia enabled
      * @param updatesMapping whether the task updates the mapping
-     * @param recordsHistory whether the task records run history
      */
-    private static void warnWhenATiaTaskForksMoreThanOneJvm(final Test testTask, final boolean updatesMapping,
-                                                            final boolean recordsHistory) {
-        String forkingSetting = multiJvmForkingSetting(testTask);
-        if (forkingSetting == null || (!updatesMapping && !recordsHistory)) {
-            return;
+    private static void warnWhenATiaTaskForksMoreThanOneJvm(final Test testTask, final boolean updatesMapping) {
+        String warning = multiJvmForkingWarning(testTask, updatesMapping);
+        if (warning != null) {
+            LOGGER.warn(warning);
         }
-        String consequence = updatesMapping
-                ? "coverage can be attributed to the wrong suites, the forks' results can overwrite each other, "
-                        + "and every fork after the first is recorded as a test-retry round"
-                : "every fork after the first is recorded in the run history as a test-retry round, credited "
-                        + "no savings";
-        LOGGER.warn("Tia is enabled for test task '{}', which sets {}. Running a test task's suites in more "
-                + "than one JVM is not supported: {}. Use maxParallelForks = 1 and forkEvery = 0 for this test "
-                + "task.", testTask.getPath(), forkingSetting, consequence);
+    }
+
+    /**
+     * Build the warning {@link #warnWhenATiaTaskForksMoreThanOneJvm} logs, or nothing when the task
+     * does not need one. Package-private for tests.
+     *
+     * @param testTask the test task about to run with Tia enabled
+     * @param updatesMapping whether the task updates the mapping
+     * @return the warning, or null when the task runs one JVM or does not update the mapping
+     */
+    static String multiJvmForkingWarning(final Test testTask, final boolean updatesMapping) {
+        String forkingSetting = multiJvmForkingSetting(testTask);
+        if (forkingSetting == null || !updatesMapping) {
+            return null;
+        }
+        return "Tia is enabled for test task '" + testTask.getPath() + "', which sets " + forkingSetting
+                + ". Updating the mapping from a test task that runs its suites in more than one JVM is "
+                + "not supported: coverage can be attributed to the wrong suites, and the forks' results "
+                + "can overwrite each other. Use maxParallelForks = 1 and forkEvery = 0 for this test task.";
     }
 
     /**

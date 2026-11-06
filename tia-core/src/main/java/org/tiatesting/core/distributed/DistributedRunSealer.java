@@ -7,6 +7,8 @@ import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestRunContribution;
+import org.tiatesting.core.model.TestRunContributionTotals;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
@@ -20,6 +22,7 @@ import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.report.ReportUtils;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -134,7 +137,8 @@ public final class DistributedRunSealer {
 
     /**
      * Record everything that describes the build as a whole rather than any one runner: the seal
-     * itself, the Tia-level run stats, and the single history row. All three are driven by the same
+     * itself, the Tia-level run stats, and the history rows - one for the first attempt and, when
+     * any runner retried failed tests, one for the retries. All three are driven by the same
      * two derived values - the totals its groups add up to, and whether those groups between them
      * covered every tracked suite - so they are derived once here and shared, rather than each
      * being worked out separately and risking disagreement about what the build did.
@@ -261,11 +265,85 @@ public final class DistributedRunSealer {
             // An empty build's row reports no mapping update whatever the build was configured to
             // do, because the seal above did not run - the same shape the single-host empty run's
             // row takes.
-            persistBuildHistory(commitValue, branch, updateDBMapping && !ranNoExpectedSuites, totals,
-                    ignoredSuiteCount, allTestsRun, tiaData.getTestStats().getAllTestsRunTime(),
-                    run.getGroupsAvailable(), run.getCreatedAtMs(), run.getRunSource(),
-                    ranNoExpectedSuites, selectionDetails);
+            //
+            // The first-attempt row describes the first attempt only, as a single-host row does:
+            // the groups are re-derived from their first-attempt contributions, and every runner
+            // JVM's retries of failed tests get the build's one rerun row instead. The stats,
+            // overhead and empty-build decisions above keep using every attempt together.
+            List<TestRunContribution> contributions = dataStore.readTestRunContributions(context.getRunId());
+            List<TestRunContribution> reruns = new ArrayList<>();
+            for (TestRunContribution contribution : contributions) {
+                if (contribution.isRerun()) {
+                    reruns.add(contribution);
+                }
+            }
+            DistributedRunTotals firstAttemptTotals = reruns.isEmpty()
+                    ? totals : DistributedRunTotals.from(firstAttemptGroups(groups, contributions));
+            persistBuildHistory(commitValue, branch, updateDBMapping && !ranNoExpectedSuites,
+                    firstAttemptTotals, ignoredSuiteCount, allTestsRun,
+                    tiaData.getTestStats().getAllTestsRunTime(), run.getGroupsAvailable(),
+                    run.getCreatedAtMs(), run.getRunSource(), ranNoExpectedSuites, selectionDetails);
+            if (!reruns.isEmpty()) {
+                persistBuildRerunHistory(commitValue, branch, reruns, ignoredSuiteCount,
+                        totals.getGroupCount(), run.getGroupsAvailable(), run.getRunSource(), selectionDetails);
+            }
         }
+    }
+
+    /**
+     * Re-derive each group's figures from its first-attempt contributions only, leaving out every
+     * runner JVM's retries of failed tests.
+     *
+     * @param groups the run's groups, as read after the barrier
+     * @param contributions every contribution of the run
+     * @return the groups carrying first-attempt figures, in the same order
+     */
+    private static List<DistributedRunGroup> firstAttemptGroups(final List<DistributedRunGroup> groups,
+                                                                final List<TestRunContribution> contributions) {
+        List<DistributedRunGroup> firstAttemptGroups = new ArrayList<>(groups.size());
+        for (DistributedRunGroup group : groups) {
+            List<TestRunContribution> groupFirstAttempt = new ArrayList<>();
+            for (TestRunContribution contribution : contributions) {
+                if (!contribution.isRerun() && contribution.getGroupNumber() != null
+                        && contribution.getGroupNumber() == group.getGroupNumber()) {
+                    groupFirstAttempt.add(contribution);
+                }
+            }
+            firstAttemptGroups.add(group.withFigures(groupFirstAttempt));
+        }
+        return firstAttemptGroups;
+    }
+
+    /**
+     * Write the build's rerun row: every runner JVM's retries of failed tests added up, flagged as a
+     * rerun and credited no savings, the same meaning a single-host rerun row has. It is stamped
+     * with the start of the build's first retry, so reports list it after the first-attempt row.
+     * Its selection triggers are not written; they belong to the first-attempt row.
+     *
+     * @param commitValue the commit the build ran against
+     * @param branch the branch the build ran against
+     * @param reruns every rerun contribution of the build; not empty
+     * @param ignoredSuiteCount the tracked suites the build did not run
+     * @param groupCount the build's group count
+     * @param groupsAvailable the groups the build had available
+     * @param plannedRunSource the run source the plan recorded
+     * @param selectionDetails the build's selection breakdown, for the row's counters
+     */
+    private void persistBuildRerunHistory(final String commitValue, final String branch,
+                                          final List<TestRunContribution> reruns, final int ignoredSuiteCount,
+                                          final int groupCount, final int groupsAvailable,
+                                          final String plannedRunSource,
+                                          final TestRunSelectionDetails selectionDetails) {
+        TestRunContributionTotals rerunTotals = TestRunContributionTotals.of(reruns);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun(branch, commitValue,
+                context.getRunId(), rerunTotals.getFirstStartMs(), rerunTotals.getSuitesRan(), ignoredSuiteCount,
+                rerunTotals.getFailedSuites().size(), rerunTotals.getTestTimeMs(), false, 0L, 0, 0L, 0,
+                rerunTotals.getLongestJvmTestTimeMs(), groupCount, groupsAvailable,
+                RunEnvironment.distributedRunOrigin(plannedRunSource), selectionDetails, true);
+        dataStore.persistTestRunHistoryEntry(entry);
+        log.info("Distributed run '{}': recorded the build's rerun row {} (ran={}, failed={}, serialMs={}).",
+                context.getRunId(), entry.getId(), rerunTotals.getSuitesRan(),
+                rerunTotals.getFailedSuites().size(), rerunTotals.getTestTimeMs());
     }
 
     /**
@@ -344,9 +422,10 @@ public final class DistributedRunSealer {
     }
 
     /**
-     * Write the one history row a distributed build produces, in place of the row per runner that
-     * would otherwise multiply the history - and every savings total computed from it - by the
-     * build's fan-out.
+     * Write the first-attempt history row a distributed build produces, in place of the row per
+     * runner that would otherwise multiply the history - and every savings total computed from it -
+     * by the build's fan-out. It describes the first attempt only; retries of failed tests get their
+     * own row, written by {@link #persistBuildRerunHistory}.
      *
      * <p>The row's duration is the serial-equivalent time, so it means the same thing as the
      * duration on the single-host rows either side of it and the savings frozen onto it stay
@@ -370,7 +449,7 @@ public final class DistributedRunSealer {
      * @param commitValue the commit the build ran against
      * @param branch the branch the build ran against
      * @param updateDBMapping whether the build persisted mapping updates, stamped on the row
-     * @param totals the figures the build's groups add up to
+     * @param totals the figures the build's groups' first attempts add up to
      * @param ignoredSuiteCount the tracked suites the build did not run
      * @param allTestsRun whether the groups between them ran every tracked suite, which is what
      *                    makes this build's savings zero
@@ -413,7 +492,7 @@ public final class DistributedRunSealer {
                 totals.getSuitesFailed(), totals.getSerialDurationMs(), updateDBMapping,
                 timeSavingsMs, savingsPercent, wallClockSavingsMs, wallClockSavingsPercent,
                 totals.getWallClockMs(), totals.getGroupCount(), groupsAvailable,
-                RunEnvironment.distributedRunOrigin(plannedRunSource), selectionDetails);
+                RunEnvironment.distributedRunOrigin(plannedRunSource), selectionDetails, false);
         dataStore.persistTestRunHistoryEntry(entry);
         // Best-effort: the row and its counters are already saved and the per-trigger rows are
         // diagnostic detail only, so a failure writing them (for example an overlong trigger name)

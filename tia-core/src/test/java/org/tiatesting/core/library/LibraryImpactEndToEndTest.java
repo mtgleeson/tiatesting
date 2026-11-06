@@ -1,5 +1,7 @@
 package org.tiatesting.core.library;
 
+import org.tiatesting.core.testrunner.TestJvmContribution;
+import org.tiatesting.core.testrunner.TestRunResultFixture;
 import org.junit.jupiter.api.*;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -279,8 +281,8 @@ class LibraryImpactEndToEndTest {
         TestRunnerService service = new TestRunnerService(dataStore);
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, 1, 0, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, 1, TestRunResultFixture.syntheticPlanOutcome(0, 0),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
         // history logging is off in this end-to-end test to keep the focus on library drain cleanup
         service.persistTestRunData(true, false, commitValue, "main", System.currentTimeMillis(), testRunResult, null);
     }

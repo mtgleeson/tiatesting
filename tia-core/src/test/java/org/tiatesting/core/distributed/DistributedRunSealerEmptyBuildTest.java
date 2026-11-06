@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -193,8 +194,8 @@ class DistributedRunSealerEmptyBuildTest {
         List<String> helpers = Arrays.asList("com.example.FooApiClient", "com.example.FooFixtures");
         persistPlan(RUN_ID, Collections.singletonList(helpers));
         assertNotNull(dataStore.claimNextPendingGroup(RUN_ID, RUNNER_A, 5000L));
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 40L, 0, 0,
-                Collections.<String>emptySet(), 0L));
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, Collections.<String>emptySet(),
+                GroupProgressFixture.contribution(RUN_ID, 0, 40L, 0, 0, 0L)));
         assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L, new HashSet<>(helpers)),
                 "test setup expects the excused group to complete");
 
@@ -363,8 +364,8 @@ class DistributedRunSealerEmptyBuildTest {
         assertNotNull(claimed, "test setup expects a group to be available to claim");
         assertEquals(groupNumber, claimed.getGroupNumber(),
                 "test setup expects the groups to be claimed in order");
-        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                suitesRan, suitesFailed, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesObserved), 0L),
+        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesObserved),
+                GroupProgressFixture.contribution(runId, groupNumber, actualDurationMs, suitesRan, suitesFailed, 0L)),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L,
                 Collections.<String>emptySet()),

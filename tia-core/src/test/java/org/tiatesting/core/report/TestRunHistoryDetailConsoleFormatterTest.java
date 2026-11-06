@@ -44,9 +44,9 @@ class TestRunHistoryDetailConsoleFormatterTest {
         List<TestRunTrigger> triggers = Arrays.asList(lowCountMethod, staticRule, highCountMethod);
 
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 2, 1, 7, 4, 0, 6, SelectionMode.SELECTIVE);
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123def456",
-                1_700_000_000_000L, 42, 3, 1, 83_000L, true, 45_000L, 54,
-                RunOrigin.of("local", "host"), details, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123def456", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 42, 3, 1, 83_000L, 83_000L, true, 45_000L, 54,
+                RunOrigin.of("local", "host"), details);
 
         // when
         String output = TestRunHistoryDetailConsoleFormatter.format(entry, triggers, LF);
@@ -84,7 +84,7 @@ class TestRunHistoryDetailConsoleFormatterTest {
         // given - 60s baseline; 1 of 6 groups used for 2s: 58s (97%) serial, 8s (80%) wall clock
         TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
                 "ci-run-1", 1_700_000_000_000L, 3, 7, 0, 2_000L, true, 58_000L, 97, 8_000L, 80,
-                2_000L, 1, 6, RunOrigin.of(RunOrigin.SOURCE_CI, null), null);
+                2_000L, 1, 6, RunOrigin.of(RunOrigin.SOURCE_CI, null), null, false);
 
         // when
         String output = TestRunHistoryDetailConsoleFormatter.format(
@@ -108,9 +108,9 @@ class TestRunHistoryDetailConsoleFormatterTest {
     @Test
     void format_singleHostRun_rendersEqualSavingsAndDashedGroups() {
         // given
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
-                1_700_000_000_000L, 10, 2, 0, 12_000L, true, 4_000L, 25,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 10, 2, 0, 12_000L, 12_000L, true, 4_000L, 25,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null);
 
         // when
         String output = TestRunHistoryDetailConsoleFormatter.format(
@@ -134,10 +134,10 @@ class TestRunHistoryDetailConsoleFormatterTest {
     @Test
     void format_forcedRun_rendersTheModeAndTheOverrideNote() {
         // given
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
-                1_700_000_000_000L, 10, 0, 0, 4_000L, true, 0L, 0,
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 10, 0, 0, 4_000L, 4_000L, true, 0L, 0,
                 RunOrigin.of(RunOrigin.SOURCE_CI, "agent"),
-                TestRunSelectionDetails.forFullRun(SelectionMode.SELECT_ALL), false);
+                TestRunSelectionDetails.forFullRun(SelectionMode.SELECT_ALL));
 
         // when
         String output = TestRunHistoryDetailConsoleFormatter.format(
@@ -155,9 +155,9 @@ class TestRunHistoryDetailConsoleFormatterTest {
     @Test
     void format_selectiveRun_rendersNoModeLine() {
         // given
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
-                1_700_000_000_000L, 1, 9, 0, 4_000L, true, 0L, 0,
-                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), TestRunSelectionDetails.empty(), false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 1, 9, 0, 4_000L, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), TestRunSelectionDetails.empty());
 
         // when
         String output = TestRunHistoryDetailConsoleFormatter.format(
@@ -174,9 +174,9 @@ class TestRunHistoryDetailConsoleFormatterTest {
     @Test
     void format_rerun_rendersRerunYes() {
         // given
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
-                1_700_000_000_000L, 1, 9, 0, 4_000L, true, 0L, 0,
-                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null, true);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", String.valueOf(1_700_000_000_000L), true,
+                1_700_000_000_000L, 1, 9, 0, 4_000L, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null);
 
         // when
         String output = TestRunHistoryDetailConsoleFormatter.format(
@@ -194,9 +194,9 @@ class TestRunHistoryDetailConsoleFormatterTest {
     @Test
     void format_emptyTriggersAndNullCounters_rendersDashesAndNoneSections() {
         // given
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123def456",
-                1_700_000_000_000L, 10, 0, 0, 5_000L, true, 0L, 0,
-                RunOrigin.of("local", "host"), null, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123def456", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 10, 0, 0, 5_000L, 5_000L, true, 0L, 0,
+                RunOrigin.of("local", "host"), null);
         List<TestRunTrigger> triggers = Collections.emptyList();
 
         // when

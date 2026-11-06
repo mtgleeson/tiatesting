@@ -238,8 +238,7 @@ class TestRunnerServiceFailedSuitesTest {
             trackers.put(suite, new TestSuiteTracker(suite));
         }
         return new TestRunResult(trackers, failed, ALL_SUITES, executed, selected, new HashMap<>(),
-                new TestStats(), null, ALL_SUITES.size() - selected.size(), executed.size(),
-                failedThisAttempt, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new TestStats(), null, ALL_SUITES.size() - selected.size(), TestRunResultFixture.syntheticPlanOutcome(executed.size(), failedThisAttempt), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**

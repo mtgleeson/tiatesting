@@ -19,6 +19,7 @@ import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
@@ -48,6 +49,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -527,6 +529,30 @@ class AgentMojoDistributedTest {
         assertNull(forkProperties.getProperty("tiaDistributedRunnerKey"));
         assertNull(forkProperties.getProperty("tiaDistributedGroupNumber"));
         assertEquals("true", forkProperties.getProperty("tiaEnabled"));
+    }
+
+    /**
+     * Every build hands its test JVMs a new run identity, so the forks of one build contribute to one
+     * run and two builds never share one.
+     *
+     * @throws Exception if the properties file cannot be written or read
+     */
+    @Test
+    void shouldForwardANewTestRunIdentityToTheFork() throws Exception {
+        // given
+        TestMojo mojo = distributedMojo("run-12", PLAN_COMMIT);
+        mojo.tiaDistributed = false;
+
+        // when
+        writeForkPropertiesFile(mojo);
+        String firstRunId = readForkProperties().getProperty(TestRunIdentity.PROP_TEST_RUN_ID);
+        writeForkPropertiesFile(mojo);
+        Properties second = readForkProperties();
+
+        // then
+        assertNotNull(firstRunId);
+        assertNotNull(second.getProperty(TestRunIdentity.PROP_TEST_RUN_START_MS));
+        assertNotEquals(firstRunId, second.getProperty(TestRunIdentity.PROP_TEST_RUN_ID));
     }
 
     /**

@@ -69,7 +69,7 @@ class TestRunnerServiceReseedTest {
         tiaData.setLastUpdated(Instant.now());
         dataStore.persistCoreData(tiaData);
 
-        persist(run(RunAttempt.FIRST, SelectionMode.SELECTIVE, SUITE_OLD, SUITE_SEEN));
+        persist(run(SelectionMode.SELECTIVE, SUITE_OLD, SUITE_SEEN));
     }
 
     /**
@@ -92,7 +92,7 @@ class TestRunnerServiceReseedTest {
     @Test
     void aFirstAttemptReseedClearsSuitesItDidNotRun() {
         // given - a re-seed run that executes only the second suite, while both are still on disk
-        TestRunResult reseed = run(RunAttempt.FIRST, SelectionMode.RESEED, SUITE_SEEN);
+        TestRunResult reseed = run(SelectionMode.RESEED, SUITE_SEEN);
 
         // when
         persist(reseed);
@@ -107,9 +107,14 @@ class TestRunnerServiceReseedTest {
     @Test
     void aFreshJvmRetryOfAReseedClearsNothing() {
         // given
-        TestRunResult retry = run(RunAttempt.RERUN_NEW_JVM, SelectionMode.RESEED, SUITE_SEEN);
+        // a re-seed build whose first attempt ran both suites and failed one
+        TestRunIdentity build = TestRunResultFixture.runIdentity();
+        persist(run(new TestJvmContribution(), build, SelectionMode.RESEED,
+                Collections.singleton(SUITE_SEEN), SUITE_OLD, SUITE_SEEN));
+        TestRunResult retry = run(new TestJvmContribution(), build, SelectionMode.RESEED,
+                Collections.<String>emptySet(), SUITE_SEEN);
 
-        // when
+        // when the failed suite is retried in a fresh JVM
         persist(retry);
 
         // then
@@ -122,7 +127,7 @@ class TestRunnerServiceReseedTest {
     @Test
     void aSelectAllRunClearsNothing() {
         // given
-        TestRunResult selectAll = run(RunAttempt.FIRST, SelectionMode.SELECT_ALL, SUITE_SEEN);
+        TestRunResult selectAll = run(SelectionMode.SELECT_ALL, SUITE_SEEN);
 
         // when
         persist(selectAll);
@@ -144,12 +149,27 @@ class TestRunnerServiceReseedTest {
      * Build a run result for a JVM whose runner discovered both suites and executed (and was
      * selected to run) only the named ones, each covering one method of its own.
      *
-     * @param attempt which attempt the run is
      * @param mode the selection mode the run carries on its selection details
+     * @param executedSuites the suites that executed
+     * @return the first attempt of a new build, in a new JVM, with no failures
+     */
+    private static TestRunResult run(final SelectionMode mode, final String... executedSuites) {
+        return run(new TestJvmContribution(), TestRunResultFixture.runIdentity(), mode,
+                Collections.<String>emptySet(), executedSuites);
+    }
+
+    /**
+     * Build a run result for one plan of a given build, in a given JVM.
+     *
+     * @param jvm the test JVM the plan ran in
+     * @param build the run the plan belongs to
+     * @param mode the selection mode the run carries on its selection details
+     * @param failedSuites the executed suites that failed
      * @param executedSuites the suites that executed
      * @return the result
      */
-    private static TestRunResult run(final RunAttempt attempt, final SelectionMode mode,
+    private static TestRunResult run(final TestJvmContribution jvm, final TestRunIdentity build,
+                                     final SelectionMode mode, final Set<String> failedSuites,
                                      final String... executedSuites) {
         Map<String, TestSuiteTracker> executed = new HashMap<>();
         Map<Integer, MethodImpactTracker> methods = new HashMap<>();
@@ -169,8 +189,9 @@ class TestRunnerServiceReseedTest {
         runStats.setNumRuns(1);
         runStats.setAvgRunTime(100L);
         runStats.setNumSuccessRuns(1);
-        return new TestRunResult(executed, Collections.<String>emptySet(), DISCOVERED,
-                executed.keySet(), executed.keySet(), methods, runStats, null, 0, executed.size(), 0,
-                TestRunSelectionDetails.forFullRun(mode), attempt);
+        return new TestRunResult(executed, failedSuites, DISCOVERED,
+                executed.keySet(), executed.keySet(), methods, runStats, null, 0,
+                TestRunResultFixture.planOutcome(executed.keySet(), failedSuites),
+                TestRunSelectionDetails.forFullRun(mode), jvm, build);
     }
 }

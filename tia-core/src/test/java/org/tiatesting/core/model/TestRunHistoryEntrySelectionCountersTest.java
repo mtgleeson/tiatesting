@@ -23,8 +23,8 @@ public class TestRunHistoryEntrySelectionCountersTest {
                 Collections.emptyList(), 1, 2, 6, 3, 4, 5, SelectionMode.SELECTIVE);
 
         // when
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1000L,
-                10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of("local", "host"), details, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", String.valueOf(1000L), false, 1000L,
+                10, 20, 0, 5000L, 5000L, true, 0L, 0, RunOrigin.of("local", "host"), details);
 
         // then
         assertEquals(Integer.valueOf(1), entry.getNumModifiedTestFiles());
@@ -41,8 +41,8 @@ public class TestRunHistoryEntrySelectionCountersTest {
         TestRunSelectionDetails details = null;
 
         // when
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1000L,
-                10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of("local", "host"), details, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", String.valueOf(1000L), false, 1000L,
+                10, 20, 0, 5000L, 5000L, true, 0L, 0, RunOrigin.of("local", "host"), details);
 
         // then
         assertNull(entry.getNumModifiedTestFiles());

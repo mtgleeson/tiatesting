@@ -6,10 +6,10 @@ import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.distributed.DistributedRunnerPersist;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.CoreStatsIncrement;
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
-import org.tiatesting.core.report.ReportUtils;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.DataStore;
@@ -29,6 +29,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -64,11 +65,16 @@ public class TestRunnerService {
      * later persist in the same JVM (a retry round) reopens the database on its first connection.
      * Server-mode and Postgres closes are no-ops.
      *
-     * <p><b>Empty runs.</b> A run that executed none of the suites Tia expected it to -
-     * {@link TestRunResult#ranNoExpectedSuites()} - persists nothing but a {@code ran=0} history row:
+     * <p><b>Empty runs.</b> A test plan that executed none of the suites Tia expected it to -
+     * {@link TestRunResult#ranNoExpectedSuites(boolean)} - persists nothing but its contribution to the run:
      * no stats, no full-suite baseline, no seal and so no commit advance, no failed-set update and no
      * suite-mapping metadata. It observed neither the commit nor the suites, so it is given no say
      * over either; see {@link #persistEmptyRun} for what each of those writes would have got wrong.
+     *
+     * <p><b>History.</b> Every single-host persist restates this test JVM's contribution to the run
+     * and rebuilds the run's history rows from all of its JVMs' contributions, so a run gets one
+     * first-attempt row and at most one rerun row however many forks and test plans it used. See
+     * {@link #persistRunContribution} and the "Test run history" chapter in {@code WIKI.md}.
      *
      * @param updateDBMapping          should the test-suite to source-code mapping be updated,
      *                                 and with it the run stats. The two are one decision: the run
@@ -77,8 +83,8 @@ public class TestRunnerService {
      * @param updateDBTestRunHistory   should this run write a row to {@code tia_test_run_history}
      * @param commitValue              the VCS commit / changelist the run was against
      * @param branch                   the VCS branch the run targeted (recorded with the history entry)
-     * @param runStartTimestampMs      UTC epoch millis when the test run started (used as both the
-     *                                 history entry timestamp and the duration baseline)
+     * @param runStartTimestampMs      UTC epoch millis when the test plan started, the baseline of
+     *                                 this plan's duration
      * @param testRunResult            the collected results of the test run
      * @param distributedRunnerContext the run id, runner identity and claimed group when this run
      *                                 is one runner's share of a distributed build, or {@code null}
@@ -99,17 +105,23 @@ public class TestRunnerService {
     }
 
     /**
-     * Write the data accumulated by a Tia test run, in the order {@link #persistTestRunData}
-     * describes: a distributed runner's share, an empty run's history row, or the suite mapping,
-     * failed set, seal and history row of an ordinary run.
+     * Write the data accumulated by a Tia test plan, in the order {@link #persistTestRunData}
+     * describes: a distributed runner's share, an empty plan's contribution, or the suite mapping,
+     * failed set, seal, contribution and history rows of an ordinary run.
+     *
+     * <p>Before any write, the plan's attempt is resolved from what the run's JVMs have recorded and
+     * the plan is added to this JVM's running totals: the mapping persist, the seal and the
+     * distributed report all read the attempt. A single-host JVM then restates its contribution to
+     * the run whichever branch it takes.
      *
      * @param updateDBMapping          should the test-suite to source-code mapping and the run
      *                                 stats be updated
      * @param updateDBTestRunHistory   should this run write a row to {@code tia_test_run_history}
      * @param commitValue              the VCS commit / changelist the run was against
      * @param branch                   the VCS branch the run targeted
-     * @param runStartTimestampMs      UTC epoch millis when the test run started
-     * @param testRunResult            the collected results of the test run
+     * @param runStartTimestampMs      UTC epoch millis when the test plan started
+     * @param unresolvedResult         the collected results of the test plan, its attempt not yet
+     *                                 resolved
      * @param distributedRunnerContext the distributed runner's context, or {@code null} for an
      *                                 ordinary single-host run
      */
@@ -117,7 +129,7 @@ public class TestRunnerService {
                                   final boolean updateDBTestRunHistory,
                                   final String commitValue, final String branch,
                                   final long runStartTimestampMs,
-                                  final TestRunResult testRunResult,
+                                  final TestRunResult unresolvedResult,
                                   final DistributedRunnerContext distributedRunnerContext){
         // Capture the run duration up front, before any DB read/write below. This is the
         // test-execution wall clock (test-plan start to here); it deliberately excludes Tia's own
@@ -126,6 +138,17 @@ public class TestRunnerService {
         // must be measured on the same clock for savings = baseline - duration to be meaningful.
         final long durationMs = Math.max(0L, System.currentTimeMillis() - runStartTimestampMs);
 
+        // Resolve which attempt this plan is from what the run's JVMs have recorded, then add the
+        // plan to this JVM's running totals - both before any write. See RunAttemptResolver.
+        final String runId = distributedRunnerContext != null
+                ? distributedRunnerContext.getRunId() : unresolvedResult.getRunIdentity().getRunId();
+        final TestRunResult testRunResult =
+                unresolvedResult.withRunAttempt(resolveRunAttempt(unresolvedResult, runId,
+                        distributedRunnerContext != null ? distributedRunnerContext.getGroupNumber() : null));
+        testRunResult.getJvmContribution().record(testRunResult.getRunAttempt().isRerun(),
+                testRunResult.getPlanOutcome(), runStartTimestampMs, runStartTimestampMs + durationMs,
+                sumMeasuredSuiteRunTimes(testRunResult.getTestSuiteTrackers()));
+
         if (distributedRunnerContext != null){
             // One runner of a distributed build persists only its own share and stops. Everything
             // that describes the whole build - the catalogue, the seal, the commit stamp and the
@@ -133,15 +156,15 @@ public class TestRunnerService {
             // branch itself from the plan's own run row rather than from this runner's copy - see
             // persistDistributedRunnerData's javadoc for why commitValue and branch stop here.
             persistDistributedRunnerData(updateDBMapping, updateDBTestRunHistory,
-                    durationMs, testRunResult, distributedRunnerContext);
+                    testRunResult, distributedRunnerContext);
             return;
         }
 
         // A run that executed none of the suites Tia expected it to run knows nothing about this
         // commit, so it persists nothing that would claim otherwise - see persistEmptyRun.
-        if (testRunResult.ranNoExpectedSuites()){
-            persistEmptyRun(updateDBMapping, updateDBTestRunHistory, commitValue, branch,
-                    runStartTimestampMs, durationMs, testRunResult);
+        if (testRunResult.ranNoExpectedSuites(updateDBMapping)){
+            persistEmptyRun(testRunResult, updateDBMapping);
+            persistRunContribution(testRunResult, updateDBTestRunHistory, false, commitValue, branch);
             return;
         }
 
@@ -173,15 +196,78 @@ public class TestRunnerService {
         //    one transaction so none of them can end up ahead of the others.
         sealRun(tiaData, commitValue, branch, updateDBMapping, testRunResult, allTestsRun);
 
-        // 4. History row is audit-only and has no select-tests consistency implications;
-        //    written after the seal so history rows only exist for fully-sealed runs.
-        if (updateDBTestRunHistory) {
-            // Baseline for this run's savings: the all-tests average as it stands now. Partial runs
-            // don't move it, so it is the established full-suite time to compare against; for an
-            // all-tests run the savings are 0 regardless.
-            long allTestsRunTimeMs = tiaData.getTestStats().getAllTestsRunTime();
-            persistTestRunHistory(updateDBMapping, commitValue, branch, runStartTimestampMs,
-                    durationMs, testRunResult, allTestsRunTimeMs, false);
+        // 4. This JVM's contribution to the run and the run's history rows, rebuilt from every
+        //    JVM's contribution. Audit-only, with no select-tests consistency implications, and
+        //    written after the seal so a mapping run's rows only exist once it is sealed.
+        persistRunContribution(testRunResult, updateDBTestRunHistory, updateDBMapping, commitValue, branch);
+    }
+
+    /**
+     * Resolve a plan's attempt from the run's contributions. See {@link RunAttemptResolver}. A
+     * distributed runner's JVM reads only its own group's failures, so a suite outside the plan that
+     * every runner runs is not taken for a retry on the second runner.
+     *
+     * @param testRunResult the plan's result, carrying the plan outcome and this JVM's totals
+     * @param runId the run the plan belongs to
+     * @param groupNumber the distributed group the JVM works, or null on a single-host run
+     * @return the plan's attempt
+     */
+    private RunAttempt resolveRunAttempt(final TestRunResult testRunResult, final String runId,
+                                         final Integer groupNumber) {
+        final TestJvmContribution jvm = testRunResult.getJvmContribution();
+        return RunAttemptResolver.resolve(testRunResult.getPlanOutcome(), jvm,
+                () -> dataStore.readTestRunFailedSuites(runId, groupNumber, jvm.getJvmId()));
+    }
+
+    /**
+     * Restate this single-host JVM's contribution to its run and, when the run records history,
+     * rebuild the run's history rows from every contribution in the same locked transaction - one
+     * first-attempt row and at most one rerun row per run, however many JVMs and test plans it
+     * used. The contribution is written whatever the flags say: a later JVM of the run - a Gradle
+     * test-retry round - reads it to recognise itself as a retry. A failure is logged and swallowed:
+     * the tests ran, and the mapping writes before it are already committed. The selection triggers
+     * are written once, by the persist that created the first-attempt row. See the "Test run
+     * history" chapter in {@code WIKI.md}.
+     *
+     * @param result the plan's result, with its attempt resolved and recorded
+     * @param updateDBTestRunHistory whether the run records history
+     * @param updateDBMapping whether this plan updated the mapping, stamped on the run's rows
+     * @param commitValue the commit the run was against
+     * @param branch the branch the run targeted
+     */
+    private void persistRunContribution(final TestRunResult result, final boolean updateDBTestRunHistory,
+                                        final boolean updateDBMapping, final String commitValue,
+                                        final String branch) {
+        TestRunIdentity identity = result.getRunIdentity();
+        String runId = identity.getRunId();
+        TestRunSelectionDetails details = result.getSelectionDetails();
+        try {
+            Function<List<TestRunContribution>, List<TestRunHistoryEntry>> history = null;
+            if (updateDBTestRunHistory) {
+                // Read on every persist, empty plans included: whichever JVM persists last rebuilds
+                // the rows, and its savings must be measured against the real baseline. Partial runs
+                // don't move the baseline, so it is the established full-suite time.
+                long allTestsRunTimeMs = dataStore.getTiaCore().getTestStats().getAllTestsRunTime();
+                boolean suitesWereSelected = result.getSelectedTests() != null
+                        && !result.getSelectedTests().isEmpty();
+                final TestRunHistoryAssembler.RunContext context = new TestRunHistoryAssembler.RunContext(
+                        branch, commitValue, runId, identity.getStartMs(), result.getIgnoredTestSuiteCount(),
+                        suitesWereSelected, updateDBMapping, allTestsRunTimeMs,
+                        RunEnvironment.currentRunOrigin(), details);
+                history = contributions -> TestRunHistoryAssembler.assemble(contributions, context);
+            }
+            Set<String> created = dataStore.persistTestRunContribution(runId, identity.getStartMs(),
+                    result.getJvmContribution().snapshot(runId, null), history);
+            String firstAttemptId = TestRunHistoryEntry.idFor(branch, commitValue, runId, false);
+            if (created.contains(firstAttemptId)) {
+                persistSelectionTriggersBestEffort(firstAttemptId, details);
+            }
+            log.debug("Persisted this test JVM's contribution to run {} (history {}, rows created {}).",
+                    runId, updateDBTestRunHistory ? "on" : "off", created);
+        } catch (RuntimeException e) {
+            log.warn("Failed to record this test JVM's contribution to run {}{}. A retry of failed tests "
+                    + "in another JVM may not be recognised as a retry.", runId,
+                    updateDBTestRunHistory ? " and the run's history rows" : "", e);
         }
     }
 
@@ -230,16 +316,14 @@ public class TestRunnerService {
      *                        seal instead, since they describe the whole build
      * @param updateDBTestRunHistory should the build write a history row. Recorded for the seal
      *                               unchanged: the build's one row is the sealer's to write
-     * @param durationMs this runner's test-execution duration in ms, measured on the same clock a
-     *                   single-host run records, so the sealer's aggregate stays comparable with
-     *                   non-distributed history
-     * @param testRunResult the collected results of this runner's test run
+     * @param testRunResult the collected results of this runner's test run, carrying the JVM
+     *                      contribution its group's figures are derived from
      * @param distributedRunnerContext the run id, runner identity and claimed group this runner
      *                                 holds; a context that claimed no group persists nothing
      */
     private void persistDistributedRunnerData(final boolean updateDBMapping,
                                               final boolean updateDBTestRunHistory,
-                                              final long durationMs, final TestRunResult testRunResult,
+                                              final TestRunResult testRunResult,
                                               final DistributedRunnerContext distributedRunnerContext){
         if (!distributedRunnerContext.isClaimed()){
             // A surplus runner: the pipeline fanned out wider than the plan's group count, so this
@@ -263,13 +347,6 @@ public class TestRunnerService {
                 distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey(),
                 distributedRunnerContext.getGroupNumber());
 
-        // The suite-attributable share of durationMs, read before step 1 goes near the trackers.
-        // mergeTestMappingStats today folds this run's figures into the *stored* tracker and leaves
-        // the incoming one untouched, so the ordering is not load-bearing yet - but the value being
-        // read is "what this run measured", and taking it before the merge is what keeps that true
-        // if the merge ever starts writing back through the incoming map.
-        long suitesDurationMs = sumMeasuredSuiteRunTimes(testRunResult.getTestSuiteTrackers());
-
         // A runner that executed none of the suites it was given writes no mapping either, for the
         // reasons persistEmptyRun gives - and one of them bites harder here than on a single host.
         // This runner's runnerTestSuites is its own JVM's observations when no test-classes directory
@@ -282,10 +359,10 @@ public class TestRunnerService {
         // nothing never satisfies the completeness guard, so its group never completes and no sealer
         // is elected. The gate therefore has to be here as well as there.
         //
-        // Progress is still reported below: the group's counters and duration are facts about this
-        // runner regardless, and reporting them is what lets the barrier release and the build reach
+        // Progress is still reported below: the runner's contribution and observed suites are facts
+        // about this runner regardless, and reporting them is what lets the barrier release and the build reach
         // the sealer, which is where an empty *build* is recognised.
-        boolean ranNoExpectedSuites = testRunResult.ranNoExpectedSuites();
+        boolean ranNoExpectedSuites = testRunResult.ranNoExpectedSuites(updateDBMapping);
         if (ranNoExpectedSuites){
             logEmptyRun(testRunResult, updateDBMapping, false);
         }
@@ -316,61 +393,53 @@ public class TestRunnerService {
         //    row and one set of Tia-level stats, both written by the sealer from the figures every
         //    group recorded, rather than one of each per runner.
 
-        // 5. Report this test plan's progress. The duration accumulates onto whatever is already
-        //    stored for the group, so a Surefire retry's time adds to the runner's; suitesFailed
-        //    replaces what was stored, since it is current state and a passing retry must be able
-        //    to shrink it back to zero. suitesRan is the distinct suites this JVM has executed -
-        //    the tracker map, cumulative across every test plan - written via GREATEST, so a
-        //    retried suite counts once, as it does in suitesFailed, on the build's one history row;
-        //    a Gradle test-retry round, which executed only the retried suites, cannot shrink it. suitesDurationMs - the part of the duration attributable to
-        //    a named suite, which is what lets the sealer charge each runner's fixed JVM overhead
-        //    once for the build rather than once per group - is written via GREATEST rather than
-        //    accumulated, for the reason sumMeasuredSuiteRunTimes explains. suitesObserved is a set
-        //    of names: each one's group-suite row is flagged observed, so a retry re-reporting the
-        //    same suites changes nothing and several JVMs' reports add up to their union (see
+        // 5. Report this test plan's progress. The group's figures - duration, wall clock, suites
+        //    ran and failed, suite time - are not reported as numbers: they are derived from the
+        //    contribution rows of every JVM that works the group (see
+        //    DistributedRunGroup#withFigures), so several Surefire forks or a Gradle test-retry JVM
+        //    add up rather than overwrite each other. suitesObserved is a set of names: each one's
+        //    group-suite row is flagged observed, so a retry re-reporting the same suites changes
+        //    nothing and several JVMs' reports add up to their union (see
         //    DataStore#reportGroupProgress). It is deliberately fed from the intersection of
-        //    getSuitesObserved() with this group's own assigned suites (see
-        //    observedSuitesInGroup), not from
-        //    getSuitesObserved() alone and not from getRunnerTestSuites(). getRunnerTestSuites() can
-        //    be a project-wide directory scan on Maven (testClassesDir) that carries no information
-        //    about this runner's own progress, which was the second bug in this guard's history; the
-        //    third was feeding the guard from the raw size of getSuitesObserved(), which on Maven
-        //    also counts every foreign suite this JVM's ByteBuddy-disabled classes fire
-        //    executionSkipped for - suites Tia deselected onto other groups, not suites this group
-        //    was ever assigned. Flags can only land on assigned rows, and intersecting first keeps
-        //    those foreign names out of the report entirely. The observed flags are what the
-        //    completeness guard later counts, not suitesRan, so a suite the runner observed
-        //    but never executed (a disabled class, a Surefire/Gradle filter, a class deleted since
-        //    the last mapping run) does not block the group from completing, as long as it is one of
-        //    this group's own assigned suites. The status flip itself is not made here: this runs
-        //    once per finished test plan, and a retry is another test plan in the same JVM, so
-        //    flipping the group to COMPLETED here would release the barrier after the first test plan
-        //    while this runner is still executing tests. It is made instead by the build tool step
-        //    that runs once every retry has finished - see DistributedRunCompleter - since knowing
-        //    that no more retries are coming is a fact only the build tool has, not this fork.
-        int suitesRan = testRunResult.getTestSuiteTrackers().size();
-        int suitesFailed = testRunResult.getTestSuitesFailed() != null
-                ? testRunResult.getTestSuitesFailed().size() : 0;
+        //    getSuitesObserved() with this group's own assigned suites (see observedSuitesInGroup),
+        //    not from getSuitesObserved() alone and not from getRunnerTestSuites().
+        //    getRunnerTestSuites() can be a project-wide directory scan on Maven (testClassesDir)
+        //    that carries no information about this runner's own progress, which was the second bug
+        //    in this guard's history; the third was feeding the guard from the raw size of
+        //    getSuitesObserved(), which on Maven also counts every foreign suite this JVM's
+        //    ByteBuddy-disabled classes fire executionSkipped for - suites Tia deselected onto other
+        //    groups, not suites this group was ever assigned. Flags can only land on assigned rows,
+        //    and intersecting first keeps those foreign names out of the report entirely. The
+        //    observed flags are what the completeness guard later counts, not the suites ran, so a
+        //    suite the runner observed but never executed (a disabled class, a Surefire/Gradle
+        //    filter, a class deleted since the last mapping run) does not block the group from
+        //    completing, as long as it is one of this group's own assigned suites. The status flip
+        //    itself is not made here: this runs once per finished test plan, and a retry is another
+        //    test plan in the same JVM, so flipping the group to COMPLETED here would release the
+        //    barrier after the first test plan while this runner is still executing tests. It is
+        //    made instead by the build tool step that runs once every retry has finished - see
+        //    DistributedRunCompleter - since knowing that no more retries are coming is a fact only
+        //    the build tool has, not this fork.
         Set<String> suitesObserved = observedSuitesInGroup(testRunResult.getSuitesObserved(),
                 distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber().intValue());
-        runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesObserved,
-                suitesDurationMs);
+        runnerPersist.reportGroupProgress(suitesObserved, testRunResult.getJvmContribution().snapshot(
+                        distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber()));
     }
 
     /**
-     * Add up the run times this JVM measured for the suites it ran, giving the share of the runner's
-     * total duration that is attributable to a named suite. What is left over -
-     * {@code durationMs - this} - is the runner's fixed per-JVM overhead, and reporting the split
-     * lets the sealer charge that overhead once for the whole build instead of once per group; see
-     * {@link org.tiatesting.core.distributed.DistributedRunTotals}.
+     * Add up the run times this JVM measured for the suites it ran, giving the share of the JVM's
+     * plan time that is attributable to a named suite. It feeds the JVM's contribution (see {@link
+     * TestJvmContribution#record}), from which a distributed group's suite time is derived; the
+     * remainder of the group's duration is the runner's fixed per-JVM overhead, which lets the
+     * sealer charge that overhead once for the whole build instead of once per group - see {@link
+     * org.tiatesting.core.distributed.DistributedRunTotals}.
      *
      * <p>The tracker map is the JVM's shared one, so this total is already cumulative across every
      * test plan the JVM has made: a suite is timed on its first attempt only (see the listeners'
      * {@code shouldCalcTestSuiteAvgTime}), so a Surefire retry re-reports the same total rather than
-     * adding to it. That is exactly why the column it feeds is written via {@code GREATEST} rather
-     * than accumulated, and it is also what leaves a retry's own wall time outside the
-     * suite-attributable total and inside the overhead remainder, where it belongs - a retry is real
-     * time the build spent that no fresh suite run accounts for.
+     * adding to it. That leaves a retry's own wall time outside the suite-attributable total and
+     * inside the overhead remainder, where it belongs - a retry is real time the build spent that
+     * no fresh suite run accounts for.
      *
      * <p>Returns 0 when no suite was timed, which is the ordinary state on a run that does not own
      * the mapping. The sealer distinguishes that from a genuine zero by checking it against the group's
@@ -499,7 +568,7 @@ public class TestRunnerService {
 
     /**
      * Persist an empty run - one that executed none of the suites Tia's selection expected it to run
-     * (see {@link TestRunResult#ranNoExpectedSuites()}). It writes its history row and nothing else,
+     * (see {@link TestRunResult#ranNoExpectedSuites(boolean)}). It writes its history row and nothing else,
      * and warns.
      *
      * <p><b>Why nothing else.</b> Every other write this persist makes is a claim about the commit or
@@ -525,39 +594,22 @@ public class TestRunnerService {
      *       in a single build.</li>
      * </ul>
      *
-     * <p>The history row is the exception because it claims nothing about the code: it is the audit
-     * trail, and a {@code ran=0} row is how the empty run stays visible rather than leaving an
-     * unexplained gap. It is credited no savings - an empty run finished early because it ran nothing,
-     * not because Tia deselected anything - and records {@code updatedDbMapping} as false, which is
-     * now the truth for this run whatever it was configured to do.
+     * <p>The plan's contribution to the run is the exception because it claims nothing about the
+     * code: the run's history rows are built from it, so a run that ran nothing at all still gets a
+     * {@code ran=0} row rather than leaving an unexplained gap, credited no savings and recording
+     * {@code updatedDbMapping} as false. The caller writes it.
      *
      * <p>Warned at WARN because the run itself looks successful - no suite ran, so no suite failed -
      * and the build tool reports it as a pass; without the line the only symptom is a suspiciously
      * fast build.
      *
+     * @param testRunResult the collected results of the test plan
      * @param updateDBMapping whether this run owned mapping-DB updates, which decides how much of
      *                        the warning applies - a run that was never updating the mapping had no
      *                        stats, seal or commit stamp to withhold in the first place
-     * @param updateDBTestRunHistory whether this run writes a history row at all
-     * @param commitValue the VCS commit / changelist the run was against, recorded on the row but
-     *                    deliberately not stamped as the stored commit
-     * @param branch the VCS branch the run targeted
-     * @param runStartTimestampMs UTC epoch millis when the test run started
-     * @param durationMs the run's duration in ms, captured by the caller
-     * @param testRunResult the collected results of the test run
      */
-    private void persistEmptyRun(final boolean updateDBMapping, final boolean updateDBTestRunHistory,
-                                 final String commitValue, final String branch,
-                                 final long runStartTimestampMs, final long durationMs,
-                                 final TestRunResult testRunResult){
+    private void persistEmptyRun(final TestRunResult testRunResult, final boolean updateDBMapping){
         logEmptyRun(testRunResult, updateDBMapping, true);
-
-        if (updateDBTestRunHistory) {
-            // No baseline is read: an empty run's savings are zero against any baseline, so the core
-            // read would buy nothing.
-            persistTestRunHistory(false, commitValue, branch, runStartTimestampMs, durationMs,
-                    testRunResult, 0L, true);
-        }
     }
 
     /**
@@ -591,9 +643,10 @@ public class TestRunnerService {
         String consequence;
         if (!updateDBMapping) {
             consequence = "This run was not updating the mapping DB, so it had no stats or seal to "
-                    + "record either way; only its history row is written, credited no savings.";
+                    + "record either way; only its contribution to the run's history is written.";
         } else if (singleHostPersist) {
-            consequence = "Nothing is persisted for it but a history row: no test was timed, so it "
+            consequence = "Nothing is persisted for it but its contribution to the run's history: no "
+                    + "test was timed, so it "
                     + "contributes no run stats, is counted as neither a run nor a success, moves no "
                     + "run-time average, is credited no savings, and does not advance the stored "
                     + "commit value - the next run will diff against the previous commit and "
@@ -609,78 +662,6 @@ public class TestRunnerService {
                         + "mismatched test dependency), a build-tool filter that excluded the whole "
                         + "selection, or every selected suite being disabled in source.",
                 expected, consequence);
-    }
-
-    /**
-     * Build and persist a {@link TestRunHistoryEntry} for this run.
-     *
-     * <p>The selection breakdown carried on {@link TestRunResult#getSelectionDetails()} is written
-     * alongside the entry: its six scalar counters are folded into the entry via
-     * {@link TestRunHistoryEntry#create} and its per-method/per-rule triggers are persisted
-     * separately via {@link DataStore#persistTestRunTriggers} keyed on the entry's id, so both the
-     * history row and its trigger breakdown are written for every single-host run. Only this
-     * single-host path does so - the distributed build's breakdown is written by the sealer.
-     *
-     * <p>Counts: {@code ran} is the per-attempt count of suites that finished in this listener
-     * attempt only, taken from {@link TestRunResult#getSuitesRanThisAttempt()}. This avoids
-     * inflating retry-row counts with prior-attempt entries that the shared
-     * {@link TestRunResult#getTestSuiteTrackers()} map deliberately carries forward for the
-     * mapping path. {@code ignored} is the number of suites Tia chose to ignore, taken directly
-     * from the selector via {@link TestRunResult#getIgnoredTestSuiteCount()} (which sources it
-     * from the {@code tiaIgnoredTestSuiteCount} system property). Engine-level skips that Tia
-     * did not cause (user {@code @Disabled}, surefire {@code groups} filters, etc.) are
-     * deliberately excluded so the history column reflects Tia's selection decision only.
-     * {@code failed} is this attempt's own failed-suite count. A retry of failed tests - a Surefire
-     * rerun or a Gradle test-retry round - is flagged as a rerun and credited no savings: it ran
-     * only the failures, so crediting the skipped remainder as time Tia saved would count the same
-     * run's savings again. {@code durationMs} is the test-execution wall
-     * clock captured by the caller before its DB persist work, so it excludes Tia's own
-     * mapping/seal overhead and stays comparable to the savings baseline.
-     *
-     * @param updateDBMapping       was this run also updating the Tia mapping DB (stamped on the row)
-     * @param commitValue           VCS commit / changelist the run was against
-     * @param branch                VCS branch the run targeted
-     * @param runStartTimestampMs   when the run started (UTC epoch ms); recorded as the row timestamp
-     * @param durationMs            the run's test-execution duration (ms), captured before the
-     *                              persist work so it excludes Tia's mapping/seal overhead
-     * @param testRunResult         the collected results of the test run
-     * @param allTestsRunTimeMs     the all-tests-run baseline (ms) to freeze this run's savings
-     *                              against; partial runs don't move it, so it is the established
-     *                              full-suite time
-     * @param ranNoExpectedSuites   {@code true} when the run executed no suite although the selection
-     *                              expected at least one; the row is still written (a {@code ran=0}
-     *                              row is how the empty run stays visible) but it is credited no
-     *                              savings, since skipping tests that were meant to run is a broken
-     *                              build rather than a Tia win
-     */
-    private void persistTestRunHistory(final boolean updateDBMapping, final String commitValue,
-                                       final String branch, final long runStartTimestampMs,
-                                       final long durationMs, final TestRunResult testRunResult,
-                                       final long allTestsRunTimeMs,
-                                       final boolean ranNoExpectedSuites) {
-        int ran = Math.max(0, testRunResult.getSuitesRanThisAttempt());
-        int ignored = Math.max(0, testRunResult.getIgnoredTestSuiteCount());
-        // Per-attempt, to pair with the per-attempt ran count on the same row: the JVM-wide failed
-        // set would charge a retry row with failures in suites that retry never ran.
-        int failed = Math.max(0, testRunResult.getSuitesFailedThisAttempt());
-
-        // Freeze the savings for this run: 0 for an all-tests run (ignored == 0), for a run that
-        // executed none of the suites it was expected to, for a rerun of failed tests, or when no
-        // baseline exists; else the baseline minus this run's duration.
-        boolean rerun = testRunResult.getRunAttempt().isRerun();
-        long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs, durationMs,
-                ignored == 0 || ranNoExpectedSuites || rerun);
-        int savingsPercent = (int) ReportUtils.percentOfTotal(timeSavingsMs, allTestsRunTimeMs);
-
-        TestRunSelectionDetails details = testRunResult.getSelectionDetails();
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                branch, commitValue, runStartTimestampMs, ran, ignored, failed, durationMs,
-                updateDBMapping, timeSavingsMs, savingsPercent, RunEnvironment.currentRunOrigin(),
-                details, rerun);
-        dataStore.persistTestRunHistoryEntry(entry);
-        persistSelectionTriggersBestEffort(entry.getId(), details);
-        log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={}, savingsMs={}, savings%={}, rerun={})",
-                entry.getId(), ran, ignored, failed, durationMs, timeSavingsMs, savingsPercent, rerun);
     }
 
     /**

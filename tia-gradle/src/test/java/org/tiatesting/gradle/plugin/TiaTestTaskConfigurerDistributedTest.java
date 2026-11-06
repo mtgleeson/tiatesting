@@ -905,21 +905,19 @@ class TiaTestTaskConfigurerDistributedTest {
     }
 
     /**
-     * Verify a distributed test task with {@code maxParallelForks > 1} is refused rather than left
-     * to hang. The claim is made once, here in the daemon, and its group number and runner key are
-     * forwarded to every worker JVM Gradle starts, while Gradle splits the group's suites across
-     * those workers - so no single worker observes the whole group, the completion's
-     * suites-observed guard is never satisfied, the group never completes and the run never seals,
-     * on a build that still exits green.
+     * Verify a distributed test task that updates the mapping with {@code maxParallelForks > 1} is
+     * refused: Gradle would split the group's suites across worker JVMs, and coverage is attributed
+     * to a suite only when suites run one after another in one JVM.
      *
      * @param projectDir a temporary directory to root the Gradle project at
      */
     @org.junit.jupiter.api.Test
-    void shouldFailWhenTheTestTaskRunsMoreThanOneForkInParallel(@TempDir File projectDir) {
-        // given a distributed test task configured to run several forks at once
+    void shouldFailWhenAMappingTaskRunsMoreThanOneForkInParallel(@TempDir File projectDir) {
+        // given a distributed mapping task configured to run several forks at once
         Test testTask = testTaskWithTiaApplied(projectDir, null);
         TiaBaseTaskExtension extension = projectExtension(testTask);
         enableTia(extension, projectDir);
+        extension.setUpdateDBMapping(Boolean.TRUE);
         extension.setDbUrl(SHARED_DB_URL);
         extension.setDistributed(Boolean.TRUE);
         extension.setRunId("run-parallel-forks");
@@ -931,23 +929,22 @@ class TiaTestTaskConfigurerDistributedTest {
 
         // then the failure names the setting it found and the rule it breaks
         assertTrue(thrown.getMessage().contains("maxParallelForks = 4"), thrown.getMessage());
-        assertTrue(thrown.getMessage().contains("one JVM per group"), thrown.getMessage());
-        assertTrue(thrown.getMessage().contains("never seal"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("one JVM per suite sequence"), thrown.getMessage());
     }
 
     /**
-     * Verify a distributed test task with {@code forkEvery > 0} is refused for the same reason as
-     * {@code maxParallelForks > 1}: it too gives the one claimed group more than one JVM, each
-     * reporting its own partial observed set under the same runner key.
+     * Verify a distributed mapping task with {@code forkEvery > 0} is refused for the same reason as
+     * {@code maxParallelForks > 1}: it too splits the group's suites across more than one JVM.
      *
      * @param projectDir a temporary directory to root the Gradle project at
      */
     @org.junit.jupiter.api.Test
-    void shouldFailWhenTheTestTaskRestartsItsForkPeriodically(@TempDir File projectDir) {
-        // given a distributed test task configured to start a fresh JVM every few classes
+    void shouldFailWhenAMappingTaskRestartsItsForkPeriodically(@TempDir File projectDir) {
+        // given a distributed mapping task configured to start a fresh JVM every few classes
         Test testTask = testTaskWithTiaApplied(projectDir, null);
         TiaBaseTaskExtension extension = projectExtension(testTask);
         enableTia(extension, projectDir);
+        extension.setUpdateDBMapping(Boolean.TRUE);
         extension.setDbUrl(SHARED_DB_URL);
         extension.setDistributed(Boolean.TRUE);
         extension.setRunId("run-fork-every");
@@ -959,7 +956,38 @@ class TiaTestTaskConfigurerDistributedTest {
 
         // then the failure names the setting it found and the rule it breaks
         assertTrue(thrown.getMessage().contains("forkEvery = 10"), thrown.getMessage());
-        assertTrue(thrown.getMessage().contains("one JVM per group"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("one JVM per suite sequence"), thrown.getMessage());
+    }
+
+    /**
+     * Verify a distributed task with the mapping off may fork several JVMs: each worker reports its
+     * own contribution and observed suites against the one claimed group, so the group still
+     * completes and its figures add up.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldClaimWhenAMappingOffTaskForksSeveralJvms(@TempDir File projectDir) {
+        // given a distributed test task with the mapping off and maxParallelForks = 3
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-mapping-off-forks", PLAN_COMMIT, singleGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-mapping-off-forks");
+        testTask.setMaxParallelForks(3);
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then no refusal, the group was claimed, and its number reached the forks
+        assertEquals("0", testTask.getSystemProperties().get("tiaDistributedGroupNumber"));
+        try (DataStore dataStore = openStore(dbDir, BRANCH)) {
+            assertEquals(DistributedRunGroupStatus.CLAIMED,
+                    dataStore.readDistributedRunGroups("run-mapping-off-forks").get(0).getStatus());
+        }
     }
 
     /**

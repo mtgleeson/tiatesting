@@ -1,5 +1,6 @@
 package org.tiatesting.junit.junit5;
 
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,7 +26,8 @@ class TiaTestExecutionListenerWorkspaceIdentityTest {
 
     private static final String[] MANAGED_PROPERTIES = {
             "tiaEnabled", "tiaUpdateDBMapping", "tiaUpdateDBTestRunHistory", "tiaBranch",
-            "tiaCommitValue", "test"
+            "tiaCommitValue", "test",
+            TestRunIdentity.PROP_TEST_RUN_ID, TestRunIdentity.PROP_TEST_RUN_START_MS
     };
 
     private Map<String, String> savedProperties;
@@ -69,6 +71,8 @@ class TiaTestExecutionListenerWorkspaceIdentityTest {
     void constructing_withNoBranchProperty_throwsNamingTiaBranch() {
         // given
         System.setProperty("tiaCommitValue", "commit-1");
+        System.setProperty(TestRunIdentity.PROP_TEST_RUN_ID, "run-1");
+        System.setProperty(TestRunIdentity.PROP_TEST_RUN_START_MS, "1000");
 
         // when
         IllegalStateException ex = assertThrows(IllegalStateException.class,

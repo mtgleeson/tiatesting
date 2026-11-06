@@ -34,6 +34,7 @@ import org.tiatesting.core.persistence.SecretFile;
 import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
@@ -585,6 +586,10 @@ public class AgentMojo extends AbstractTiaMojo {
      * parser. Entries with a {@code null} value are skipped, so an unset {@code tiaDBUrl} simply
      * leaves the fork in embedded mode.
      *
+     * <p>Every build also writes a new run identity here, so every fork, per-class test plan and
+     * rerun of the module's tests contributes to one run - see {@code TestRunIdentity} and the
+     * "Test run history" chapter in {@code WIKI.md}.
+     *
      * <p>On a distributed run this file is also the handoff for the claim: the resolved runner key
      * and the claimed group number are written here because the forked JVM completes the group and
      * elects the run's sealer, and can reconstruct neither value. The runner key in particular must
@@ -611,6 +616,9 @@ public class AgentMojo extends AbstractTiaMojo {
         // which branch's schema the run belongs to.
         props.put(WorkspaceIdentity.PROP_BRANCH, workspaceIdentity.getBranch());
         props.put(WorkspaceIdentity.PROP_COMMIT_VALUE, workspaceIdentity.getCommitValue());
+        // A new run for every build: every Surefire fork, per-class test plan and rerun of this
+        // module's tests contributes to it, so they add up to one history row. See TestRunIdentity.
+        props.putAll(TestRunIdentity.newRun(System.currentTimeMillis()).toProperties());
         props.put(ForkSystemProperties.PROP_UPDATE_DB_MAPPING, String.valueOf(isTiaUpdateDBMapping()));
         props.put(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY, String.valueOf(isTiaUpdateDBTestRunHistory()));
         // Null when not declared, which ForkSystemProperties.write skips - so the fork sees no

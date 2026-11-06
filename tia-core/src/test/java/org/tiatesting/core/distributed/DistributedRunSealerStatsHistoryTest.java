@@ -1,5 +1,8 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.TestRunContribution;
+import org.tiatesting.core.testrunner.TestJvmContribution;
+import org.tiatesting.core.testrunner.TestRunResultFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -669,9 +672,9 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
-     * <b>A retry must not turn a partial build into an all-tests build.</b> {@code suites_ran} counts
-     * the distinct suites a runner executed, written with {@code GREATEST}, so a retry within one
-     * runner's JVM re-reports the same suites rather than adding to them. It once accumulated
+     * <b>A retry must not turn a partial build into an all-tests build.</b> A group's suites ran
+     * count only its first-attempt contributions, so a retry - a rerun contribution - adds no suite
+     * to them. It once accumulated
      * executions instead, and deriving the ignored count by subtracting it from the tracked suite
      * count let a partial build with enough reruns reach zero ignored suites and claim to have run
      * everything - folding its duration into the full-suite baseline permanently and advancing every
@@ -688,11 +691,16 @@ class DistributedRunSealerStatsHistoryTest {
         assertNotNull(dataStore.claimNextPendingGroup(RUN_ID, RUNNER_A, 5000L),
                 "test setup expects a group to be available to claim");
 
-        // when - the runner reports twice for its one group, as a retried JVM does, each time with
-        // the 2 distinct suites it has executed
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 3_000L, 2, 1, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L),
+        // when - the runner reports its first attempt, which ran 2 suites and failed one, then its
+        // retry of the failed suite, which passed
+        Set<String> failed = Collections.singleton(trackedSuiteNames(0, 1).get(0));
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2),
+                Collections.singletonList(new TestRunContribution(RUN_ID, "jvm-a", false, 0, 2, failed,
+                        Collections.<String>emptySet(), 3_000L, 0L, 1000L, 4000L))),
                 "test setup expects the first attempt's report to be accepted");
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L),
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2),
+                Collections.singletonList(new TestRunContribution(RUN_ID, "jvm-a", true, 0, 1,
+                        Collections.<String>emptySet(), failed, 1_000L, 0L, 4000L, 5000L))),
                 "test setup expects the retry's report to be accepted");
         assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L, Collections.<String>emptySet()),
                 "test setup expects the completion to be accepted");
@@ -713,6 +721,50 @@ class DistributedRunSealerStatsHistoryTest {
         assertNull(dataStore.readTrackedLibraries().get(LIB).getMappingBaselineCommit(),
                 "a partial build did not re-cover the library, so its mapping baseline must not "
                         + "advance - doing so would silently under-select on the library's next build");
+    }
+
+    /**
+     * A build whose runner retried a failed test writes two rows, as a single-host run does: the
+     * first-attempt row describes the first attempt only, and the retry gets a rerun row credited no
+     * savings and stamped when the retry started, so reports list it second.
+     */
+    @Test
+    void aBuildWithARetryWritesAFirstAttemptRowAndARerunRow() {
+        // given a one-group build whose runner failed A, then passed it in a Gradle retry JVM
+        seedTrackedSuites(4, 0);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 2)));
+        assertNotNull(dataStore.claimNextPendingGroup(RUN_ID, RUNNER_A, 5000L),
+                "test setup expects a group to be available to claim");
+        Set<String> failed = Collections.singleton(trackedSuiteNames(0, 1).get(0));
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2),
+                Collections.singletonList(new TestRunContribution(RUN_ID, "jvm-a", false, 0, 2, failed,
+                        Collections.<String>emptySet(), 3_000L, 0L, PLANNED_AT_MS + 1000L, PLANNED_AT_MS + 4000L))),
+                "test setup expects the first attempt's report to be accepted");
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2),
+                Collections.singletonList(new TestRunContribution(RUN_ID, "jvm-r", true, 0, 1,
+                        Collections.<String>emptySet(), failed, 1_000L, 0L, PLANNED_AT_MS + 4500L,
+                        PLANNED_AT_MS + 5500L))),
+                "test setup expects the retry's report to be accepted");
+        assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L, Collections.<String>emptySet()),
+                "test setup expects the completion to be accepted");
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
+        List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+
+        // then
+        assertEquals(2, history.size(), "one first-attempt row and one rerun row: " + history);
+        TestRunHistoryEntry first = history.stream().filter(e -> !e.isRerun()).findFirst().get();
+        TestRunHistoryEntry rerun = history.stream().filter(TestRunHistoryEntry::isRerun).findFirst().get();
+        assertEquals(2, first.getNumSuitesRan());
+        assertEquals(1, first.getNumSuitesFailed(), "the first attempt's failure stays on its own row");
+        assertEquals(3_000L, first.getDurationMs(), "the retry's time is not in the first attempt");
+        assertEquals(1, rerun.getNumSuitesRan());
+        assertEquals(0, rerun.getNumSuitesFailed());
+        assertEquals(1_000L, rerun.getDurationMs());
+        assertEquals(0L, rerun.getTimeSavingsMs());
+        assertEquals(PLANNED_AT_MS + 4500L, rerun.getRunTimestampMs());
+        assertTrue(rerun.getRunTimestampMs() > first.getRunTimestampMs());
     }
 
     /**
@@ -1157,8 +1209,8 @@ class DistributedRunSealerStatsHistoryTest {
         assertNotNull(claimed, "test setup expects a group to be available to claim");
         assertEquals(groupNumber, claimed.getGroupNumber(),
                 "test setup expects the groups to be claimed in order");
-        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                suitesRan, suitesFailed, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesRan), suitesDurationMs),
+        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesRan),
+                GroupProgressFixture.contribution(runId, groupNumber, actualDurationMs, suitesRan, suitesFailed, suitesDurationMs)),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L,
                 Collections.<String>emptySet()),
@@ -1302,12 +1354,13 @@ class DistributedRunSealerStatsHistoryTest {
         stats.setNumRuns(1);
         return new TestRunResult(trackers, new HashSet<String>(), runnerSuites, runnerSuites,
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, stats,
-                null, 1, 1, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                null, 1, TestRunResultFixture.syntheticPlanOutcome(1, 0), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
-     * A single-host history row keeps every distributed column null, so it stays exactly the row it
-     * was before distributed runs existed and the two modes remain distinguishable in the report.
+     * A single-host history row keeps every distributed column null except its wall clock - the
+     * real elapsed time of the run's test plans, which a multi-fork run needs - so the two modes
+     * remain distinguishable in the report by their group count.
      */
     @Test
     void aSingleHostRunsRowKeepsEveryDistributedColumnNull() {
@@ -1322,7 +1375,7 @@ class DistributedRunSealerStatsHistoryTest {
         // then
         TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
         assertNull(entry.getRunId(), "a single-host row names no distributed run");
-        assertNull(entry.getWallClockMs(), "a single-host row has no separate wall clock");
+        assertNotNull(entry.getWallClockMs(), "a single-host row records its real elapsed time");
         assertNull(entry.getGroupCount(), "a single-host row has no groups");
         assertNull(entry.getGroupsAvailable(), "a single-host row has no groups available");
     }

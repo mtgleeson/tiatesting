@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -170,7 +171,8 @@ class DistributedRunStatusReportTest {
         // given - runner-b has claimed group 0 and reported one of its two suites so far
         persistPlan("build-1", "commit-abc", twoGroups(), false);
         dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
-        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 1, 0, ObservedSuites.firstAssigned(dataStore, "build-1", 0, 1), 4_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", ObservedSuites.firstAssigned(dataStore, "build-1", 0, 1),
+                GroupProgressFixture.contribution("build-1", 0, 5_000L, 1, 0, 4_000L));
 
         // when
         String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
@@ -190,8 +192,8 @@ class DistributedRunStatusReportTest {
         // given - runner-b has observed ATest of group 0's ATest and BTest
         persistPlan("build-1", "commit-abc", twoGroups(), false);
         dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
-        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 1, 0,
-                ObservedSuites.firstAssigned(dataStore, "build-1", 0, 1), 4_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", ObservedSuites.firstAssigned(dataStore, "build-1", 0, 1),
+                GroupProgressFixture.contribution("build-1", 0, 5_000L, 1, 0, 4_000L));
 
         // when
         String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
@@ -210,8 +212,8 @@ class DistributedRunStatusReportTest {
         // given - runner-b has observed both of group 0's suites but not completed the group
         persistPlan("build-1", "commit-abc", twoGroups(), false);
         dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
-        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 2, 0,
-                ObservedSuites.firstAssigned(dataStore, "build-1", 0, 2), 4_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", ObservedSuites.firstAssigned(dataStore, "build-1", 0, 2),
+                GroupProgressFixture.contribution("build-1", 0, 5_000L, 2, 0, 4_000L));
 
         // when
         String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
@@ -230,8 +232,8 @@ class DistributedRunStatusReportTest {
         // given - a split seed run whose runner has observed one of group 0's two suites
         persistPlan("build-1", "commit-abc", twoGroups(), true);
         dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
-        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 1, 0,
-                ObservedSuites.firstAssigned(dataStore, "build-1", 0, 1), 4_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", ObservedSuites.firstAssigned(dataStore, "build-1", 0, 1),
+                GroupProgressFixture.contribution("build-1", 0, 5_000L, 1, 0, 4_000L));
 
         // when
         String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
@@ -278,8 +280,8 @@ class DistributedRunStatusReportTest {
         // given - a seed run whose runner has claimed its group and run three suites
         persistPlan("build-1", "commit-abc", singleGroup(Collections.<String>emptyList()), true);
         dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
-        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 3, 0,
-                Collections.<String>emptySet(), 4_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", Collections.<String>emptySet(),
+                GroupProgressFixture.contribution("build-1", 0, 5_000L, 3, 0, 4_000L));
 
         // when
         String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
@@ -360,7 +362,8 @@ class DistributedRunStatusReportTest {
         // given - a split seed: two groups, each carrying real suite names, flagged as a seed run
         persistPlan("build-1", "commit-abc", twoGroups(), true);
         dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
-        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 1, 0, ObservedSuites.firstAssigned(dataStore, "build-1", 0, 1), 4_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", ObservedSuites.firstAssigned(dataStore, "build-1", 0, 1),
+                GroupProgressFixture.contribution("build-1", 0, 5_000L, 1, 0, 4_000L));
 
         // when
         String report = DistributedRunStatusReport.format(dataStore, "build-1", true, NOW_MS, LINE_SEP);
@@ -616,8 +619,8 @@ class DistributedRunStatusReportTest {
         assertTrue(claimed.getGroupNumber() == expectedGroupNumber,
                 "expected to claim group " + expectedGroupNumber + " but claimed "
                         + claimed.getGroupNumber());
-        assertTrue(dataStore.reportGroupProgress(runId, expectedGroupNumber, runnerKey, durationMs,
-                suiteCount, 0, ObservedSuites.firstAssigned(dataStore, runId, expectedGroupNumber, suiteCount), durationMs));
+        assertTrue(dataStore.reportGroupProgress(runId, expectedGroupNumber, runnerKey, ObservedSuites.firstAssigned(dataStore, runId, expectedGroupNumber, suiteCount),
+                GroupProgressFixture.contribution(runId, expectedGroupNumber, durationMs, suiteCount, 0, durationMs)));
         assertNotNull(dataStore.completeGroup(runId, expectedGroupNumber, runnerKey, NOW_MS - 80_000L,
                 Collections.<String>emptySet()),
                 "expected group " + expectedGroupNumber + " to complete");

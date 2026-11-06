@@ -1,5 +1,6 @@
 package org.tiatesting.junit.junit5;
 
+import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,7 +41,8 @@ class TiaTestExecutionListenerJunit6Test {
 
     private static final String[] MANAGED_PROPERTIES = {
             "tiaEnabled", "tiaUpdateDBMapping", "tiaUpdateDBTestRunHistory", "tiaBranch",
-            "tiaCommitValue", "tiaSelectedTests", "test", H2ConnectionSettings.PROP_DB_FILE_PATH
+            "tiaCommitValue", "tiaSelectedTests", "test", H2ConnectionSettings.PROP_DB_FILE_PATH,
+            TestRunIdentity.PROP_TEST_RUN_ID, TestRunIdentity.PROP_TEST_RUN_START_MS
     };
 
     private final Map<String, String> savedProperties = new LinkedHashMap<>();
@@ -62,6 +64,8 @@ class TiaTestExecutionListenerJunit6Test {
         System.setProperty("tiaUpdateDBTestRunHistory", "true");
         System.setProperty("tiaBranch", "main");
         System.setProperty("tiaCommitValue", "commit-1");
+        System.setProperty(TestRunIdentity.PROP_TEST_RUN_ID, "run-1");
+        System.setProperty(TestRunIdentity.PROP_TEST_RUN_START_MS, "1000");
         System.setProperty("tiaSelectedTests", String.join(",", PASSING, NESTED, FAILING));
         System.setProperty(H2ConnectionSettings.PROP_DB_FILE_PATH, tempDir.toAbsolutePath().toString());
     }

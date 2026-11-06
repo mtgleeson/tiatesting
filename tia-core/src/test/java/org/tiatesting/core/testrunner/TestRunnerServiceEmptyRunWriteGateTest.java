@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * A run that executed none of the suites Tia expected it to run - see
- * {@link TestRunResult#ranNoExpectedSuites()} - has observed neither the commit nor the suites, so
+ * {@link TestRunResult#ranNoExpectedSuites(boolean)} - has observed neither the commit nor the suites, so
  * it must persist nothing that claims it has. These tests pin each write it is kept away from, and
  * each one matters in the silent, under-selecting direction:
  *
@@ -106,7 +106,7 @@ class TestRunnerServiceEmptyRunWriteGateTest {
         runStats.setNumSuccessRuns(1);
 
         return new TestRunResult(new HashMap<>(), new HashSet<>(), selected, selected, selected,
-                new HashMap<>(), runStats, null, 3, 0, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new HashMap<>(), runStats, null, 3, TestRunResultFixture.syntheticPlanOutcome(0, 0), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**
@@ -154,7 +154,7 @@ class TestRunnerServiceEmptyRunWriteGateTest {
         // given - an empty run whose runner set is empty, as it is with no directory scan configured
         TestRunResult result = new TestRunResult(new HashMap<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)), new HashMap<>(),
-                new TestStats(), null, 3, 0, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                new TestStats(), null, 3, TestRunResultFixture.syntheticPlanOutcome(0, 0), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
         service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(), result, null);
@@ -201,8 +201,8 @@ class TestRunnerServiceEmptyRunWriteGateTest {
 
         Set<String> selected = new HashSet<>(Arrays.asList(SUITE_A, SUITE_B));
         TestRunResult result = new TestRunResult(new HashMap<>(), new HashSet<>(), selected, selected,
-                selected, new HashMap<>(), new TestStats(), drainResult, 3, 0, 0,
-                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
+                selected, new HashMap<>(), new TestStats(), drainResult, 3, TestRunResultFixture.syntheticPlanOutcome(0, 0),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
         service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(), result, null);

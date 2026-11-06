@@ -25,8 +25,8 @@ class TestRunHistoryEntryIdTest {
         long ts = 1_700_000_000_000L;
 
         // when
-        TestRunHistoryEntry first = TestRunHistoryEntry.create(branch, commit, ts, 1, 2, 0, 100L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
-        TestRunHistoryEntry second = TestRunHistoryEntry.create(branch, commit, ts, 9, 9, 9, 999L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry first = TestRunHistoryEntry.create(branch, commit, String.valueOf(ts), false, ts, 1, 2, 0, 100L, 100L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        TestRunHistoryEntry second = TestRunHistoryEntry.create(branch, commit, String.valueOf(ts), false, ts, 9, 9, 9, 999L, 999L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // then - counts/duration/flag don't participate in the id; identity is by triple only.
         assertNotNull(first.getId());
@@ -37,10 +37,10 @@ class TestRunHistoryEntryIdTest {
     void changingBranchChangesId() {
         // given
         long ts = 1_700_000_000_000L;
-        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", ts, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", String.valueOf(ts), false, ts, 1, 0, 0, 0L, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
-        TestRunHistoryEntry other = TestRunHistoryEntry.create("develop", "abc123", ts, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry other = TestRunHistoryEntry.create("develop", "abc123", String.valueOf(ts), false, ts, 1, 0, 0, 0L, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // then
         assertNotEquals(baseline.getId(), other.getId());
@@ -50,48 +50,67 @@ class TestRunHistoryEntryIdTest {
     void changingCommitChangesId() {
         // given
         long ts = 1_700_000_000_000L;
-        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", ts, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", String.valueOf(ts), false, ts, 1, 0, 0, 0L, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
-        TestRunHistoryEntry other = TestRunHistoryEntry.create("main", "def456", ts, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry other = TestRunHistoryEntry.create("main", "def456", String.valueOf(ts), false, ts, 1, 0, 0, 0L, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // then
         assertNotEquals(baseline.getId(), other.getId());
     }
 
     @Test
-    void changingTimestampChangesId() {
+    void changingTheRunChangesId() {
         // given
-        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", 1L, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", "run-1", false, 1L, 1, 0, 0, 0L, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
-        TestRunHistoryEntry other = TestRunHistoryEntry.create("main", "abc123", 2L, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry other = TestRunHistoryEntry.create("main", "abc123", "run-2", false, 1L, 1, 0, 0, 0L, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // then
         assertNotEquals(baseline.getId(), other.getId());
     }
 
     /**
-     * A single-host id is still the UUID of exactly {@code branch|commit|timestamp}. Pinned against
-     * the raw seed so a refactor cannot quietly change the id of a row every existing history table
-     * already holds, which would turn a re-persist of the same run into a second row.
+     * Every test JVM of a run builds its rows from the same run, whatever its own plan start, so
+     * they upsert one first-attempt row and one rerun row rather than one row each.
      */
     @Test
-    void aSingleHostIdIsStillTheUuidOfBranchPipeCommitPipeTimestamp() {
-        // given
-        String seed = "main|abc123|1700000000000";
+    void everyJvmOfARunWritesTheSameTwoRows() {
+        // given two JVMs' rows for one run, built at different plan start times
+        TestRunHistoryEntry firstJvm = TestRunHistoryEntry.create("main", "abc123", "run-1", false, 1L, 1, 0, 0, 0L, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        TestRunHistoryEntry secondJvm = TestRunHistoryEntry.create("main", "abc123", "run-1", false, 2L, 1, 0, 0, 0L, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", 1_700_000_000_000L,
-                1, 0, 0, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry rerun = TestRunHistoryEntry.create("main", "abc123", "run-1", true, 2L, 1, 0, 0, 0L, 0L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // then
-        assertEquals(UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)).toString(),
-                entry.getId(), "the single-host id derivation must not have changed");
+        assertEquals(firstJvm.getId(), secondJvm.getId());
+        assertNotEquals(firstJvm.getId(), rerun.getId());
     }
 
     /**
-     * A distributed build's row is identified by its run as well, so two builds planned in the same
+     * A first-attempt id is the UUID of exactly {@code branch|commit|runId}, and a rerun row's
+     * appends {@code |rerun}. Pinned against the raw seeds so a refactor cannot quietly change the id
+     * every JVM of a run relies on to land on the same row.
+     */
+    @Test
+    void theIdIsTheUuidOfBranchPipeCommitPipeRunId() {
+        // given
+        String firstAttemptSeed = "main|abc123|run-1";
+        String rerunSeed = "main|abc123|run-1|rerun";
+
+        // when
+        String firstAttemptId = TestRunHistoryEntry.idFor("main", "abc123", "run-1", false);
+        String rerunId = TestRunHistoryEntry.idFor("main", "abc123", "run-1", true);
+
+        // then
+        assertEquals(UUID.nameUUIDFromBytes(firstAttemptSeed.getBytes(StandardCharsets.UTF_8)).toString(), firstAttemptId);
+        assertEquals(UUID.nameUUIDFromBytes(rerunSeed.getBytes(StandardCharsets.UTF_8)).toString(), rerunId);
+    }
+
+    /**
+     * A distributed build's row is identified by its run too, so two builds planned in the same
      * millisecond against the same branch and commit cannot collide onto one row.
      */
     @Test
@@ -99,18 +118,18 @@ class TestRunHistoryEntryIdTest {
         // given
         long ts = 1_700_000_000_000L;
         TestRunHistoryEntry baseline = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
-                "run-1", ts, 5, 0, 0, 1000L, true, 0L, 0, 0L, 0, 500L, 2, 2, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                "run-1", ts, 5, 0, 0, 1000L, true, 0L, 0, 0L, 0, 500L, 2, 2, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
 
         // when
         TestRunHistoryEntry other = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
-                "run-2", ts, 5, 0, 0, 1000L, true, 0L, 0, 0L, 0, 500L, 2, 2, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                "run-2", ts, 5, 0, 0, 1000L, true, 0L, 0, 0L, 0, 500L, 2, 2, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
 
         // then
         assertNotEquals(baseline.getId(), other.getId(),
                 "two runs planned in the same millisecond must not share a row");
-        assertNotEquals(TestRunHistoryEntry.create("main", "abc123", ts, 5, 0, 0, 1000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false)
+        assertNotEquals(TestRunHistoryEntry.create("main", "abc123", "run-3", false, ts, 5, 0, 0, 1000L, 1000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null)
                         .getId(), baseline.getId(),
-                "nor may a distributed build collide with a single-host run's row");
+                "nor may a distributed build collide with another run's row");
     }
 
     @Test
@@ -119,8 +138,8 @@ class TestRunHistoryEntryIdTest {
         long ts = 42L;
 
         // when
-        TestRunHistoryEntry first = TestRunHistoryEntry.create(null, null, ts, 0, 0, 0, 0L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
-        TestRunHistoryEntry second = TestRunHistoryEntry.create(null, null, ts, 0, 0, 0, 0L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry first = TestRunHistoryEntry.create(null, null, String.valueOf(ts), false, ts, 0, 0, 0, 0L, 0L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        TestRunHistoryEntry second = TestRunHistoryEntry.create(null, null, String.valueOf(ts), false, ts, 0, 0, 0, 0L, 0L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // then
         assertNotNull(first.getId());

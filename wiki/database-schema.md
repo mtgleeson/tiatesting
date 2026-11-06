@@ -34,6 +34,7 @@ erDiagram
     tia_distributed_run ||--o{ tia_distributed_run_selection : "by run id"
     tia_distributed_run ||--o{ tia_distributed_run_trigger : "by run id"
     tia_test_run_history ||--o{ tia_test_run_history_trigger : "FK (cascade)"
+    tia_test_run ||--o{ tia_test_run_jvm : "FK (cascade)"
 
     tia_core {
         VARCHAR commit_value PK
@@ -109,6 +110,25 @@ erDiagram
         VARCHAR selection_mode
     }
 
+    tia_test_run {
+        VARCHAR id PK
+        BIGINT start_ms
+    }
+
+    tia_test_run_jvm {
+        VARCHAR run_id PK
+        VARCHAR jvm_id PK
+        BOOLEAN rerun PK
+        INT group_number
+        INT suites_ran
+        VARCHAR suites_failed
+        VARCHAR rerun_suites
+        BIGINT test_time_ms
+        BIGINT suites_time_ms
+        BIGINT first_start_ms
+        BIGINT last_end_ms
+    }
+
     tia_test_run_history_trigger {
         VARCHAR history_id FK
         VARCHAR trigger_type
@@ -170,11 +190,7 @@ erDiagram
         BIGINT claimed_at
         BIGINT completed_at
         BIGINT estimated_ms
-        BIGINT actual_duration_ms
-        INT suites_ran
-        INT suites_failed
         INT suites_observed
-        BIGINT suites_duration_ms
     }
 
     tia_distributed_run_group_suite {
@@ -257,8 +273,9 @@ rather than needing their own cleanup.)
   execution failed; an assumption abort does not count - force-re-run on the next selection
   ("Running previously failed tests"). Written incrementally, one executed suite at a time, and
   cleared for a suite when it is deleted. See [Failed-suite tracking](failed-suite-tracking.md).
-- **tia_test_run_history** - audit log: one row per run (timestamp, branch, commit, ran/ignored/
-  failed counts, duration, frozen per-run savings). Drives the `history` task and HTML History tab.
+- **tia_test_run_history** - audit log: one row per run, plus one rerun row when the run retried
+  failed tests (timestamp, branch, commit, ran/ignored/failed counts, duration, wall clock, frozen
+  per-run savings), rebuilt from the run's contributions in `tia_test_run_jvm`. Drives the `history` task and HTML History tab.
   Also carries six nullable selection-source counters (`num_modified_test_files`,
   `num_new_test_files`, `num_test_support_dependants`, `num_previously_failed`,
   `num_unsealed_mapping`, `num_pending_library`) -
@@ -268,6 +285,16 @@ rather than needing their own cleanup.)
   [Test-run history log](test-run-history.md). `selection_mode` records how the run's selection was
   decided (null for rows written before it existed) - see
   [Forced runs and re-seed](forced-runs-and-reseed.md).
+- **tia_test_run** - one row per run: the `tiaTestRunId` the build tool assigned (or the distributed
+  run id, written with the plan) and its start time. Its row is what concurrent persists of the run
+  lock (`SELECT ... FOR UPDATE`) while they rebuild the run's history rows. Like the history, it has
+  no retention policy; the rows are tiny.
+- **tia_test_run_jvm** - one row per run, test JVM and attempt kind (`rerun`): that JVM's running
+  totals - suites finished, the failed suites and a rerun's retried suites by name (comma-separated),
+  summed plan time, suite-attributable time, first plan start and last plan end - restated on every
+  persist. `group_number` is the distributed group the JVM worked, null on a single-host run, and
+  indexed with `run_id` for a group's figures. FK to `tia_test_run.id`, `ON DELETE CASCADE`. See
+  "Runs and contributions" in [Test-run history log](test-run-history.md).
 - **tia_test_run_history_trigger** - the per-changed-method and per-static-rule selection triggers
   behind one history row's counters, each with a suite count; FK to `tia_test_run_history.id`,
   `ON DELETE CASCADE`. Loaded only on demand - by the per-run detail page and the history-details
@@ -302,12 +329,12 @@ rather than needing their own cleanup.)
   on the CI agent), which the sealer stamps on the build's history row in place of detecting one in
   the sealing runner's JVM; null on a run planned before the column existed.
 - **tia_distributed_run_group** - one row per group: its `status` (`PENDING` / `CLAIMED` /
-  `COMPLETED`), the `runner_key` that claimed it, the planner's `estimated_ms`, and the progress
-  figures each persist reports (`suites_ran` is the distinct suites executed, not a sum per retry). `suites_observed` is the count of the group's suite rows flagged
-  `observed` - what the full-run completeness guard reads; any other run's guard counts the flagged
-  rows directly. See the "Distributed test runs" chapter for why observed, not `suites_ran`. `suites_duration_ms` is
-  the share of `actual_duration_ms` that went on named suites; the remainder is the runner's fixed
-  per-JVM overhead, which the sealer charges once for the build rather than once per group. Indexed
+  `COMPLETED`), the `runner_key` that claimed it, the planner's `estimated_ms` and `suites_observed`,
+  the count of the group's suite rows flagged `observed` - what the full-run completeness guard
+  reads; any other run's guard counts the flagged rows directly. See the "Distributed test runs"
+  chapter for why observed, not the suites ran. The group's duration, wall clock, suites ran and
+  failed and suite time are not stored here: they are derived from its runner JVMs' rows in
+  `tia_test_run_jvm` on every read (a TEMPORARY migration drops the old counter columns). Indexed
   on (`run_id`, `status`) for the claim's lowest-`PENDING` lookup.
 - **tia_distributed_run_group_suite** - the plan's assignment: which suite names belong to which
   group. Also the denominator the completeness guard counts. `observed` is set by the runner's

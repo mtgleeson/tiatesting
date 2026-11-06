@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.SelectionMode;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -118,8 +119,10 @@ class TiaDistCompleteMojoDistributedTest {
     private void claimAndObserveGroupZero(final String runId, final String runnerKey) {
         try (DataStore dataStore = openStore()) {
             dataStore.claimNextPendingGroup(runId, runnerKey, 5000L);
-            dataStore.reportGroupProgress(runId, 0, runnerKey, 1000L, 1, 0,
-                    Collections.singleton("com.example.Suite0Test"), 0L);
+            dataStore.reportGroupProgress(runId, 0, runnerKey, Collections.singleton("com.example.Suite0Test"),
+                    Collections.singletonList(new TestRunContribution(runId, "jvm-0", false, 0, 1,
+                            Collections.<String>emptySet(), Collections.<String>emptySet(), 1000L, 0L, 5000L,
+                            6000L)));
         }
     }
 

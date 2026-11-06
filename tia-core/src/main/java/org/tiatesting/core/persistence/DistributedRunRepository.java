@@ -25,15 +25,20 @@ import static org.tiatesting.core.persistence.TiaSchema.*;
  */
 class DistributedRunRepository extends JdbcRepository {
 
+    private final TestRunContributionRepository contributionRepository;
+
     /**
      * Construct the repository over the datastore's shared JDBC plumbing.
      *
      * @param dialect the SQL dialect rendering vendor-specific statements
      * @param connections opens a connection with the per-branch schema selected
      * @param schemaManager bootstraps the schema before first use
+     * @param contributionRepository creates the run's {@code tia_test_run} row in the plan write's transaction
      */
-    DistributedRunRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager) {
+    DistributedRunRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager,
+           TestRunContributionRepository contributionRepository) {
         super(dialect, connections, schemaManager);
+        this.contributionRepository = contributionRepository;
     }
 
     /**
@@ -69,9 +74,7 @@ class DistributedRunRepository extends JdbcRepository {
         String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
                 + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
-                + COL_ACTUAL_DURATION_MS + ", " + COL_SUITES_RAN + ", " + COL_SUITES_FAILED + ", "
-                + COL_SUITES_OBSERVED + ", " + COL_SUITES_DURATION_MS
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + COL_SUITES_OBSERVED + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         String suiteSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_TEST_SUITE_NAME + ") VALUES (?, ?, ?)";
 
@@ -114,6 +117,9 @@ class DistributedRunRepository extends JdbcRepository {
                     setNullableString(statement, 14, run.getRunSource());
                     statement.executeUpdate();
                 }
+                // The run's parent row for its runner JVMs' contributions, in the same transaction
+                // so a runner never claims a group of a run whose contributions it cannot record.
+                contributionRepository.insertRunForPlan(connection, run.getRunId(), run.getCreatedAtMs());
                 try (PreparedStatement statement = connection.prepareStatement(groupSql)) {
                     for (DistributedRunGroup group : plan.getGroups()) {
                         statement.setString(1, group.getRunId());
@@ -123,11 +129,7 @@ class DistributedRunRepository extends JdbcRepository {
                         setNullableLong(statement, 5, group.getClaimedAtMs());
                         setNullableLong(statement, 6, group.getCompletedAtMs());
                         statement.setLong(7, group.getEstimatedMs());
-                        setNullableLong(statement, 8, group.getActualDurationMs());
-                        statement.setInt(9, group.getSuitesRan());
-                        statement.setInt(10, group.getSuitesFailed());
-                        statement.setInt(11, group.getSuitesObserved());
-                        statement.setLong(12, group.getSuitesDurationMs());
+                        statement.setInt(8, group.getSuitesObserved());
                         statement.addBatch();
                     }
                     statement.executeBatch();

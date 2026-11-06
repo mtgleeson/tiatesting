@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.TestRunContribution;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -156,7 +158,7 @@ class DistributedRunnerPersistTest {
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L));
+        assertTrue(runnerPersist.reportGroupProgress(SUITE_0, Collections.<TestRunContribution>emptyList()));
         assertNotNull(runnerPersist.completeGroup(6000L, TestSuiteRunnabilityClassifier.disabled()));
 
         // when
@@ -204,7 +206,7 @@ class DistributedRunnerPersistTest {
         persistPlan("run-2", 1);
 
         // when
-        boolean applied = runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L);
+        boolean applied = runnerPersist.reportGroupProgress(SUITE_0, Collections.<TestRunContribution>emptyList());
 
         // then
         assertFalse(applied, "a progress report on a dead claim must report failure rather than "
@@ -262,7 +264,7 @@ class DistributedRunnerPersistTest {
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, SUITE_0, 0L));
+        assertTrue(runnerPersist.reportGroupProgress(SUITE_0, Collections.<TestRunContribution>emptyList()));
         assertNotNull(runnerPersist.completeGroup(6000L, TestSuiteRunnabilityClassifier.disabled()));
 
         // when
@@ -322,7 +324,7 @@ class DistributedRunnerPersistTest {
                 "com.example.Suite0Test", "com.example.Suite1Test", "com.example.Suite2Test"));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 3, 0, suites(0, 3), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(suites(0, 3), Collections.<TestRunContribution>emptyList()));
         ClassFileFixture.classIn(classesDir, "com.example.FooApiClient").method("fetch", null).write();
 
         // when
@@ -351,7 +353,7 @@ class DistributedRunnerPersistTest {
         persistSingleGroupPlan(RUN_ID, SelectionMode.SELECTIVE, new ArrayList<>(suites(0, 3)));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, suites(0, 2), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(suites(0, 2), Collections.<TestRunContribution>emptyList()));
         ClassFileFixture.classIn(classesDir, "com.example.Suite2Test")
                 .method("works", "org.junit.jupiter.api.Test").write();
 
@@ -380,7 +382,7 @@ class DistributedRunnerPersistTest {
                 "com.example.Suite0Test", "com.example.Suite1Test"));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(suites(0, 1), Collections.<TestRunContribution>emptyList()));
         ClassFileFixture.classIn(classesDir, "com.example.AbstractBase").access(Opcodes.ACC_ABSTRACT).write();
         ClassFileFixture.classIn(classesDir, "com.example.Suite1Test")
                 .method("works", "org.junit.jupiter.api.Test").write();
@@ -411,7 +413,7 @@ class DistributedRunnerPersistTest {
                 "com.example.Suite0Test"));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(suites(0, 1), Collections.<TestRunContribution>emptyList()));
 
         // when
         DistributedRunGroup completed = runnerPersist.completeGroup(6000L,
@@ -435,7 +437,7 @@ class DistributedRunnerPersistTest {
         persistSingleGroupPlan(RUN_ID, SelectionMode.SEED, new ArrayList<>(suites(0, 2)));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(suites(0, 1), Collections.<TestRunContribution>emptyList()));
         Path corrupt = classesDir.resolve("com/example/Suite1Test.class");
         Files.createDirectories(corrupt.getParent());
         Files.write(corrupt, new byte[]{1, 2, 3});
@@ -465,7 +467,7 @@ class DistributedRunnerPersistTest {
         persistSingleGroupPlan(RUN_ID, SelectionMode.SELECTIVE, new ArrayList<>(suites(0, 2)));
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 1, 0, suites(0, 1), 0L));
+        assertTrue(runnerPersist.reportGroupProgress(suites(0, 1), Collections.<TestRunContribution>emptyList()));
         Path corrupt = classesDir.resolve("com/example/Suite1Test.class");
         Files.createDirectories(corrupt.getParent());
         Files.write(corrupt, new byte[]{1, 2, 3});
@@ -527,37 +529,37 @@ class DistributedRunnerPersistTest {
     }
 
     /**
-     * The accumulation contract, exercised through the persist wrapper: two progress reports
-     * in the same JVM - the second reporting fewer distinct suites ran than the first, as a Gradle
-     * test-retry round's fresh JVM would - sum the duration but keep the greater ran count: the ran
-     * count is the distinct suites the runner executed, so a retry can re-report the same suites or
-     * fewer but never adds new executions of them. The failed set is replaced outright by the later
-     * report, since it is current state. The observed count is the number of suite rows the reports
-     * have flagged observed (see {@link DataStore#reportGroupProgress}), so a retry naming the same
-     * suites again adds nothing and naming more adds only the new ones. The ran and observed totals are deliberately kept different
-     * numbers below (50 vs 53) so a getter/column transposition between the two would fail this test
-     * - a shared value could not tell them apart.
+     * The persist wrapper hands the runner JVM's contributions through, so the group's figures add
+     * up every JVM that reported: a first-attempt JVM that ran 50 suites with 3 failures, then a
+     * retry JVM that re-ran the 3 and passed them. The ran count stays the first attempt's, the
+     * duration sums both JVMs, the failed count is the latest outcome, and the observed count is the
+     * union of the suite rows the reports flagged (see {@link DataStore#reportGroupProgress}). The
+     * ran and observed totals are deliberately different numbers (50 vs 53) so a getter/column
+     * transposition between the two would fail this test.
      */
     @Test
-    void reportGroupProgressSumsDurationReplacesFailedAndTakesTheGreaterRanAndObservedCounts() {
+    void reportGroupProgressAddsUpTheGroupsJvmContributions() {
         // given
         persistPlanWithOneGroupOfSuites(RUN_ID, 60);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
+        Set<String> failures = new HashSet<>(Arrays.asList("F0", "F1", "F2"));
 
-        // when - the first test plan reports 50 distinct suites run (all 50 observed) with 3
-        // failures; the retry reports the 2 suites it re-ran while the observed count - the JVM's
-        // cumulative total, not this call's own contribution - reaches 53
-        assertTrue(runnerPersist.reportGroupProgress(4000L, 50, 3, suites(0, 50), 0L));
-        assertTrue(runnerPersist.reportGroupProgress(500L, 2, 0, suites(0, 53), 0L));
+        // when - the first JVM reports 50 suites run (all observed) with 3 failures; the retry JVM
+        // re-runs the 3 while the observed suites reach 53
+        assertTrue(runnerPersist.reportGroupProgress(suites(0, 50), Collections.singletonList(
+                new TestRunContribution(RUN_ID, "jvm-a", false, 0, 50, failures,
+                        Collections.<String>emptySet(), 4000L, 0L, 1000L, 5000L))));
+        assertTrue(runnerPersist.reportGroupProgress(suites(0, 53), Collections.singletonList(
+                new TestRunContribution(RUN_ID, "jvm-r", true, 0, 3, Collections.<String>emptySet(),
+                        failures, 500L, 0L, 6000L, 6500L))));
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);
-        assertEquals(50, group.getSuitesRan(), "a retry's smaller distinct count must not replace or add to the first");
+        assertEquals(50, group.getSuitesRan(), "a retry runs no new suite");
         assertEquals(4500L, group.getActualDurationMs().longValue(),
-                "the duration must sum across both reports");
-        assertEquals(0, group.getSuitesFailed(),
-                "the failed count must reflect only the later report, not accumulate onto the first");
+                "the duration must sum both JVMs");
+        assertEquals(0, group.getSuitesFailed(), "the retry passed every failure");
         assertEquals(53, group.getSuitesObserved(),
                 "the observed count must be the union of the suites the reports named, not the sum "
                         + "of the two reports' sizes");
