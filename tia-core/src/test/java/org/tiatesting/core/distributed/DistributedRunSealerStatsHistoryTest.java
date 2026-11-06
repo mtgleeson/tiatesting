@@ -724,6 +724,50 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * A build whose runner retried a failed test writes two rows, as a single-host run does: the
+     * first-attempt row describes the first attempt only, and the retry gets a rerun row credited no
+     * savings and stamped when the retry started, so reports list it second.
+     */
+    @Test
+    void aBuildWithARetryWritesAFirstAttemptRowAndARerunRow() {
+        // given a one-group build whose runner failed A, then passed it in a Gradle retry JVM
+        seedTrackedSuites(4, 0);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 2)));
+        assertNotNull(dataStore.claimNextPendingGroup(RUN_ID, RUNNER_A, 5000L),
+                "test setup expects a group to be available to claim");
+        Set<String> failed = Collections.singleton(trackedSuiteNames(0, 1).get(0));
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2),
+                Collections.singletonList(new TestRunContribution(RUN_ID, "jvm-a", false, 0, 2, failed,
+                        Collections.<String>emptySet(), 3_000L, 0L, PLANNED_AT_MS + 1000L, PLANNED_AT_MS + 4000L))),
+                "test setup expects the first attempt's report to be accepted");
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2),
+                Collections.singletonList(new TestRunContribution(RUN_ID, "jvm-r", true, 0, 1,
+                        Collections.<String>emptySet(), failed, 1_000L, 0L, PLANNED_AT_MS + 4500L,
+                        PLANNED_AT_MS + 5500L))),
+                "test setup expects the retry's report to be accepted");
+        assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L, Collections.<String>emptySet()),
+                "test setup expects the completion to be accepted");
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
+        List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+
+        // then
+        assertEquals(2, history.size(), "one first-attempt row and one rerun row: " + history);
+        TestRunHistoryEntry first = history.stream().filter(e -> !e.isRerun()).findFirst().get();
+        TestRunHistoryEntry rerun = history.stream().filter(TestRunHistoryEntry::isRerun).findFirst().get();
+        assertEquals(2, first.getNumSuitesRan());
+        assertEquals(1, first.getNumSuitesFailed(), "the first attempt's failure stays on its own row");
+        assertEquals(3_000L, first.getDurationMs(), "the retry's time is not in the first attempt");
+        assertEquals(1, rerun.getNumSuitesRan());
+        assertEquals(0, rerun.getNumSuitesFailed());
+        assertEquals(1_000L, rerun.getDurationMs());
+        assertEquals(0L, rerun.getTimeSavingsMs());
+        assertEquals(PLANNED_AT_MS + 4500L, rerun.getRunTimestampMs());
+        assertTrue(rerun.getRunTimestampMs() > first.getRunTimestampMs());
+    }
+
+    /**
      * <b>A nothing-impacted build ignored every tracked suite, and a stray suite must not turn it
      * into an all-tests build.</b> A selection that chose nothing still persists the configured
      * number of groups, every one of them with an empty suite list - the same empty assignment a
