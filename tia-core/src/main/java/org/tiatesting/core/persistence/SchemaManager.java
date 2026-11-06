@@ -52,7 +52,8 @@ class SchemaManager {
      * An existing DB also gets the TEMPORARY group-suite flag column check - see {@link
      * #hasGroupSuiteFlagColumns(Connection)} - the TEMPORARY test-support counter column check -
      * see {@link #hasTestSupportCounterColumns(Connection)} - and the TEMPORARY test run tables
-     * check - see {@link #addTestRunTables()}.
+     * check - see {@link #addTestRunTables()} - and the TEMPORARY group counter column drop - see
+     * {@link #dropGroupCounterColumns()}.
      *
      * @param connection the connection to check on
      * @return {@code true} if the Tia DB already existed before this call (or an earlier call
@@ -76,6 +77,9 @@ class SchemaManager {
         }
         if (dbExisted && !checkTableExists(connection, TABLE_TIA_TEST_RUN)) {
             addTestRunTables();
+        }
+        if (dbExisted && hasColumn(connection, TABLE_TIA_DISTRIBUTED_RUN_GROUP, COL_ACTUAL_DURATION_MS)) {
+            dropGroupCounterColumns();
         }
 
         schemaEnsured = true;
@@ -172,6 +176,64 @@ class SchemaManager {
             }
         }
         return tableFound;
+    }
+
+    /**
+     * TEMPORARY: report whether a table in the connection's schema has a column. {@link #lacksColumn}
+     * cannot answer this, since it reports false for an absent table. Names are compared the same
+     * way. Remove with {@link #dropGroupCounterColumns()}.
+     *
+     * @param connection the caller's connection, with the per-branch schema selected
+     * @param table the table name
+     * @param column the column name
+     * @return true only when the table exists and has the column
+     * @throws SQLException if the metadata read fails
+     */
+    private static boolean hasColumn(Connection connection, String table, String column) throws SQLException {
+        String schema = connection.getSchema();
+        for (String tableName : new String[]{table.toUpperCase(), table.toLowerCase()}) {
+            try (ResultSet columns = connection.getMetaData().getColumns(null, schema, tableName, null)) {
+                while (columns.next()) {
+                    if (!table.equalsIgnoreCase(columns.getString("TABLE_NAME"))
+                            || (schema != null && !schema.equals(columns.getString("TABLE_SCHEM")))) {
+                        continue;
+                    }
+                    if (column.equalsIgnoreCase(columns.getString("COLUMN_NAME"))) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * TEMPORARY one-off migration: drop the {@code actual_duration_ms}, {@code suites_ran}, {@code
+     * suites_failed} and {@code suites_duration_ms} columns from a {@code tia_distributed_run_group}
+     * table created while a group's figures were stored on its row. They are now derived from the
+     * runner JVMs' contributions in {@code tia_test_run_jvm}. Remove this method, {@link
+     * #hasColumn}, the {@code COL_ACTUAL_DURATION_MS} and {@code COL_SUITES_DURATION_MS} constants
+     * and the call in {@link #ensureSchema} once the shared database has been migrated - Tia
+     * otherwise has no migrations (see the class javadoc).
+     *
+     * <p>Runs on a fresh connection, like {@link #createTiaDB()}, so the DDL (which H2 commits
+     * implicitly) never touches a caller's transaction. {@code DROP COLUMN IF EXISTS} makes two
+     * runners migrating the same schema at once harmless.
+     *
+     * @throws TiaPersistenceException if a statement fails
+     */
+    private void dropGroupCounterColumns() {
+        log.info("Dropping the stored figure columns from {} at {}", TABLE_TIA_DISTRIBUTED_RUN_GROUP, jdbcUrl);
+        try (Connection connection = connections.get();
+             Statement statement = connection.createStatement()) {
+            for (String column : new String[]{COL_ACTUAL_DURATION_MS, COL_SUITES_RAN, COL_SUITES_FAILED,
+                    COL_SUITES_DURATION_MS}) {
+                statement.execute("ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " DROP COLUMN IF EXISTS "
+                        + column);
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
     }
 
     /**
@@ -670,11 +732,7 @@ class SchemaManager {
                 + COL_CLAIMED_AT + " BIGINT, "
                 + COL_COMPLETED_AT + " BIGINT, "
                 + COL_ESTIMATED_MS + " BIGINT NOT NULL, "
-                + COL_ACTUAL_DURATION_MS + " BIGINT, "
-                + COL_SUITES_RAN + " INT DEFAULT 0, "
-                + COL_SUITES_FAILED + " INT DEFAULT 0, "
                 + COL_SUITES_OBSERVED + " INT DEFAULT 0, "
-                + COL_SUITES_DURATION_MS + " BIGINT DEFAULT 0, "
                 + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_GROUP_NUMBER + "))";
     }
 

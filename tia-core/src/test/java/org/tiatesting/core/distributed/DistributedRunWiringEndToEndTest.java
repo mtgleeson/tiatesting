@@ -330,18 +330,21 @@ class DistributedRunWiringEndToEndTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(), discoveredSuites(),
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, new TestStats(),
-                null, 1, TestRunResultFixture.syntheticPlanOutcome(1, 0), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
+                null, 1, TestRunResultFixture.planOutcome(Collections.singleton(suiteName),
+                        Collections.<String>emptySet()), TestRunSelectionDetails.empty(), new TestJvmContribution(),
+                TestRunResultFixture.runIdentity());
     }
 
     /**
      * Build the result the first runner's <em>second</em> test plan reports - the shape a Surefire
      * retry produces. It is cumulative, as the per-JVM shared run data makes it: the suite the
      * first test plan ran is still in it, and a suite whose coverage only this test plan saw has
-     * been added.
+     * been added. It shares the first plan's JVM contribution, since it is the same JVM.
      *
+     * @param firstPlan the result of the first runner's first test plan
      * @return the result to hand to the second persist of the first runner's JVM
      */
-    private TestRunResult retryRunResultForTheFirstRunner() {
+    private TestRunResult retryRunResultForTheFirstRunner(final TestRunResult firstPlan) {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         trackers.put(SUITE_A, suiteTracker(SUITE_A, "com/example/A.java", METHOD_A));
         trackers.put(SUITE_RETRY, suiteTracker(SUITE_RETRY, "com/example/RetryOnly.java",
@@ -355,7 +358,9 @@ class DistributedRunWiringEndToEndTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(), discoveredSuites(),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)), methodTrackers, new TestStats(),
-                null, 1, TestRunResultFixture.syntheticPlanOutcome(2, 0), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
+                null, 1, TestRunResultFixture.planOutcome(new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)),
+                        Collections.<String>emptySet()), TestRunSelectionDetails.empty(),
+                firstPlan.getJvmContribution(), firstPlan.getRunIdentity());
     }
 
     /**
@@ -401,10 +406,9 @@ class DistributedRunWiringEndToEndTest {
         DistributedRunnerContext gradleRunner = throughTheGradleForkBoundary(claim("runner-b"));
 
         // when - the Maven runner's first test plan finishes and persists its share
+        TestRunResult mavenFirstPlan = runResultFor(SUITE_A, "com/example/A.java", METHOD_A, "com/example/A.a.()V");
         service.persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
-                System.currentTimeMillis() - 1000L,
-                runResultFor(SUITE_A, "com/example/A.java", METHOD_A, "com/example/A.a.()V"),
-                mavenRunner);
+                System.currentTimeMillis() - 1000L, mavenFirstPlan, mavenRunner);
 
         // then - nothing may be sealed while the other group is still running
         assertEquals(PRIOR_COMMIT, dataStore.getTiaCore().getCommitValue(),
@@ -418,7 +422,7 @@ class DistributedRunWiringEndToEndTest {
         //        carrying a suite the first test plan never covered. Then the Maven goal makes its
         //        explicit completion, as it does once Surefire has finished retrying.
         service.persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
-                System.currentTimeMillis() - 1500L, retryRunResultForTheFirstRunner(), mavenRunner);
+                System.currentTimeMillis() - 1500L, retryRunResultForTheFirstRunner(mavenFirstPlan), mavenRunner);
         DistributedRunCompleter.completeAndSeal(dataStore, mavenRunner,
                 TestSuiteRunnabilityClassifier.disabled(), true, true,
                 System.currentTimeMillis());

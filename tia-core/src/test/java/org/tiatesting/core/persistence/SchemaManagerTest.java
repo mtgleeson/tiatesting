@@ -211,6 +211,53 @@ class SchemaManagerTest {
     }
 
     @Test
+    void existingDbWithTheGroupCounterColumnsGetsThemDroppedOnce(@TempDir Path dir) throws Exception {
+        // given an existing DB whose group table still stores the figures on its row
+        H2ConnectionProvider provider = new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.toString()));
+        try (Connection connection = provider.get()) {
+            new SchemaManager(new H2Dialect(), opening(provider, new AtomicInteger()), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ADD COLUMN "
+                        + TiaSchema.COL_ACTUAL_DURATION_MS + " BIGINT");
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ADD COLUMN "
+                        + TiaSchema.COL_SUITES_RAN + " INT DEFAULT 0");
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ADD COLUMN "
+                        + TiaSchema.COL_SUITES_FAILED + " INT DEFAULT 0");
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ADD COLUMN "
+                        + TiaSchema.COL_SUITES_DURATION_MS + " BIGINT DEFAULT 0");
+            }
+
+            // when two fresh managers (two later JVMs) ensure the schema in turn
+            AtomicInteger openedByFirst = new AtomicInteger();
+            new SchemaManager(new H2Dialect(), opening(provider, openedByFirst), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            AtomicInteger openedBySecond = new AtomicInteger();
+            new SchemaManager(new H2Dialect(), opening(provider, openedBySecond), provider.jdbcUrl())
+                    .ensureSchema(connection);
+
+            // then the first drops all four columns on a connection of its own, and the second
+            // opens nothing
+            assertEquals(1, openedByFirst.get());
+            assertEquals(0, openedBySecond.get());
+            List<String> columns = new ArrayList<>();
+            try (ResultSet resultSet = connection.getMetaData().getColumns(null, connection.getSchema(),
+                    TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_GROUP.toUpperCase(), null)) {
+                while (resultSet.next()) {
+                    columns.add(resultSet.getString("COLUMN_NAME").toLowerCase());
+                }
+            }
+            assertTrue(columns.contains(TiaSchema.COL_SUITES_OBSERVED));
+            for (String dropped : new String[]{TiaSchema.COL_ACTUAL_DURATION_MS, TiaSchema.COL_SUITES_RAN,
+                    TiaSchema.COL_SUITES_FAILED, TiaSchema.COL_SUITES_DURATION_MS}) {
+                assertFalse(columns.contains(dropped), dropped + " was not dropped");
+            }
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
     void ensureSchemaIsMemoisedAfterTheFirstCall(@TempDir Path dir) throws Exception {
         // given a schema manager that has already bootstrapped an empty database
         H2ConnectionProvider provider = new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.toString()));

@@ -170,7 +170,7 @@ class DistributedRunTotalsTest {
                 completed(0, 105_000L, 100_000L, 2, 0),
                 completed(1, 100_000L, 95_000L, 3, 0),
                 new DistributedRunGroup(RUN_ID, 2, DistributedRunGroupStatus.COMPLETED, "runner-2",
-                        5000L, 6000L, 1000L, null, 0, 0, 0, 0L));
+                        5000L, 6000L, 1000L, null, null, 0, 0, 0, 0L));
 
         // when
         DistributedRunTotals totals = DistributedRunTotals.from(groups);
@@ -255,7 +255,7 @@ class DistributedRunTotalsTest {
         List<DistributedRunGroup> groups = Arrays.asList(
                 completed(0, 3_000L, 2, 0),
                 new DistributedRunGroup(RUN_ID, 1, DistributedRunGroupStatus.COMPLETED, "runner-b",
-                        5000L, 6000L, 1000L, null, 4, 0, 4, 0L));
+                        5000L, 6000L, 1000L, null, null, 4, 0, 4, 0L));
 
         // when
         DistributedRunTotals totals = DistributedRunTotals.from(groups);
@@ -341,7 +341,7 @@ class DistributedRunTotalsTest {
                                           final long suitesDurationMs, final int suitesRan,
                                           final int suitesFailed) {
         return new DistributedRunGroup(RUN_ID, groupNumber, DistributedRunGroupStatus.COMPLETED,
-                "runner-" + groupNumber, 5000L, 6000L, 1000L, Long.valueOf(actualDurationMs),
+                "runner-" + groupNumber, 5000L, 6000L, 1000L, Long.valueOf(actualDurationMs), Long.valueOf(actualDurationMs),
                 suitesRan, suitesFailed, suitesRan, suitesDurationMs);
     }
 }

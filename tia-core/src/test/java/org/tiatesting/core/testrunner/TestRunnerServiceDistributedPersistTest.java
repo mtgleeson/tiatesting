@@ -310,9 +310,9 @@ class TestRunnerServiceDistributedPersistTest {
 
     /**
      * The completed group carries the measurements the sealer aggregates into the build's single
-     * history row: this runner's test-execution duration and its ran / failed suite counters. The
-     * ran count is the distinct suites the runner executed - its tracker map - not the attempt's
-     * own count, so a retry cannot count a suite twice.
+     * history row: this runner's test-execution duration and its ran / failed suite counters,
+     * derived from the JVM's contribution. The ran count is every suite the plan finished, the
+     * failed one included, as on a single-host row.
      */
     @Test
     void completedGroupRecordsTheRunnersDurationAndCounters() {
@@ -336,8 +336,8 @@ class TestRunnerServiceDistributedPersistTest {
         assertTrue(group.getActualDurationMs() >= 4000L,
                 "the recorded duration must be this runner's test-execution time, was "
                         + group.getActualDurationMs());
-        assertEquals(1, group.getSuitesRan(),
-                "the group must record the distinct suites this runner executed - its one tracker");
+        assertEquals(2, group.getSuitesRan(),
+                "the group must record the suites this runner finished - the failed one included");
         assertEquals(1, group.getSuitesFailed(), "the group must record this runner's failed suites");
     }
 
@@ -352,12 +352,8 @@ class TestRunnerServiceDistributedPersistTest {
         persistPlan(RUN_ID, 2);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
         TestRunResult firstAttempt = makeResult();
-        TestRunResult retry = new TestRunResult(firstAttempt.getTestSuiteTrackers(),
-                firstAttempt.getTestSuitesFailed(), firstAttempt.getRunnerTestSuites(),
-                firstAttempt.getSuitesObserved(), firstAttempt.getSelectedTests(),
-                firstAttempt.getMethodTrackersFromTestRun(), firstAttempt.getTestStats(), null,
-                firstAttempt.getIgnoredTestSuiteCount(), TestRunResultFixture.syntheticPlanOutcome(1, 1),
-                TestRunSelectionDetails.empty(), firstAttempt.getJvmContribution(), firstAttempt.getRunIdentity());
+        TestRunResult retry = nextPlanOf(firstAttempt, TestRunResultFixture.planOutcome(
+                Collections.singleton("com.example.FailedTest"), Collections.singleton("com.example.FailedTest")));
 
         // when
         service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
@@ -367,30 +363,30 @@ class TestRunnerServiceDistributedPersistTest {
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);
-        assertEquals(1, group.getSuitesRan(), "the retried suite must count once as run");
+        assertEquals(2, group.getSuitesRan(), "the retried suite must count once as run");
         assertEquals(1, group.getSuitesFailed(), "and once as failed");
     }
 
     /**
-     * The group's {@code suites_failed} is the JVM-wide count of suites whose latest execution
-     * failed, not the attempt's own count. A retry attempt that ran only a different suite, which
-     * passed, has no failures of its own, but a suite that failed in an earlier attempt and was not
-     * retried is still failing, and the group must still say so.
+     * The group's failed count is the JVM-wide count of suites whose latest execution failed, not
+     * the latest plan's own count. A later plan that ran only a different suite, which passed, has
+     * no failures of its own, but a suite that failed in an earlier plan and was not retried is
+     * still failing, and the group must still say so.
      */
     @Test
     void groupSuitesFailedIsTheJvmWideCountNotTheAttempts() {
         // given
         persistPlan(RUN_ID, 2);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
-        TestRunResult retry = makeResult();
-        TestRunResult retryWithNoFailuresOfItsOwn = new TestRunResult(retry.getTestSuiteTrackers(),
-                retry.getTestSuitesFailed(), retry.getRunnerTestSuites(), retry.getSuitesObserved(),
-                retry.getSelectedTests(), retry.getMethodTrackersFromTestRun(), retry.getTestStats(), null,
-                retry.getIgnoredTestSuiteCount(), TestRunResultFixture.syntheticPlanOutcome(1, 0), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
+        TestRunResult firstPlan = makeResult();
+        TestRunResult laterPlanWithNoFailuresOfItsOwn = nextPlanOf(firstPlan, TestRunResultFixture.planOutcome(
+                Collections.singleton("com.example.OtherTest"), Collections.<String>emptySet()));
+        service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
+                firstPlan, context);
 
         // when
         service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
-                retryWithNoFailuresOfItsOwn, context);
+                laterPlanWithNoFailuresOfItsOwn, context);
 
         // then
         assertEquals(1, readGroup(RUN_ID, 0).getSuitesFailed());
@@ -806,7 +802,7 @@ class TestRunnerServiceDistributedPersistTest {
     /**
      * Build a run result shaped like one group's worth of work: one mapped suite carrying coverage
      * (so the mapping write actually reaches the edge tables), one method tracker to stage, one
-     * failed suite, and two suites reported as run this attempt.
+     * failed suite, and two suites the plan finished.
      *
      * @return a populated result for the distributed persist path
      */
@@ -827,7 +823,24 @@ class TestRunnerServiceDistributedPersistTest {
                 "com.example.FailedTest"));
 
         return new TestRunResult(trackers, failed, runnerSuites, runnerSuites, selected,
-                methodTrackers, new TestStats(), null, 3, TestRunResultFixture.syntheticPlanOutcome(2, failed.size()), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
+                methodTrackers, new TestStats(), null, 3, TestRunResultFixture.planOutcome(runnerSuites, failed),
+                TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
+    }
+
+    /**
+     * Build the result of a later test plan in the same JVM as {@code earlier}: same trackers, JVM
+     * contribution and run identity, with this plan's own outcome.
+     *
+     * @param earlier the result of the JVM's earlier plan
+     * @param plan what the later plan did
+     * @return the later plan's result
+     */
+    private static TestRunResult nextPlanOf(final TestRunResult earlier, final TestPlanOutcome plan) {
+        return new TestRunResult(earlier.getTestSuiteTrackers(), earlier.getTestSuitesFailed(),
+                earlier.getRunnerTestSuites(), earlier.getSuitesObserved(), earlier.getSelectedTests(),
+                earlier.getMethodTrackersFromTestRun(), earlier.getTestStats(), null,
+                earlier.getIgnoredTestSuiteCount(), plan, TestRunSelectionDetails.empty(),
+                earlier.getJvmContribution(), earlier.getRunIdentity());
     }
 
     /**
@@ -998,24 +1011,18 @@ class TestRunnerServiceDistributedPersistTest {
          * @param runId the run the group belongs to
          * @param groupNumber the group's zero-based index within the run
          * @param runnerKey the calling runner's identity
-         * @param actualDurationMs this call's measured test-execution time, added to the group
-         * @param suitesRan number of suites this call's test plan executed, added to the group
-         * @param suitesFailed number of suites currently failing, replacing what was stored
          * @param suitesObserved the group's suites observed so far, each flagged observed; recorded
          *                       so a test can assert exactly which names the persist reported
-         * @param suitesDurationMs the summed measured run time of the suites timed so far
+         * @param contributions the runner JVM's contribution rows
          * @return true when the guarded update applied, false when the claim is no longer live
          */
         @Override
         public boolean reportGroupProgress(final String runId, final int groupNumber,
-                                           final String runnerKey, final long actualDurationMs,
-                                           final int suitesRan, final int suitesFailed,
-                                           final Set<String> suitesObserved, final long suitesDurationMs,
+                                           final String runnerKey, final Set<String> suitesObserved,
                                            final List<TestRunContribution> contributions) {
             callOrder.add("reportGroupProgress");
             observedSuitesReported.add(new HashSet<>(suitesObserved));
-            return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed, suitesObserved, suitesDurationMs, contributions);
+            return super.reportGroupProgress(runId, groupNumber, runnerKey, suitesObserved, contributions);
         }
 
         /**

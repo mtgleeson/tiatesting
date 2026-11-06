@@ -67,6 +67,22 @@ class TestJvmContributionTest {
     }
 
     @Test
+    void theSuiteTimeIsTheLargestCumulativeFigureRecorded() {
+        // given a first plan that timed 30s of suite work; the figure is cumulative per JVM
+        TestJvmContribution jvm = new TestJvmContribution("jvm-a");
+        jvm.record(false, plan(names("A", "B"), names("A")), 1000L, 35_000L, 30_000L);
+
+        // when a retry re-reports the same cumulative total, then a late plan a smaller one
+        jvm.record(true, plan(names("A"), names()), 35_000L, 41_000L, 30_000L);
+        jvm.record(false, plan(names("C"), names()), 41_000L, 42_000L, 900L);
+
+        // then the suite time neither accumulates nor regresses, while the plan time does add up
+        TestRunContribution firstAttempt = jvm.snapshot("run-1", 0).get(0);
+        assertEquals(30_000L, firstAttempt.getSuitesTimeMs());
+        assertEquals(35_000L, firstAttempt.getTestTimeMs());
+    }
+
+    @Test
     void aFreshJvmHasRecordedNoPlans() {
         // given
         // when

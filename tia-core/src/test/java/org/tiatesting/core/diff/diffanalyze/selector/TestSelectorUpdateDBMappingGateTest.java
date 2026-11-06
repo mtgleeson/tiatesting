@@ -680,17 +680,13 @@ class TestSelectorUpdateDBMappingGateTest {
          * @param runId ignored
          * @param groupNumber ignored
          * @param runnerKey ignored
-         * @param actualDurationMs ignored
-         * @param suitesRan ignored
-         * @param suitesFailed ignored
          * @param suitesObserved ignored
+         * @param contributions ignored
          * @return never returns
          * @throws UnsupportedOperationException always
          */
         @Override
-        public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
-                                           long actualDurationMs, int suitesRan, int suitesFailed,
-                                           Set<String> suitesObserved, long suitesDurationMs,
+        public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey, Set<String> suitesObserved,
                                            final List<TestRunContribution> contributions) {
             throw new UnsupportedOperationException("not used by this test");
         }

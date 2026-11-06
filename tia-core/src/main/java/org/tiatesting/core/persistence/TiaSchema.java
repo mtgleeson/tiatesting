@@ -110,10 +110,12 @@ final class TiaSchema {
     static final String COL_CLAIMED_AT = "claimed_at";
     static final String COL_COMPLETED_AT = "completed_at";
     static final String COL_ESTIMATED_MS = "estimated_ms";
+    /** TEMPORARY - used only by {@code SchemaManager.dropGroupCounterColumns}. */
     static final String COL_ACTUAL_DURATION_MS = "actual_duration_ms";
     static final String COL_SUITES_RAN = "suites_ran";
     static final String COL_SUITES_FAILED = "suites_failed";
     static final String COL_SUITES_OBSERVED = "suites_observed";
+    /** TEMPORARY - used only by {@code SchemaManager.dropGroupCounterColumns}. */
     static final String COL_SUITES_DURATION_MS = "suites_duration_ms";
     static final String COL_OBSERVED = "observed";
     static final String COL_UNRUNNABLE = "unrunnable";

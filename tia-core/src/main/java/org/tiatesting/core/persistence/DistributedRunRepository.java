@@ -74,9 +74,7 @@ class DistributedRunRepository extends JdbcRepository {
         String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
                 + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
-                + COL_ACTUAL_DURATION_MS + ", " + COL_SUITES_RAN + ", " + COL_SUITES_FAILED + ", "
-                + COL_SUITES_OBSERVED + ", " + COL_SUITES_DURATION_MS
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + COL_SUITES_OBSERVED + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         String suiteSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_TEST_SUITE_NAME + ") VALUES (?, ?, ?)";
 
@@ -131,11 +129,7 @@ class DistributedRunRepository extends JdbcRepository {
                         setNullableLong(statement, 5, group.getClaimedAtMs());
                         setNullableLong(statement, 6, group.getCompletedAtMs());
                         statement.setLong(7, group.getEstimatedMs());
-                        setNullableLong(statement, 8, group.getActualDurationMs());
-                        statement.setInt(9, group.getSuitesRan());
-                        statement.setInt(10, group.getSuitesFailed());
-                        statement.setInt(11, group.getSuitesObserved());
-                        statement.setLong(12, group.getSuitesDurationMs());
+                        statement.setInt(8, group.getSuitesObserved());
                         statement.addBatch();
                     }
                     statement.executeBatch();

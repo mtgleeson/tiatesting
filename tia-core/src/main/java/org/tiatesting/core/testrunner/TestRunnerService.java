@@ -155,7 +155,7 @@ public class TestRunnerService {
             // branch itself from the plan's own run row rather than from this runner's copy - see
             // persistDistributedRunnerData's javadoc for why commitValue and branch stop here.
             persistDistributedRunnerData(updateDBMapping, updateDBTestRunHistory,
-                    durationMs, testRunResult, distributedRunnerContext);
+                    testRunResult, distributedRunnerContext);
             return;
         }
 
@@ -311,16 +311,14 @@ public class TestRunnerService {
      *                        seal instead, since they describe the whole build
      * @param updateDBTestRunHistory should the build write a history row. Recorded for the seal
      *                               unchanged: the build's one row is the sealer's to write
-     * @param durationMs this runner's test-execution duration in ms, measured on the same clock a
-     *                   single-host run records, so the sealer's aggregate stays comparable with
-     *                   non-distributed history
-     * @param testRunResult the collected results of this runner's test run
+     * @param testRunResult the collected results of this runner's test run, carrying the JVM
+     *                      contribution its group's figures are derived from
      * @param distributedRunnerContext the run id, runner identity and claimed group this runner
      *                                 holds; a context that claimed no group persists nothing
      */
     private void persistDistributedRunnerData(final boolean updateDBMapping,
                                               final boolean updateDBTestRunHistory,
-                                              final long durationMs, final TestRunResult testRunResult,
+                                              final TestRunResult testRunResult,
                                               final DistributedRunnerContext distributedRunnerContext){
         if (!distributedRunnerContext.isClaimed()){
             // A surplus runner: the pipeline fanned out wider than the plan's group count, so this
@@ -344,13 +342,6 @@ public class TestRunnerService {
                 distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey(),
                 distributedRunnerContext.getGroupNumber());
 
-        // The suite-attributable share of durationMs, read before step 1 goes near the trackers.
-        // mergeTestMappingStats today folds this run's figures into the *stored* tracker and leaves
-        // the incoming one untouched, so the ordering is not load-bearing yet - but the value being
-        // read is "what this run measured", and taking it before the merge is what keeps that true
-        // if the merge ever starts writing back through the incoming map.
-        long suitesDurationMs = sumMeasuredSuiteRunTimes(testRunResult.getTestSuiteTrackers());
-
         // A runner that executed none of the suites it was given writes no mapping either, for the
         // reasons persistEmptyRun gives - and one of them bites harder here than on a single host.
         // This runner's runnerTestSuites is its own JVM's observations when no test-classes directory
@@ -363,8 +354,8 @@ public class TestRunnerService {
         // nothing never satisfies the completeness guard, so its group never completes and no sealer
         // is elected. The gate therefore has to be here as well as there.
         //
-        // Progress is still reported below: the group's counters and duration are facts about this
-        // runner regardless, and reporting them is what lets the barrier release and the build reach
+        // Progress is still reported below: the runner's contribution and observed suites are facts
+        // about this runner regardless, and reporting them is what lets the barrier release and the build reach
         // the sealer, which is where an empty *build* is recognised.
         boolean ranNoExpectedSuites = testRunResult.ranNoExpectedSuites();
         if (ranNoExpectedSuites){
@@ -397,62 +388,53 @@ public class TestRunnerService {
         //    row and one set of Tia-level stats, both written by the sealer from the figures every
         //    group recorded, rather than one of each per runner.
 
-        // 5. Report this test plan's progress. The duration accumulates onto whatever is already
-        //    stored for the group, so a Surefire retry's time adds to the runner's; suitesFailed
-        //    replaces what was stored, since it is current state and a passing retry must be able
-        //    to shrink it back to zero. suitesRan is the distinct suites this JVM has executed -
-        //    the tracker map, cumulative across every test plan - written via GREATEST, so a
-        //    retried suite counts once, as it does in suitesFailed, on the build's one history row;
-        //    a Gradle test-retry round, which executed only the retried suites, cannot shrink it. suitesDurationMs - the part of the duration attributable to
-        //    a named suite, which is what lets the sealer charge each runner's fixed JVM overhead
-        //    once for the build rather than once per group - is written via GREATEST rather than
-        //    accumulated, for the reason sumMeasuredSuiteRunTimes explains. suitesObserved is a set
-        //    of names: each one's group-suite row is flagged observed, so a retry re-reporting the
-        //    same suites changes nothing and several JVMs' reports add up to their union (see
+        // 5. Report this test plan's progress. The group's figures - duration, wall clock, suites
+        //    ran and failed, suite time - are not reported as numbers: they are derived from the
+        //    contribution rows of every JVM that works the group (see
+        //    DistributedRunGroup#withFigures), so several Surefire forks or a Gradle test-retry JVM
+        //    add up rather than overwrite each other. suitesObserved is a set of names: each one's
+        //    group-suite row is flagged observed, so a retry re-reporting the same suites changes
+        //    nothing and several JVMs' reports add up to their union (see
         //    DataStore#reportGroupProgress). It is deliberately fed from the intersection of
-        //    getSuitesObserved() with this group's own assigned suites (see
-        //    observedSuitesInGroup), not from
-        //    getSuitesObserved() alone and not from getRunnerTestSuites(). getRunnerTestSuites() can
-        //    be a project-wide directory scan on Maven (testClassesDir) that carries no information
-        //    about this runner's own progress, which was the second bug in this guard's history; the
-        //    third was feeding the guard from the raw size of getSuitesObserved(), which on Maven
-        //    also counts every foreign suite this JVM's ByteBuddy-disabled classes fire
-        //    executionSkipped for - suites Tia deselected onto other groups, not suites this group
-        //    was ever assigned. Flags can only land on assigned rows, and intersecting first keeps
-        //    those foreign names out of the report entirely. The observed flags are what the
-        //    completeness guard later counts, not suitesRan, so a suite the runner observed
-        //    but never executed (a disabled class, a Surefire/Gradle filter, a class deleted since
-        //    the last mapping run) does not block the group from completing, as long as it is one of
-        //    this group's own assigned suites. The status flip itself is not made here: this runs
-        //    once per finished test plan, and a retry is another test plan in the same JVM, so
-        //    flipping the group to COMPLETED here would release the barrier after the first test plan
-        //    while this runner is still executing tests. It is made instead by the build tool step
-        //    that runs once every retry has finished - see DistributedRunCompleter - since knowing
-        //    that no more retries are coming is a fact only the build tool has, not this fork.
-        int suitesRan = testRunResult.getTestSuiteTrackers().size();
-        int suitesFailed = testRunResult.getTestSuitesFailed() != null
-                ? testRunResult.getTestSuitesFailed().size() : 0;
+        //    getSuitesObserved() with this group's own assigned suites (see observedSuitesInGroup),
+        //    not from getSuitesObserved() alone and not from getRunnerTestSuites().
+        //    getRunnerTestSuites() can be a project-wide directory scan on Maven (testClassesDir)
+        //    that carries no information about this runner's own progress, which was the second bug
+        //    in this guard's history; the third was feeding the guard from the raw size of
+        //    getSuitesObserved(), which on Maven also counts every foreign suite this JVM's
+        //    ByteBuddy-disabled classes fire executionSkipped for - suites Tia deselected onto other
+        //    groups, not suites this group was ever assigned. Flags can only land on assigned rows,
+        //    and intersecting first keeps those foreign names out of the report entirely. The
+        //    observed flags are what the completeness guard later counts, not the suites ran, so a
+        //    suite the runner observed but never executed (a disabled class, a Surefire/Gradle
+        //    filter, a class deleted since the last mapping run) does not block the group from
+        //    completing, as long as it is one of this group's own assigned suites. The status flip
+        //    itself is not made here: this runs once per finished test plan, and a retry is another
+        //    test plan in the same JVM, so flipping the group to COMPLETED here would release the
+        //    barrier after the first test plan while this runner is still executing tests. It is
+        //    made instead by the build tool step that runs once every retry has finished - see
+        //    DistributedRunCompleter - since knowing that no more retries are coming is a fact only
+        //    the build tool has, not this fork.
         Set<String> suitesObserved = observedSuitesInGroup(testRunResult.getSuitesObserved(),
                 distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber().intValue());
-        runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesObserved,
-                suitesDurationMs, testRunResult.getJvmContribution().snapshot(
+        runnerPersist.reportGroupProgress(suitesObserved, testRunResult.getJvmContribution().snapshot(
                         distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber()));
     }
 
     /**
-     * Add up the run times this JVM measured for the suites it ran, giving the share of the runner's
-     * total duration that is attributable to a named suite. What is left over -
-     * {@code durationMs - this} - is the runner's fixed per-JVM overhead, and reporting the split
-     * lets the sealer charge that overhead once for the whole build instead of once per group; see
-     * {@link org.tiatesting.core.distributed.DistributedRunTotals}.
+     * Add up the run times this JVM measured for the suites it ran, giving the share of the JVM's
+     * plan time that is attributable to a named suite. It feeds the JVM's contribution (see {@link
+     * TestJvmContribution#record}), from which a distributed group's suite time is derived; the
+     * remainder of the group's duration is the runner's fixed per-JVM overhead, which lets the
+     * sealer charge that overhead once for the whole build instead of once per group - see {@link
+     * org.tiatesting.core.distributed.DistributedRunTotals}.
      *
      * <p>The tracker map is the JVM's shared one, so this total is already cumulative across every
      * test plan the JVM has made: a suite is timed on its first attempt only (see the listeners'
      * {@code shouldCalcTestSuiteAvgTime}), so a Surefire retry re-reports the same total rather than
-     * adding to it. That is exactly why the column it feeds is written via {@code GREATEST} rather
-     * than accumulated, and it is also what leaves a retry's own wall time outside the
-     * suite-attributable total and inside the overhead remainder, where it belongs - a retry is real
-     * time the build spent that no fresh suite run accounts for.
+     * adding to it. That leaves a retry's own wall time outside the suite-attributable total and
+     * inside the overhead remainder, where it belongs - a retry is real time the build spent that
+     * no fresh suite run accounts for.
      *
      * <p>Returns 0 when no suite was timed, which is the ordinary state on a run that does not own
      * the mapping. The sealer distinguishes that from a genuine zero by checking it against the group's

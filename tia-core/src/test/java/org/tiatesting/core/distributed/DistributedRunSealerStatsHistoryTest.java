@@ -672,9 +672,9 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
-     * <b>A retry must not turn a partial build into an all-tests build.</b> {@code suites_ran} counts
-     * the distinct suites a runner executed, written with {@code GREATEST}, so a retry within one
-     * runner's JVM re-reports the same suites rather than adding to them. It once accumulated
+     * <b>A retry must not turn a partial build into an all-tests build.</b> A group's suites ran
+     * count only its first-attempt contributions, so a retry - a rerun contribution - adds no suite
+     * to them. It once accumulated
      * executions instead, and deriving the ignored count by subtracting it from the tracked suite
      * count let a partial build with enough reruns reach zero ignored suites and claim to have run
      * everything - folding its duration into the full-suite baseline permanently and advancing every
@@ -691,11 +691,16 @@ class DistributedRunSealerStatsHistoryTest {
         assertNotNull(dataStore.claimNextPendingGroup(RUN_ID, RUNNER_A, 5000L),
                 "test setup expects a group to be available to claim");
 
-        // when - the runner reports twice for its one group, as a retried JVM does, each time with
-        // the 2 distinct suites it has executed
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 3_000L, 2, 1, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L, Collections.<TestRunContribution>emptyList()),
+        // when - the runner reports its first attempt, which ran 2 suites and failed one, then its
+        // retry of the failed suite, which passed
+        Set<String> failed = Collections.singleton(trackedSuiteNames(0, 1).get(0));
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2),
+                Collections.singletonList(new TestRunContribution(RUN_ID, "jvm-a", false, 0, 2, failed,
+                        Collections.<String>emptySet(), 3_000L, 0L, 1000L, 4000L))),
                 "test setup expects the first attempt's report to be accepted");
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2), 0L, Collections.<TestRunContribution>emptyList()),
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, ObservedSuites.firstAssigned(dataStore, RUN_ID, 0, 2),
+                Collections.singletonList(new TestRunContribution(RUN_ID, "jvm-a", true, 0, 1,
+                        Collections.<String>emptySet(), failed, 1_000L, 0L, 4000L, 5000L))),
                 "test setup expects the retry's report to be accepted");
         assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L, Collections.<String>emptySet()),
                 "test setup expects the completion to be accepted");
@@ -1160,8 +1165,8 @@ class DistributedRunSealerStatsHistoryTest {
         assertNotNull(claimed, "test setup expects a group to be available to claim");
         assertEquals(groupNumber, claimed.getGroupNumber(),
                 "test setup expects the groups to be claimed in order");
-        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                suitesRan, suitesFailed, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesRan), suitesDurationMs, Collections.<TestRunContribution>emptyList()),
+        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, suitesRan),
+                GroupProgressFixture.contribution(runId, groupNumber, actualDurationMs, suitesRan, suitesFailed, suitesDurationMs)),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L,
                 Collections.<String>emptySet()),

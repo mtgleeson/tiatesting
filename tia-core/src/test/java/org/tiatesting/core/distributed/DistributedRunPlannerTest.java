@@ -1482,9 +1482,9 @@ class DistributedRunPlannerTest {
                 DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-unsealed", 0, DistributedRunGroupStatus.COMPLETED,
-                "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5, 0L));
+                "runner-1", 1L, 2L, 1000L, 900L, 900L, 5, 0, 5, 0L));
         groups.add(new DistributedRunGroup("run-unsealed", 1, DistributedRunGroupStatus.COMPLETED,
-                "runner-2", 1L, 2L, 1000L, 950L, 4, 0, 4, 0L));
+                "runner-2", 1L, 2L, 1000L, 950L, 950L, 4, 0, 4, 0L));
 
         // when
         List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(unsealedRun, groups,
@@ -1507,7 +1507,7 @@ class DistributedRunPlannerTest {
                 DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-incomplete", 0, DistributedRunGroupStatus.COMPLETED,
-                "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5, 0L));
+                "runner-1", 1L, 2L, 1000L, 900L, 900L, 5, 0, 5, 0L));
         groups.add(DistributedRunGroup.pending("run-incomplete", 1, 1000L));
 
         // when
@@ -1531,7 +1531,7 @@ class DistributedRunPlannerTest {
         DistributedRun openRun = new DistributedRun("run-claimed", "main", "commit-1",
                 DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = Collections.singletonList(new DistributedRunGroup("run-claimed", 0,
-                DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 1, 0, 1, 0L));
+                DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 900L, 1, 0, 1, 0L));
         Map<Integer, List<String>> unobserved = Collections.singletonMap(0,
                 Arrays.asList("com.example.BarTest", "com.example.FooTest"));
         Map<Integer, Integer> assigned = Collections.singletonMap(0, 3);
@@ -1556,7 +1556,7 @@ class DistributedRunPlannerTest {
                 DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-pending", 0, DistributedRunGroupStatus.COMPLETED,
-                "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5, 0L));
+                "runner-1", 1L, 2L, 1000L, 900L, 900L, 5, 0, 5, 0L));
         groups.add(DistributedRunGroup.pending("run-pending", 1, 1000L));
 
         // when
@@ -1577,7 +1577,7 @@ class DistributedRunPlannerTest {
         DistributedRun seedRun = new DistributedRun("run-seed", "main", "commit-1",
                 DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SEED, null);
         List<DistributedRunGroup> groups = Collections.singletonList(new DistributedRunGroup("run-seed", 0,
-                DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 1, 0, 1, 0L));
+                DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 900L, 1, 0, 1, 0L));
 
         // when
         List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(seedRun, groups,
@@ -1597,7 +1597,7 @@ class DistributedRunPlannerTest {
         DistributedRun openRun = new DistributedRun("run-many", "main", "commit-1",
                 DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = Collections.singletonList(new DistributedRunGroup("run-many", 0,
-                DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 0, 0, 0, 0L));
+                DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 900L, 0, 0, 0, 0L));
         List<String> names = new ArrayList<>();
         for (int i = 0; i < 25; i++) {
             names.add(String.format("com.example.Suite%02dTest", i));

@@ -84,7 +84,7 @@ public final class DistributedRunTotals {
      *
      * @param groupCount the number of groups the build was split across
      * @param serialDurationMs the serial-equivalent test-execution time, in ms
-     * @param wallClockMs the slowest group's test-execution time, in ms
+     * @param wallClockMs the slowest group's wall clock - its longest single runner JVM - in ms
      * @param suitesRan the number of suites the build executed across every group
      * @param suitesFailed the number of suites with at least one failed test across every group
      * @param fixedOverheadMs the per-JVM fixed overhead charged once, in ms; 0 when the build's
@@ -107,7 +107,9 @@ public final class DistributedRunTotals {
      * seal: the sealer is only reached once every group is complete and a completion always records
      * its duration, so this cannot normally happen, and abandoning a build that has already run all
      * its tests would be a far worse answer than under-reporting its time. Such a group is also left
-     * out of the overhead measurement entirely - it has no measurement to contribute.
+     * out of the overhead measurement entirely - it has no measurement to contribute. The wall clock
+     * is the largest group wall clock, not the largest group duration, since a group whose runner
+     * used several JVMs side by side finished sooner than their summed time.
      *
      * @param groups the run's groups, as read back from the datastore after the barrier
      * @return the whole build's figures; all zero when there are no groups
@@ -123,8 +125,10 @@ public final class DistributedRunTotals {
             Long groupDurationMs = group.getActualDurationMs();
             if (groupDurationMs != null) {
                 summedDurationMs += groupDurationMs.longValue();
-                wallClockMs = Math.max(wallClockMs, groupDurationMs.longValue());
                 measuredGroups++;
+            }
+            if (group.getWallClockMs() != null) {
+                wallClockMs = Math.max(wallClockMs, group.getWallClockMs().longValue());
             }
             suitesRan += group.getSuitesRan();
             suitesFailed += group.getSuitesFailed();
@@ -201,8 +205,9 @@ public final class DistributedRunTotals {
     public long getSerialDurationMs() { return serialDurationMs; }
 
     /**
-     * @return the build's wall-clock test time in ms - the slowest group's time, reported alongside
-     *         the serial figure rather than in place of it
+     * @return the build's wall-clock test time in ms - the slowest group's wall clock, which is its
+     *         longest single runner JVM, reported alongside the serial figure rather than in place
+     *         of it
      */
     public long getWallClockMs() { return wallClockMs; }
 

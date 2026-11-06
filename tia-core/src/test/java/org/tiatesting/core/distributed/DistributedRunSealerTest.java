@@ -813,7 +813,8 @@ class DistributedRunSealerTest {
     private void claimAndComplete(final String runId, final String runnerKey) {
         DistributedRunnerContext context = claim(runId, runnerKey);
         int groupNumber = context.getGroupNumber().intValue();
-        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, 1000L, 1, 0, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, 1), 0L, Collections.<TestRunContribution>emptyList()),
+        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, ObservedSuites.firstAssigned(dataStore, runId, groupNumber, 1),
+                GroupProgressFixture.contribution(runId, groupNumber, 1000L, 1, 0, 0L)),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L,
                 Collections.<String>emptySet()),
@@ -1056,20 +1057,15 @@ class DistributedRunSealerTest {
          * @param runId the run the group belongs to
          * @param groupNumber the group's zero-based index within the run
          * @param runnerKey the calling runner's identity
-         * @param actualDurationMs this call's measured test-execution time, added to the group
-         * @param suitesRan number of suites this call's test plan executed, added to the group
-         * @param suitesFailed number of suites currently failing, replacing what was stored
          * @param suitesObserved the group's suites observed so far, each flagged observed
+         * @param contributions the runner JVM's contribution rows
          * @return true when the guarded update applied, false when the claim is no longer live
          */
         @Override
         public boolean reportGroupProgress(final String runId, final int groupNumber,
-                                           final String runnerKey, final long actualDurationMs,
-                                           final int suitesRan, final int suitesFailed,
-                                           final Set<String> suitesObserved, final long suitesDurationMs,
+                                           final String runnerKey, final Set<String> suitesObserved,
                                            final List<TestRunContribution> contributions) {
-            return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed, suitesObserved, suitesDurationMs, contributions);
+            return super.reportGroupProgress(runId, groupNumber, runnerKey, suitesObserved, contributions);
         }
 
         /**

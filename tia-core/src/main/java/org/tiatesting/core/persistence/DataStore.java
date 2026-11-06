@@ -608,91 +608,51 @@ public interface DataStore extends AutoCloseable {
     /**
      * Record one test plan's progress on a runner's group, without releasing the barrier: the
      * group stays {@code CLAIMED}. Called on every persist a runner's test JVM makes - possibly
-     * several times per JVM, once per Surefire retry - so the figures it carries fall into three
-     * kinds that must not be treated alike:
+     * several times per JVM, once per test plan or Surefire retry - and from every JVM that works
+     * the group, such as several Surefire forks or a Gradle test-retry JVM. It carries two things:
      *
      * <ul>
-     *   <li>{@code actualDurationMs} is a counter: this call adds to whatever is already stored,
-     *       so several test plans within one JVM sum to the JVM's total instead of the last one's
-     *       figure silently overwriting the ones before it - a retry's time is real time. See the
-     *       "Suite retries" material in the distributed test runs chapter of {@code WIKI.md}.</li>
-     *   <li>{@code suitesRan} is the number of <b>distinct</b> suites the runner has executed, and
-     *       is written as {@code GREATEST(COALESCE(stored, 0), value)}: the caller draws it from
-     *       the JVM's tracker map, already cumulative across every test plan, so a retry re-reports
-     *       the same suites rather than adding to them. It is what the sealer aggregates into the
-     *       build's one history row, next to {@code suitesFailed}, which counts each failing suite
-     *       once however often it was retried - so a retried suite counts once on both.</li>
-     *   <li>{@code suitesFailed} is current state, not a counter: it is replaced outright, because
-     *       a suite that passes on retry must legitimately leave the failed set, and accumulating
-     *       it would instead leave a fixed suite recorded as permanently failed.</li>
-     *   <li>{@code suitesObserved} is a set of names, not a figure: each named suite's row in
+     *   <li>{@code contributions}: the runner JVM's contribution rows, each holding that JVM's
+     *       running totals for one attempt kind, upserted so a later plan of the same JVM replaces
+     *       its row. The group's figures - duration, wall clock, suites ran and failed, suite time -
+     *       are derived from these on every read (see {@link DistributedRunGroup#withFigures}), so
+     *       several JVMs reporting against one group add up rather than overwrite each other.</li>
+     *   <li>{@code suitesObserved}: a set of names, not a figure. Each named suite's row in
      *       {@code tia_distributed_run_group_suite} has its {@code observed} flag set, and the
      *       group's {@code suites_observed} column is then rewritten as the count of flagged rows.
      *       Flags only ever go from false to true, so a retry re-reporting the same suites changes
      *       nothing, and reports from several JVMs against the same group add up to their union.
      *       Names not assigned to the group match no row and are ignored. It holds every suite the
      *       runner <b>observed</b> - saw finish or saw skipped - which is deliberately not the
-     *       same as {@code suitesRan}: a suite Tia
-     *       never got to run (a class-level {@code @Disabled}, a Surefire/Gradle filter, a class
-     *       deleted since the last mapping run) is observed (skipped) without ever being executed.
-     *       The flags are what {@link #completeGroup}'s completeness guard counts, precisely so
-     *       that a group with such a suite can still complete. Do not conflate {@code suitesRan} and
-     *       {@code suitesObserved}: one is the sealer's "executed" figure, the other is the guard's
-     *       "accounted for" figure, and they answer different questions.</li>
+     *       same as the suites it ran: a suite Tia never got to run (a class-level
+     *       {@code @Disabled}, a Surefire/Gradle filter, a class deleted since the last mapping run)
+     *       is observed (skipped) without ever being executed. The flags are what {@link
+     *       #completeGroup}'s completeness guard counts, precisely so that a group with such a
+     *       suite can still complete.</li>
      * </ul>
-     *
-     * <p><strong>Precondition for the figures: one JVM works one group end to end.</strong> The
-     * observed flags union across JVMs, so the completeness guard is right however many JVMs report
-     * against a group. {@code suitesRan} and {@code suitesDurationMs} are still written via
-     * {@code GREATEST} of per-JVM cumulative figures, which is only exact when every call for a given
-     * {@code (runId, groupNumber, runnerKey)} comes from one JVM, as a Surefire retry within one
-     * JVM does. Maven {@code forkCount > 1} / {@code reuseForks=false} breaks that:
-     * {@code AgentMojo.writeForkPropertiesFile} writes one claimed group number and runner key into
-     * a single fork-properties file that every Surefire fork for the module reads, so several JVMs
-     * report against the same group and those two figures converge on the largest single fork's
-     * rather than the total. Several forks remain a known-unsupported configuration for the mapping
-     * write, and this call does not attempt to lift that. Gradle {@code maxParallelForks > 1} /
-     * {@code forkEvery > 0} has the same shape - {@code TiaTestTaskConfigurer.claimDistributedRun}
-     * forwards one claim to every worker JVM - and {@code claimDistributedRun} refuses both
-     * settings when the test task starts, before it forks anything.
      *
      * <p>Conditional on the group still being {@code CLAIMED} <strong>by this runner key</strong>,
      * the same straggler-protection predicate {@link #completeGroup} is guarded on. A {@code
      * false} return means the claim is no longer live, for exactly the reasons a failed {@link
      * #completeGroup} call would report, and the caller must treat it the same way: there is
-     * nothing further to persist for this group from here.
+     * nothing further to persist for this group from here. See the distributed test runs chapter
+     * of {@code WIKI.md}.
      *
      * @param runId the distributed run the group belongs to
      * @param groupNumber the group's zero-based index within the run
      * @param runnerKey the calling runner's stable identity; must match the key that claimed the
      *                  group or nothing is written
-     * @param actualDurationMs this call's measured test-execution time, in ms, added to whatever
-     *                         duration is already stored for the group
-     * @param suitesRan the number of distinct suites the runner has executed so far, written as
-     *                  the greatest of this value and whatever was already stored
-     * @param suitesFailed the number of suites currently failing, replacing whatever was stored
      * @param suitesObserved the names of this group's assigned suites the runner has observed so
      *                       far (finished or skipped); each one's {@code observed} flag is set, and
      *                       the group's {@code suites_observed} becomes the count of flagged rows.
      *                       May be empty, which flags nothing
-     * @param suitesDurationMs the summed measured run time, in ms, of every suite this runner has
-     *                         timed so far, written as the greatest of this value and whatever was
-     *                         already stored. Splits the group's duration into the part attributable
-     *                         to named suites and the remainder - the runner's fixed per-JVM
-     *                         overhead - so the sealer can charge that overhead once for the build
-     *                         rather than once per group; see {@code DistributedRunTotals}. Zero
-     *                         when suite timing was not collected (a run that does not own
-     *                         the mapping), which the sealer reads as "no decomposition
-     *                         available", not "no overhead"
      * @param contributions this runner JVM's contribution rows to its run, upserted in the same
      *                      guarded transaction so a runner whose claim is no longer live writes none
      * @return {@code true} when the guarded update applied, {@code false} when this runner's
      *         claim is no longer live
      */
     boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
-                                final long actualDurationMs, final int suitesRan,
-                                final int suitesFailed, final Set<String> suitesObserved,
-                                final long suitesDurationMs, final List<TestRunContribution> contributions);
+                                final Set<String> suitesObserved, final List<TestRunContribution> contributions);
 
     /**
      * Flip a runner's group to {@code COMPLETED}, releasing the barrier in {@link #electSealer}.
