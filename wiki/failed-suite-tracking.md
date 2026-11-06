@@ -6,12 +6,11 @@ log). The set of such suites lives in `tia_test_suites_failed`. This chapter cov
 failure, how a test JVM decides a suite's failed state across retries, and how that state is written
 so that concurrent distributed runners cannot discard each other's entries.
 
-**Scope: one test JVM per build, or per distributed runner.** Tia runs a build's suites one after
-another in a single JVM so JaCoCo can attribute coverage per suite. Multi-fork configurations
-(Maven `forkCount > 1` / `reuseForks=false`, Gradle `maxParallelForks > 1` / `forkEvery > 0`) are
-unsupported - see "Multi-fork persist" in [Persist flow and crash safety](persist-flow-and-crash-safety.md).
-Nothing here makes them work. The one supported form of concurrency is distributed runners: separate
-JVMs on separate hosts, each running its own disjoint group sequentially, all writing to one database.
+**Scope: any number of test JVMs.** Each JVM clears and re-adds only the suites it executed, so
+several JVMs of one run - Surefire forks, Gradle `maxParallelForks` workers, a Gradle test-retry
+round, distributed runners - write disjoint parts of the set. A mapping run still needs one test JVM,
+for coverage attribution rather than for anything here - see "Multi-fork persist" in [Persist flow
+and crash safety](persist-flow-and-crash-safety.md).
 
 ### What counts as a failure
 
@@ -102,44 +101,59 @@ coverage with it"](persist-flow-and-crash-safety.md#a-deleted-suite-takes-its-co
 
 ### Two failed counts, for two readers
 
-`TestRunResult` carries both:
-
-- **`getTestSuitesFailed()`** - the JVM-wide latest-outcome set. It feeds the failed-set write and
-  a distributed runner's group progress (`suites_failed`, written as current state with `= ?`; see
-  "Suite retries" in [Distributed test runs](distributed-test-runs.md)). After a retry that ran
-  only suite B, which passed, while suite A failed earlier and was not retried, the group still
-  reports 1 failed.
-- **`getSuitesFailedThisAttempt()`** - the attempt's own count. On a single host each attempt
-  writes its own history row, whose ran count is also per-attempt (`suitesRanThisAttempt`), so the
-  failed count is per-attempt too. The same retry row reads "ran 1, failed 0", not "ran 1, failed
-  1" with a failure in a suite that attempt never ran.
+- **The JVM-wide latest-outcome set** (`TestRunResult.getTestSuitesFailed()`) feeds the failed-set
+  write. After a retry that ran only suite B, which passed, while suite A failed earlier and was not
+  retried, A is still failing.
+- **Each JVM's contribution to the run** (`TestJvmContribution`, one row per JVM and attempt kind in
+  `tia_test_run_jvm`) carries the failures of its first attempt and of its reruns separately. The
+  run's first-attempt history row counts the first attempt's failures, its rerun row the reruns'
+  own, and a distributed group's failed count is the latest outcome across both - see [Test-run
+  history log](test-run-history.md) and "Group figures" in [Distributed test
+  runs](distributed-test-runs.md).
 
 ### Retries: Surefire reruns and Gradle test-retry rounds
 
 A build tool can retry failed tests after the test task's first run, and each retry persists on its
 own. `TestRunResult` carries which attempt a persist describes, as a `RunAttempt`:
 
-- `FIRST` - the test task's real run.
+- `FIRST` - part of the test task's real run.
 - `RERUN_SAME_JVM` - a Surefire rerun (`rerunFailingTestsCount`). It runs in the first attempt's
-  JVM, so the listener's trackers already carry every attempt's coverage and suites. JUnit 5 numbers
-  test plans in `SharedTestRunData`.
+  JVM, so the listener's trackers already carry every attempt's coverage and suites.
 - `RERUN_NEW_JVM` - a Gradle `org.gradle.test-retry` round. Each round is a **fresh test JVM**
   (a separate `delegate.execute`, which starts and stops its own worker processes) with the same
   system properties, knowing only what it ran itself. A round only happens when every failure of
   the previous round is retryable, so each round re-runs every earlier failure.
 
-**Detecting a Gradle round.** Nothing a round's JVM is handed says which round it is, so the Tia
-Gradle plugin numbers the JVMs itself (`TestJvmSequence`): the test task's `doFirst`, which runs
-once per task execution before any round, resets a counter file in the task's temporary directory
-and forwards its path as `tiaTestJvmSequenceFile`; the Spock extension, or the JUnit 5 listener when
-its first test plan starts, increments it once per JVM, under a file lock, and caches the answer. 1
-is the real run, 2 or more a round. The JUnit 5 listener lets the counter win over its plan number
-(`TiaTestExecutionListener.resolveRunAttempt`): a round's JVM starts at plan 1 like the real run, so
-the plan number alone would persist it as `FIRST` and overwrite the real run. It relies on one
-test JVM per round - the single-fork requirement - and on nothing internal to Gradle or the
-test-retry plugin. With no counter (Maven, or a build without the plugin) a JVM is `FIRST`.
-Rejected: telling a round by its narrowed test plan, which a tag or `groups` filter produces too,
-and inspecting Gradle's filter object in the worker, which is a Gradle internal.
+**The rerun rule** (`RunAttemptResolver`). A test plan is a rerun when it exercised at least one
+suite and **every suite it exercised had already failed earlier in the run**. In a first attempt each
+suite runs exactly once - Surefire hands each class to one fork, Gradle each class to one worker, the
+planner each suite to one distributed group - so only a retry of failures can meet the rule, however
+many JVMs the run uses. The failures it checks are:
+
+- this JVM's own, from its earlier plans (`TestJvmContribution.failedSuites()`); a match is
+  `RERUN_SAME_JVM`;
+- otherwise, for a JVM's **first** plan only, the run's other JVMs' failures, read from their
+  contribution rows (`DataStore.readTestRunFailedSuites(runId, excludingJvmId)`); a match is
+  `RERUN_NEW_JVM`. A JVM that has already recorded a plan is a fork whose later plans are its own
+  reruns or further first-attempt classes, so it never needs the read.
+
+The run is identified by the `tiaTestRunId` the build tool hands every test JVM (see [Test runner
+data exchange](test-runner-data-exchange.md)), so the rule needs no JVM numbering and nothing
+internal to Gradle or the test-retry plugin.
+
+**Exercised, not finished.** A plan's exercised suites are those it ran at least one test of or
+recorded a failure for (`TestPlanOutcome`). The distinction matters for `@Nested`: a rerun of one
+failed `@Nested` class finishes its enclosing class as a container too, but runs none of the
+enclosing class's own tests, so the enclosing class is not exercised and does not stop the plan
+meeting the rule. A plan that exercised nothing - a fork handed only classes Tia ignored, or a
+test-retry worker handed no class - is never a rerun; it joins its JVM's first attempt and adds its
+time, but not its span, to the run's figures (see "Duration and wall clock" in [Test-run history
+log](test-run-history.md)).
+
+**Known limitation - a suite outside the plan.** The other-JVM read covers the whole run, not one
+distributed group. A suite no group was assigned - a test class compiled after `dist-plan` scanned
+the classes - is run by every runner, and the second runner to run it, finding it failed by the
+first, records it as a rerun.
 
 **What a retry does differently:**
 
@@ -176,7 +190,8 @@ Why each difference matters on a Gradle round, which knows nothing of the first 
 
 The failed set needs nothing special: each round clears and re-adds only the suites it executed,
 and the rounds run one after another, so the latest outcome wins across rounds. A distributed
-group's `suites_failed` is right too, because the last round re-ran every suite still failing.
+group's failed count is right too, because it is the latest outcome across every JVM's
+contribution.
 
 **The plugin used to fail at configuration with test-retry applied.** Gradle refuses
 `Project#afterEvaluate` inside a `configureEach` action ("cannot be executed in the current

@@ -30,8 +30,9 @@ wiki can also be read front to back.
   does to Tia, and Gradle 10 readiness.
 - [Profiling select-tests against a synthetic large DB](wiki/profiling-select-tests.md) - the
   `generateLargeTiaDb` / `profileSelectTests` harness for measuring the hot read path.
-- [Test-run history log](wiki/test-run-history.md) - the `tia_test_run_history` audit table, the
-  `history` task and the HTML History tab.
+- [Test-run history log](wiki/test-run-history.md) - the `tia_test_run_history` audit table, how
+  one run's test JVMs and test plans add up to one row (runs and contributions), the `history` task
+  and the HTML History tab.
 - [History timeline chart](wiki/history-timeline-chart.md) - the inline-SVG bar chart of recent run
   wall clocks above the History table: pass/fail colour, click-through to a run's detail page, the
   last-20 / show-10-more window, and why it is hand-rolled rather than a bundled charting library.
@@ -47,7 +48,7 @@ wiki can also be read front to back.
 - [Failed-suite tracking](wiki/failed-suite-tracking.md) - what counts as a suite failure per test
   framework, how a suite's latest outcome carries across Surefire retries, the incremental failed-set
   write that keeps concurrent distributed runners from discarding each other's entries, and how a
-  Surefire rerun or a Gradle test-retry round is detected and persisted as a retry.
+  test plan is recognised as a retry of failures (the rerun rule) and persisted as one.
 - [Forced runs and re-seed](wiki/forced-runs-and-reseed.md) - the `tiaSelectAllTests` and
   `tiaReseed` runtime flags: the selection mode, why pending library stamps survive, the re-seed
   clear-out inside the seal transaction, retries, distributed runs, and the measured cost.

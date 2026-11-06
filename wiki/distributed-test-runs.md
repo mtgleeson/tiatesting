@@ -512,34 +512,50 @@ trackers. Staging them early is safe because a method id hashes the class, metho
 only - it carries no line numbers - so a tracker staged by the first group to finish is still valid
 against the catalogue the sealer writes at the end.
 
-### Suite retries
+### Suite retries and several JVMs per group
 
 `DistributedRunnerPersist.reportGroupProgress` is called on **every** persist, and a persist happens
-once per finished test plan - which means several times per JVM when Surefire retries failed tests.
-The figures it carries fall into three kinds that must not be treated alike, and
-`DistributedRunGroupRepository.reportGroupProgress` writes each differently:
+once per finished test plan - several times per JVM when Surefire retries failed tests or runs one
+class per plan, and from every JVM that works the group: several Surefire forks reading one
+`fork.properties`, several Gradle workers given one forwarded claim, or a Gradle test-retry JVM. It
+carries two things, written in one transaction guarded on the claim still being live, so a
+straggler writes nothing:
 
-- `actual_duration_ms` is a **counter**: `COALESCE(column, 0) + ?`, so several test plans in one
-  JVM sum to the JVM's total instead of the last one silently overwriting the ones before it - a
-  retry's time is real time.
-- `suites_ran` counts the **distinct suites** the runner executed, drawn from the JVM's tracker map
-  (already cumulative across its test plans) and written as `GREATEST(COALESCE(column, 0), ?)`. A
-  retry re-reports the same suites, and a Gradle test-retry round - a fresh JVM that ran only the
-  retried suites - reports fewer, so neither adds to it. A distributed build has one history row and
-  no rerun rows, and `suites_failed` counts each failing suite once however often it was retried; a
-  summed `suites_ran` counted it once per attempt, so a suite failing its first run and both retries
-  read "ran 3, failed 1". It now reads "ran 1, failed 1".
-- `suites_failed` is **current state**: a plain `= ?`, because a suite that passes on retry must be
-  able to leave the failed set. Accumulating it would leave a fixed suite recorded as permanently
-  failed. The value is the JVM-wide count of suites whose latest execution failed, not the
-  attempt's own failures: a retry that ran only a different suite still reports a suite that failed
-  earlier and was not retried. See [Failed-suite tracking](failed-suite-tracking.md).
-- the **observed suites** are not a figure at all. The report names the group's assigned suites the
-  JVM observed, each one's `tia_distributed_run_group_suite` row has its `observed` flag set, and
-  `suites_observed` is then rewritten as the count of flagged rows. A flag only goes from false to
-  true, so a retry re-reporting the same suites changes nothing and the count can never regress.
-  All three writes run in one transaction, guarded on the claim still being live, so a straggler
-  flags nothing.
+- **The JVM's contribution rows** (`tia_test_run_jvm`, keyed by run id, JVM id and attempt kind, with
+  the group number). Each holds that JVM's running totals - suites finished and failed, summed plan
+  time, suite-attributable time, first start and last end - restated on every persist, so a later
+  plan of the same JVM replaces its row and several JVMs add up rather than overwrite each other. See
+  "Runs and contributions" in [Test-run history log](test-run-history.md).
+- **The observed suites**, which are not a figure at all. The report names the group's assigned
+  suites the JVM observed, each one's `tia_distributed_run_group_suite` row has its `observed` flag
+  set, and `suites_observed` is then rewritten as the count of flagged rows. A flag only goes from
+  false to true, so a retry re-reporting the same suites changes nothing, reports from several JVMs
+  add up to their union, and the count can never regress.
+
+**Group figures.** The group row stores no figures of its own. Every read
+(`readDistributedRunGroups`, the claim, the completion) derives them from the group's contributions
+(`DistributedRunGroup.withFigures`):
+
+| Figure | Derived as |
+| --- | --- |
+| duration (`getActualDurationMs`) | every JVM's plan time, retries included - a retry's time is real time |
+| wall clock (`getWallClockMs`) | the longest single JVM's plan time: the group's elapsed time when its JVMs ran side by side, and its duration when one JVM ran it |
+| suites ran | the first-attempt contributions' finished suites - a retry runs no new suite, so a suite failing its first run and both retries reads "ran 1, failed 1" |
+| suites failed | the latest outcome across first attempt and reruns, so a suite that passes on retry leaves it, and one that failed earlier and was not retried stays in it |
+| suite time | the first-attempt contributions' suite-attributable time |
+
+For a group one JVM ran these are exactly the figures that JVM reported. The build's wall clock is
+the slowest group's wall clock (`DistributedRunTotals`). The figures used to be stored as counters
+on the group row, written with `COALESCE(...) + ?` and `GREATEST(...)` per JVM, which converged on
+the largest single JVM's share when several JVMs reported against one group; a TEMPORARY migration
+(`SchemaManager.dropGroupCounterColumns`) drops those columns from an existing database.
+
+**The build's rerun row.** The sealer writes the build's first-attempt row from the first-attempt
+contributions only, and, when any runner JVM retried failed tests, a second **rerun row** adding up
+every rerun contribution - credited no savings and stamped with the first retry's start, the same
+pair a single-host run writes. The Tia-level stats, the overhead model and the empty-build decision
+still use every attempt together. Whether a plan is a retry is decided by the rerun rule in
+[Failed-suite tracking](failed-suite-tracking.md).
 
 The status flip is deliberately not made here. A retry is another test plan in the same JVM, so
 completing the group from the persist would release the barrier after the first test plan while the
@@ -547,22 +563,14 @@ runner is still executing tests - and the sealer would then rebuild the catalogu
 missing everything the later test plans covered. Only the build tool knows that no more retries are
 coming, which is precisely why completion is a build-tool step.
 
-The figures still have a precondition worth knowing: **one JVM works one group end to end**.
-Because observed suites are flagged per row, the completeness guard is right however many JVMs
-report against a group - their reports add up to the union. `suites_ran` and `suites_duration_ms`
-are still `GREATEST` of per-JVM cumulative figures, though, so with several JVMs per group they
-converge on the largest single JVM's figure rather than the total. Maven `forkCount > 1` /
-`reuseForks=false` produces exactly that, because one `fork.properties` file carrying one group
-number and runner key is read by every Surefire fork for the module - and multi-fork is already
-unsupported for the mapping write itself.
-
-Gradle `maxParallelForks > 1` / `forkEvery > 0` has the same shape, for the same structural reason:
-the claim happens once in the daemon and the resulting run id, runner key and group number are
-forwarded to the test task as system properties, which Gradle hands to every worker JVM, and Gradle
-really does split the group's suites across its workers. The Gradle plugin refuses either setting
-when the test task starts, with an explanation. The check runs in the test task's own action rather
-than at configuration time, so it reads the final value of `maxParallelForks` after everything that
-configures the task has had its say.
+**Several JVMs per runner need the mapping off.** A mapping run still needs one JVM per group, for
+coverage attribution (see "Multi-fork persist" in [Persist flow and crash
+safety](persist-flow-and-crash-safety.md)). The Gradle plugin refuses `maxParallelForks > 1` /
+`forkEvery > 0` on a distributed test task that updates the mapping, when the task starts - the
+claim happens once in the daemon and is forwarded to every worker, and Gradle splits the group's
+suites across them. The check runs in the test task's own action rather than at configuration time,
+so it reads the final value of `maxParallelForks` after everything that configures the task has had
+its say. With the mapping off, both build tools may fork freely.
 
 ### Straggler protection
 
@@ -732,7 +740,7 @@ single-host run pays once. That fixed part cannot be separated at estimate time:
 `TestSelector.computeOverheadPerSuiteMs` derives the overhead as
 `allTestsRunTime - Σ per-suite averages`, which is `fixed + perSuiteCapture × N` collapsed into one
 number, and dividing it by the suite count amortises the fixed part away. Only the seal side can
-measure the split, from `actual_duration_ms - suites_duration_ms` per group, which is exactly what
+measure the split, from each group's duration minus its suite time, which is exactly what
 the serial-equivalent correction above uses.
 
 #### The fixed overhead is charged once, not once per group
@@ -745,14 +753,15 @@ selection run serially. That is not cosmetic: it under-reports savings on a part
 all-tests build it inflates the full-suite baseline that *every later* savings figure is measured
 against.
 
-So each runner reports the split rather than just the total. Alongside `actual_duration_ms` it
-records `suites_duration_ms` - the summed run time of the suites it timed - and the remainder is its
-measured overhead:
+So each runner reports the split rather than just the total. Alongside its plan time, each JVM's
+contribution records its suite time - the summed run time of the suites it timed - and the group's
+remainder is its measured overhead (both figures derived as in "Suite retries and several JVMs per
+group" above):
 
 ```
-overhead(group)  = actual_duration_ms - suites_duration_ms   (clamped at 0)
+overhead(group)  = duration(group) - suiteTime(group)   (clamped at 0)
 fixedOverhead    = min over groups of overhead(group)
-serialEquivalent = Σ actual_duration_ms - (measured groups - 1) × fixedOverhead
+serialEquivalent = Σ duration(group) - (measured groups - 1) × fixedOverhead
 ```
 
 The **minimum** is the estimator, not the mean or the maximum: it is the largest amount every runner
@@ -762,11 +771,16 @@ Surefire retry needs - a retry re-runs failed tests without timing a fresh suite
 lands in that group's overhead remainder, and it is real time the build spent rather than a
 duplicated fixed cost.
 
-`suites_duration_ms` is written via `GREATEST` rather than accumulated, unlike `actual_duration_ms`.
-The runner sums it from its shared suite-tracker map, which already carries every suite timed by
-every test plan the JVM has made, so a retry re-reports the same total; accumulating it would
-double-count the first attempt's suites. That asymmetry is what keeps the retry's cost outside the
-suite-attributable total and inside the overhead remainder.
+A JVM's suite time is the largest cumulative figure it recorded rather than a sum over its plans,
+unlike its plan time. The runner sums it from its shared suite-tracker map, which already carries
+every suite timed by every test plan the JVM has made, so a retry re-reports the same total;
+accumulating it would double-count the first attempt's suites. That asymmetry is what keeps the
+retry's cost outside the suite-attributable total and inside the overhead remainder.
+
+The estimator assumes one JVM per group. A group run by several JVMs pays the fixed cost once per
+JVM, so its remainder holds several copies and the correction leaves the extras in. Suite times are
+only measured on a mapping run, which needs one JVM per group anyway, so on a multi-JVM group the
+split is not available and the next paragraph applies.
 
 **When the split is not available, nothing is corrected.** Suite times are only measured with
 a mapping-owning build, so a group can complete having run suites and report zero suite time. Reading
@@ -784,7 +798,7 @@ advances that baseline only when it ignored zero suites, and no runner in a spli
 so the sealer asks the question of the groups together (`suitesRan > 0` and zero ignored), which is
 what keeps the baseline moving once a project distributes its tests.
 
-The ignored half of that comes from what the plan **assigned** the groups, never from `suites_ran`.
+The ignored half of that comes from what the plan **assigned** the groups, never from the groups' suites ran.
 That counter once accumulated every retry's executions, which let a partial build with enough
 reruns look like it ran everything; it now counts distinct suites, but an execution count is still
 not Tia's selection decision - it includes suites nobody planned. Where the
@@ -826,13 +840,13 @@ wholeRunOverhead  = fixed + capture × trackedSuites      (from the all-tests ba
 meanGroupOverhead = fixed + capture × meanGroupSuites    (from this build's group rows)
 ```
 
-Nothing new is measured. Every runner already reports `suites_duration_ms` alongside
-`actual_duration_ms`, precisely so the sealer can charge the fixed cost once when computing the
+Nothing new is measured. Every runner already reports its suite time alongside its plan time,
+precisely so the sealer can charge the fixed cost once when computing the
 serial-equivalent duration; `DistributedRunOverheadModel` combines the same numbers a second way.
 The solve runs at seal time and folds its answer into rolling averages on `tia_core`
 (`fixed_overhead_ms`, `capture_overhead_per_suite_ms`, `num_overhead_measurements`).
 
-**A group's suite count comes from the plan, not from `suites_ran`.** That figure is what the
+**A group's suite count comes from the plan, not from its suites ran.** That figure is what the
 runner executed, which can include suites the plan never assigned, so it is not what the group was
 sized from. What the plan assigned a group cannot be moved by any number of retries.
 
@@ -1004,10 +1018,10 @@ stands in for the crash protection a JVM shutdown hook used to provide. Without 
 could still have its group completed by the build tool step, and the build would seal on a catalogue
 missing whatever that JVM never got to run.
 
-It counts observed suites, not `suites_ran`, and the distinction is load-bearing. `suites_ran`
-counts only suites that **finished**. A class-level `@Disabled` suite, one excluded by a
+It counts observed suites, not the group's suites ran, and the distinction is load-bearing. The
+suites ran count only suites that **finished**. A class-level `@Disabled` suite, one excluded by a
 Surefire/Gradle filter, or one deleted since the last mapping run never finishes even though the
-planner still assigned it to the group - guarding on `suites_ran` would block that group forever on
+planner still assigned it to the group - guarding on the suites ran would block that group forever on
 a suite Tia never expected to run. A suite is flagged observed when the runner's own JVM saw it
 finish **or** saw it skipped, so such a group completes correctly.
 
