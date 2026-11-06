@@ -8,9 +8,10 @@ import java.util.UUID;
  * Immutable record of a single Tia test-run, persisted to the {@code tia_test_run_history} table
  * so the HTML report can show a history of executions for the current branch.
  *
- * <p>The {@code id} is deterministic - derived from {@code branch}, {@code commit}, and
- * {@code runTimestampMs} via {@link UUID#nameUUIDFromBytes(byte[])} - so the same logical run
- * always maps to the same id and re-inserts of the same row are idempotent.
+ * <p>The {@code id} is deterministic - derived from {@code branch}, {@code commit}, the run id
+ * and whether the row is the run's rerun row, via {@link UUID#nameUUIDFromBytes(byte[])} (see
+ * {@link #idFor}) - so every test JVM of a run upserts the same row, and re-inserts are
+ * idempotent.
  *
  * <p>{@code runTimestampMs} is stored as UTC epoch milliseconds (the value returned by
  * {@link System#currentTimeMillis()}, which is inherently UTC). The HTML report renders it in
@@ -153,20 +154,27 @@ public final class TestRunHistoryEntry {
     }
 
     /**
-     * Factory for a single-host run that derives the entry's id from
-     * {@code branch|commit|runTimestampMs} so two persists of the same logical run produce the same
-     * row. Leaves the distributed fields null, and records the wall-clock savings as the serial
-     * savings: one machine ran the whole selection, so its wall clock is its duration and the
-     * full-suite baseline is not spread across anything.
+     * Factory for one of a single-host run's rows: its first attempt, or its reruns of failed
+     * tests, however many test JVMs and test plans contributed to it. The id derives from the run
+     * (see {@link #idFor}), so every JVM of the run upserts the same row. Leaves the distributed
+     * fields null, and records the wall-clock savings as the serial savings: the baseline is not
+     * spread across anything, and crediting the run's parallel forks to Tia would overstate it.
+     * See the "Test run history" chapter in {@code WIKI.md}.
      *
      * @param branch            VCS branch the run targeted
      * @param commit            VCS HEAD commit / changelist the run targeted
+     * @param testRunId         the single-host test run id the build tool assigned; not stored in
+     *                          {@code run_id}, which stays distributed-only
+     * @param rerun             true for the run's rerun row, false for its first-attempt row
      * @param runTimestampMs    UTC epoch millis when the run started
      * @param numSuitesRan      number of test suites that actually executed
      * @param numSuitesIgnored  number of test suites Tia chose to ignore for this run (does not
      *                          include engine-level skips Tia did not cause)
      * @param numSuitesFailed   number of test suites with at least one failed test
-     * @param durationMs        total wall-clock duration of the test run, in ms
+     * @param durationMs        the summed test time of every contributing test plan, in ms - the
+     *                          serial-equivalent duration savings are measured on
+     * @param wallClockMs       the real elapsed time from the first plan's start to the last
+     *                          plan's end, in ms
      * @param updatedDbMapping  whether this run persisted updates to the Tia mapping DB
      * @param timeSavingsMs     time Tia saved this run versus running the full suite (ms)
      * @param savingsPercent    {@code timeSavingsMs} as a percentage of the full-suite baseline
@@ -174,21 +182,19 @@ public final class TestRunHistoryEntry {
      * @param selectionDetails  the per-run breakdown of what drove test selection, used to
      *                          populate the six selection-counter fields; null leaves all six
      *                          null (not recorded) rather than defaulting to zero
-     * @param rerun             true when the row records a retry of failed tests rather than the
-     *                          test task's real run
      * @return a new entry with a deterministic id and no distributed-run fields
      */
-    public static TestRunHistoryEntry create(String branch, String commit, long runTimestampMs,
+    public static TestRunHistoryEntry create(String branch, String commit, String testRunId,
+                                             boolean rerun, long runTimestampMs,
                                              int numSuitesRan, int numSuitesIgnored,
-                                             int numSuitesFailed, long durationMs,
+                                             int numSuitesFailed, long durationMs, long wallClockMs,
                                              boolean updatedDbMapping, long timeSavingsMs,
                                              int savingsPercent, RunOrigin runOrigin,
-                                             TestRunSelectionDetails selectionDetails,
-                                             boolean rerun) {
-        String id = deriveId(branch, commit, runTimestampMs);
-        return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
-                numSuitesIgnored, numSuitesFailed, durationMs, updatedDbMapping, timeSavingsMs,
-                savingsPercent, timeSavingsMs, savingsPercent, null, null, null, null, runOrigin,
+                                             TestRunSelectionDetails selectionDetails) {
+        return new TestRunHistoryEntry(idFor(branch, commit, testRunId, rerun), runTimestampMs, branch,
+                commit, numSuitesRan, numSuitesIgnored, numSuitesFailed, durationMs, updatedDbMapping,
+                timeSavingsMs, savingsPercent, timeSavingsMs, savingsPercent, null,
+                Long.valueOf(wallClockMs), null, null, runOrigin,
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumModifiedTestFiles),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumNewTestFiles),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumTestSupportDependants),
@@ -235,6 +241,7 @@ public final class TestRunHistoryEntry {
      * @param selectionDetails  the build-level breakdown of what drove test selection, used to
      *                          populate the six selection-counter fields; null leaves all six
      *                          null (not recorded) rather than defaulting to zero
+     * @param rerun             true for the build's rerun row, false for its first-attempt row
      * @return a new entry carrying the build-level figures and the distributed fields
      */
     public static TestRunHistoryEntry createForDistributedRun(String branch, String commit,
@@ -249,12 +256,10 @@ public final class TestRunHistoryEntry {
                                                               long wallClockMs, int groupCount,
                                                               int groupsAvailable,
                                                               RunOrigin runOrigin,
-                                                              TestRunSelectionDetails selectionDetails) {
-        // The run id joins the seed so two builds planned in the same millisecond against the same
-        // branch and commit - a CI system replanning a retried build - cannot collide onto one row.
-        String id = uuidFrom(nullSafe(branch) + "|" + nullSafe(commit) + "|" + runTimestampMs
-                + "|" + nullSafe(runId));
-        return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
+                                                              TestRunSelectionDetails selectionDetails,
+                                                              boolean rerun) {
+        return new TestRunHistoryEntry(idFor(branch, commit, runId, rerun), runTimestampMs, branch,
+                commit, numSuitesRan,
                 numSuitesIgnored, numSuitesFailed, serialDurationMs, updatedDbMapping, timeSavingsMs,
                 savingsPercent, wallClockSavingsMs, wallClockSavingsPercent, runId,
                 Long.valueOf(wallClockMs), Integer.valueOf(groupCount),
@@ -265,7 +270,7 @@ public final class TestRunHistoryEntry {
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumUnsealedMapping),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary),
-                false, modeOrNull(selectionDetails));
+                rerun, modeOrNull(selectionDetails));
     }
 
     /**
@@ -294,16 +299,19 @@ public final class TestRunHistoryEntry {
     }
 
     /**
-     * Compute the deterministic id for a {@code (branch, commit, runTimestampMs)} triple.
-     * Exposed package-private for unit tests; otherwise reach it via {@link #create}.
+     * Compute a history row's id from its run: one id for the run's first attempt and one for its
+     * reruns, so every JVM of the run upserts the same two rows. The run id is unique per build, so
+     * two builds against the same branch and commit never share a row.
      *
-     * @param branch          VCS branch the run targeted
-     * @param commit          VCS HEAD commit / changelist the run targeted
-     * @param runTimestampMs  UTC epoch millis when the run started
-     * @return a UUID v3 (MD5-based) string derived from the triple
+     * @param branch the branch the run targeted
+     * @param commit the commit the run targeted
+     * @param runId the single-host test run id or the distributed run id
+     * @param rerun whether the id is for the run's rerun row
+     * @return a UUID v3 (MD5-based) string
      */
-    static String deriveId(String branch, String commit, long runTimestampMs) {
-        return uuidFrom(nullSafe(branch) + "|" + nullSafe(commit) + "|" + runTimestampMs);
+    public static String idFor(String branch, String commit, String runId, boolean rerun) {
+        return uuidFrom(nullSafe(branch) + "|" + nullSafe(commit) + "|" + nullSafe(runId)
+                + (rerun ? "|rerun" : ""));
     }
 
     /**

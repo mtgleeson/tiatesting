@@ -105,9 +105,9 @@ class PostgresTestRunContributionTest {
      * @return the builder
      */
     private static Function<List<TestRunContribution>, List<TestRunHistoryEntry>> summingHistory() {
-        return all -> Collections.singletonList(TestRunHistoryEntry.create("main", "c1", 1000L,
-                TestRunContributionTotals.of(all).getSuitesRan(), 0, 0, 1L, false, 0L, 0,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), TestRunSelectionDetails.empty(), false));
+        return all -> Collections.singletonList(TestRunHistoryEntry.create("main", "c1", String.valueOf(1000L), false, 1000L,
+                TestRunContributionTotals.of(all).getSuitesRan(), 0, 0, 1L, 1L, false, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), TestRunSelectionDetails.empty()));
     }
 
     @Test

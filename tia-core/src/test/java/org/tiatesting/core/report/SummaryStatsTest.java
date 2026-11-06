@@ -72,8 +72,8 @@ class SummaryStatsTest {
      */
     private static TestRunHistoryEntry singleHost(long timestampMs, int ignored, long durationMs,
                                                   long savingsMs) {
-        return TestRunHistoryEntry.create("main", "c", timestampMs, 5, ignored, 0, durationMs, true,
-                savingsMs, 0, RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null, false);
+        return TestRunHistoryEntry.create("main", "c", String.valueOf(timestampMs), false, timestampMs, 5, ignored, 0, durationMs, durationMs, true,
+                savingsMs, 0, RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null);
     }
 
     /**
@@ -203,8 +203,8 @@ class SummaryStatsTest {
     @Test
     void build_rerunRows_areLeftOutOfTheAverages() {
         // given
-        TestRunHistoryEntry rerun = TestRunHistoryEntry.create("main", "c", 3L, 1, 4, 0, 60_000L, true,
-                0L, 0, RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null, true);
+        TestRunHistoryEntry rerun = TestRunHistoryEntry.create("main", "c", String.valueOf(3L), true, 3L, 1, 4, 0, 60_000L, 60_000L, true,
+                0L, 0, RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null);
         List<TestRunHistoryEntry> history = Arrays.asList(
                 singleHost(1L, 0, 3_600_000L, 0L),
                 singleHost(2L, 3, 1_200_000L, 2_400_000L),

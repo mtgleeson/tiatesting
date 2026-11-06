@@ -577,7 +577,7 @@ class PostgresCompletionTest {
                 "ci-run-42", 1_800L, 4, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null, null, false, null);
         TestRunHistoryEntry singleHost = TestRunHistoryEntry.create(
-                BRANCH, "def456", 1_600_000_000_000L, 3, 1, 0, 300L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+                BRANCH, "def456", String.valueOf(1_600_000_000_000L), false, 1_600_000_000_000L, 3, 1, 0, 300L, 300L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         postgresStore.persistTestRunHistoryEntry(distributed);
@@ -592,7 +592,7 @@ class PostgresCompletionTest {
         assertEquals(Integer.valueOf(4), newest.getGroupCount());
         TestRunHistoryEntry oldest = history.get(1);
         assertNull(oldest.getRunId());
-        assertNull(oldest.getWallClockMs());
+        assertEquals(Long.valueOf(oldest.getDurationMs()), oldest.getWallClockMs());
         assertNull(oldest.getGroupCount());
     }
 }

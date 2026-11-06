@@ -1309,8 +1309,9 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
-     * A single-host history row keeps every distributed column null, so it stays exactly the row it
-     * was before distributed runs existed and the two modes remain distinguishable in the report.
+     * A single-host history row keeps every distributed column null except its wall clock - the
+     * real elapsed time of the run's test plans, which a multi-fork run needs - so the two modes
+     * remain distinguishable in the report by their group count.
      */
     @Test
     void aSingleHostRunsRowKeepsEveryDistributedColumnNull() {
@@ -1325,7 +1326,7 @@ class DistributedRunSealerStatsHistoryTest {
         // then
         TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
         assertNull(entry.getRunId(), "a single-host row names no distributed run");
-        assertNull(entry.getWallClockMs(), "a single-host row has no separate wall clock");
+        assertNotNull(entry.getWallClockMs(), "a single-host row records its real elapsed time");
         assertNull(entry.getGroupCount(), "a single-host row has no groups");
         assertNull(entry.getGroupsAvailable(), "a single-host row has no groups available");
     }

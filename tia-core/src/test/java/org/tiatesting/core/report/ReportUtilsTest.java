@@ -190,8 +190,8 @@ class ReportUtilsTest {
     @Test
     void lastAllTestsRunGroupCount_skipsARerunOfAnAllTestsRun(){
         // given - a 6-group all-tests run, then a later single-host rerun with zero ignored
-        TestRunHistoryEntry rerun = TestRunHistoryEntry.create("main", "commit", 5_000L, 1, 0, 0,
-                4_000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null, true);
+        TestRunHistoryEntry rerun = TestRunHistoryEntry.create("main", "commit", String.valueOf(5_000L), true, 5_000L, 1, 0, 0,
+                4_000L, 4_000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null);
         List<TestRunHistoryEntry> history = Arrays.asList(
                 allTestsRunEntry(1_000L, true, Integer.valueOf(6)), rerun);
 

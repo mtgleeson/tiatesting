@@ -107,9 +107,9 @@ class TiaHistoryDetailsTaskTest {
      * @return the persisted entry, for the caller to assert against
      */
     private static TestRunHistoryEntry seedHistoryEntry(final File projectDir, final String branch) {
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create(branch, "abc123", System.currentTimeMillis(),
-                5, 1, 0, 1000L, true, 200L, 10,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host1"), null, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create(branch, "abc123", String.valueOf(System.currentTimeMillis()), false, System.currentTimeMillis(),
+                5, 1, 0, 1000L, 1000L, true, 200L, 10,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host1"), null);
         List<TestRunTrigger> triggers = Collections.singletonList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo#bar", null, 3));
 

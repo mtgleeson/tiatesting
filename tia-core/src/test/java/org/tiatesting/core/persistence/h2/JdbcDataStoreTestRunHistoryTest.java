@@ -63,9 +63,9 @@ class JdbcDataStoreTestRunHistoryTest {
     void theSelectionModeRoundTrips() {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                "main", "abc123", 1_700_000_000_000L, 10, 0, 0, 5_000L, true, 0L, 0,
+                "main", "abc123", String.valueOf(1_700_000_000_000L), false, 1_700_000_000_000L, 10, 0, 0, 5_000L, 5_000L, true, 0L, 0,
                 RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                TestRunSelectionDetails.forFullRun(SelectionMode.RESEED), false);
+                TestRunSelectionDetails.forFullRun(SelectionMode.RESEED));
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -82,8 +82,8 @@ class JdbcDataStoreTestRunHistoryTest {
     void aRowWithNoRecordedBreakdownReadsBackNoMode() {
         // given - no selection breakdown, so no mode was recorded
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                "main", "abc123", 1_700_000_000_000L, 10, 2, 1, 5_000L, true, 4_000L, 80,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+                "main", "abc123", String.valueOf(1_700_000_000_000L), false, 1_700_000_000_000L, 10, 2, 1, 5_000L, 5_000L, true, 4_000L, 80,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -97,8 +97,8 @@ class JdbcDataStoreTestRunHistoryTest {
     void persistAndReadReturnsRow() {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+                "main", "abc123", String.valueOf(1_700_000_000_000L), false, 1_700_000_000_000L,
+                10, 2, 1, 5_000L, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -157,8 +157,8 @@ class JdbcDataStoreTestRunHistoryTest {
     void nonDistributedRunLeavesTheDistributedColumnsNull() {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+                "main", "abc123", String.valueOf(1_700_000_000_000L), false, 1_700_000_000_000L,
+                10, 2, 1, 5_000L, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -168,7 +168,8 @@ class JdbcDataStoreTestRunHistoryTest {
         assertEquals(1, result.size());
         TestRunHistoryEntry round = result.get(0);
         assertNull(round.getRunId());
-        assertNull(round.getWallClockMs());
+        // a single-host row records its real elapsed time, here the duration it was built with
+        assertEquals(Long.valueOf(round.getDurationMs()), round.getWallClockMs());
         assertNull(round.getGroupCount());
     }
 
@@ -187,9 +188,9 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void multipleEntriesReturnedMostRecentFirst() {
         // given three runs at distinct timestamps, inserted out of order
-        TestRunHistoryEntry oldest = TestRunHistoryEntry.create("main", "c1", 1_000L, 1, 0, 0, 10L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
-        TestRunHistoryEntry newest = TestRunHistoryEntry.create("main", "c3", 3_000L, 3, 0, 0, 30L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
-        TestRunHistoryEntry middle = TestRunHistoryEntry.create("main", "c2", 2_000L, 2, 0, 0, 20L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry oldest = TestRunHistoryEntry.create("main", "c1", String.valueOf(1_000L), false, 1_000L, 1, 0, 0, 10L, 10L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        TestRunHistoryEntry newest = TestRunHistoryEntry.create("main", "c3", String.valueOf(3_000L), false, 3_000L, 3, 0, 0, 30L, 30L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        TestRunHistoryEntry middle = TestRunHistoryEntry.create("main", "c2", String.valueOf(2_000L), false, 2_000L, 2, 0, 0, 20L, 20L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(middle);
@@ -207,9 +208,9 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void persistSameLogicalRunTwiceIsIdempotent() {
         // given two persists of the same (branch, commit, timestamp) triple
-        TestRunHistoryEntry first = TestRunHistoryEntry.create("main", "abc", 5_000L, 5, 0, 0, 50L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry first = TestRunHistoryEntry.create("main", "abc", String.valueOf(5_000L), false, 5_000L, 5, 0, 0, 50L, 50L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
         TestRunHistoryEntry secondWithDifferentCounts = TestRunHistoryEntry.create(
-                "main", "abc", 5_000L, 99, 99, 99, 999L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+                "main", "abc", String.valueOf(5_000L), false, 5_000L, 99, 99, 99, 999L, 999L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(first);
@@ -225,7 +226,7 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void tiaDataLoadIncludesTestRunHistory() {
         // given a persisted entry
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1L, 1, 0, 0, 1L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", String.valueOf(1L), false, 1L, 1, 0, 0, 1L, 1L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
         dataStore.persistTestRunHistoryEntry(entry);
 
         // when
@@ -245,9 +246,9 @@ class JdbcDataStoreTestRunHistoryTest {
     void persistAndReadRoundTripsTheRunOriginColumns() {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, false, 4_000L, 80,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "dev-laptop-7"), null, false);
+                "main", "abc123", String.valueOf(1_700_000_000_000L), false, 1_700_000_000_000L,
+                10, 2, 1, 5_000L, 5_000L, false, 4_000L, 80,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "dev-laptop-7"), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -269,8 +270,8 @@ class JdbcDataStoreTestRunHistoryTest {
     void anUnresolvedHostReadsBackNull() {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, false, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+                "main", "abc123", String.valueOf(1_700_000_000_000L), false, 1_700_000_000_000L,
+                10, 2, 1, 5_000L, 5_000L, false, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -291,7 +292,7 @@ class JdbcDataStoreTestRunHistoryTest {
         TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun(
                 "main", "abc123", "ci-run-42", 1_700_000_000_000L,
                 10, 2, 1, 5_000L, true, 4_000L, 80, 700L, 28, 1_800L, 4, 4,
-                RunOrigin.of(RunOrigin.SOURCE_CI, null), null);
+                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -314,7 +315,7 @@ class JdbcDataStoreTestRunHistoryTest {
         TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun(
                 "main", "abc123", "ci-run-43", 1_700_000_000_000L,
                 10, 2, 0, 120_000L, true, 3_480_000L, 97, 480_000L, 80, 120_000L, 1, 6,
-                RunOrigin.of(RunOrigin.SOURCE_CI, null), null);
+                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -336,9 +337,9 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void aSingleHostRunStoresItsSerialSavingsAsItsWallClockSavings() {
         // given
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
-                1_700_000_000_000L, 10, 2, 1, 5_000L, true, 4_000L, 44,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 10, 2, 1, 5_000L, 5_000L, true, 4_000L, 44,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -357,8 +358,8 @@ class JdbcDataStoreTestRunHistoryTest {
     void persistAndReadRoundTripsTheRerunFlag() {
         // given
         TestRunHistoryEntry rerun = TestRunHistoryEntry.create(
-                "main", "abc123", 1_700_000_000_000L, 1, 9, 0, 4_000L, true, 0L, 0,
-                RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3"), null, true);
+                "main", "abc123", String.valueOf(1_700_000_000_000L), true, 1_700_000_000_000L, 1, 9, 0, 4_000L, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3"), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(rerun);
@@ -382,8 +383,8 @@ class JdbcDataStoreTestRunHistoryTest {
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", null, 519),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009)),
                 1, 2, 6, 3, 4, 5, SelectionMode.SELECTIVE);
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", 1000L,
-                10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details, false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", String.valueOf(1000L), false, 1000L,
+                10, 20, 0, 5000L, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -409,9 +410,9 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void rePersistTriggersIsIdempotent() {
         // given
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", 1000L,
-                1, 0, 0, 1L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"),
-                TestRunSelectionDetails.empty(), false);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", String.valueOf(1000L), false, 1000L,
+                1, 0, 0, 1L, 1L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"),
+                TestRunSelectionDetails.empty());
         dataStore.persistTestRunHistoryEntry(entry);
         List<TestRunTrigger> triggers = Collections.singletonList(
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", null, 7));

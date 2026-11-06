@@ -728,9 +728,9 @@ public class TestRunnerService {
 
         TestRunSelectionDetails details = testRunResult.getSelectionDetails();
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                branch, commitValue, runStartTimestampMs, ran, ignored, failed, durationMs,
-                updateDBMapping, timeSavingsMs, savingsPercent, RunEnvironment.currentRunOrigin(),
-                details, rerun);
+                branch, commitValue, String.valueOf(runStartTimestampMs), rerun, runStartTimestampMs, ran,
+                ignored, failed, durationMs, durationMs, updateDBMapping, timeSavingsMs, savingsPercent,
+                RunEnvironment.currentRunOrigin(), details);
         dataStore.persistTestRunHistoryEntry(entry);
         persistSelectionTriggersBestEffort(entry.getId(), details);
         log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={}, savingsMs={}, savings%={}, rerun={})",

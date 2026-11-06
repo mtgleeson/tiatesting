@@ -413,7 +413,7 @@ public final class DistributedRunSealer {
                 totals.getSuitesFailed(), totals.getSerialDurationMs(), updateDBMapping,
                 timeSavingsMs, savingsPercent, wallClockSavingsMs, wallClockSavingsPercent,
                 totals.getWallClockMs(), totals.getGroupCount(), groupsAvailable,
-                RunEnvironment.distributedRunOrigin(plannedRunSource), selectionDetails);
+                RunEnvironment.distributedRunOrigin(plannedRunSource), selectionDetails, false);
         dataStore.persistTestRunHistoryEntry(entry);
         // Best-effort: the row and its counters are already saved and the per-trigger rows are
         // diagnostic detail only, so a failure writing them (for example an overlong trigger name)

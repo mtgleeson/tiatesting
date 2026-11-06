@@ -166,9 +166,9 @@ class ReseedSealTest {
     @Test
     void reseedLeavesCoreAndHistoryAlone() {
         // given
-        dataStore.persistTestRunHistoryEntry(TestRunHistoryEntry.create("main", "commitA",
-                1_700_000_000_000L, 1, 0, 0, 1_000L, true, 0L, 0,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false));
+        dataStore.persistTestRunHistoryEntry(TestRunHistoryEntry.create("main", "commitA", String.valueOf(1_700_000_000_000L), false,
+                1_700_000_000_000L, 1, 0, 0, 1_000L, 1_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null));
         persistSealedSuite("Old", false, 1);
         persistSuite("Seen", false, 2);
 
