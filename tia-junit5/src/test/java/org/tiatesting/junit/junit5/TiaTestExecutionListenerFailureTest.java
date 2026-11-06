@@ -356,7 +356,7 @@ class TiaTestExecutionListenerFailureTest {
         retry.testPlanExecutionFinished(testPlan());
 
         // then
-        DataStore dataStore = DataStoreFactory.fromSystemProperties("main");
+        DataStore dataStore = DataStoreFactory.fromSystemProperties("main", true);
         try {
             List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
             assertEquals(2, history.size());
@@ -419,7 +419,7 @@ class TiaTestExecutionListenerFailureTest {
      * @return the run's contributions
      */
     private static List<TestRunContribution> readContributions() {
-        DataStore dataStore = DataStoreFactory.fromSystemProperties("main");
+        DataStore dataStore = DataStoreFactory.fromSystemProperties("main", true);
         try {
             return dataStore.readTestRunContributions("run-1");
         } finally {

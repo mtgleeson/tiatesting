@@ -69,7 +69,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             tiaUpdateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
             String branch = ForkSystemProperties.branchFromSystemProperties();
             String headCommit = ForkSystemProperties.commitValueFromSystemProperties();
-            dataStore = DataStoreFactory.fromSystemProperties(branch);
+            dataStore = DataStoreFactory.fromSystemProperties(branch, tiaUpdateDBMapping);
 
             String ignoredTestsFile = System.getProperty(SelectionHandoff.PROP_IGNORED_TESTS_FILE);
             String selectedTestsFile = System.getProperty(SelectionHandoff.PROP_SELECTED_TESTS_FILE);

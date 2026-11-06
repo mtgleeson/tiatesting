@@ -42,13 +42,24 @@ public class H2ConnectionSettings {
     private final String dbUrl;
     private final String username;
     private final String password;
+    private final boolean compactOnClose;
 
+    /**
+     * Store resolved settings; use the factory methods.
+     *
+     * @param dbFilePath the embedded-mode database directory, or null in server mode
+     * @param dbUrl the server-mode JDBC URL, or null in embedded mode
+     * @param username the database username
+     * @param password the database password
+     * @param compactOnClose whether an embedded database compacts its file when it closes
+     */
     private H2ConnectionSettings(final String dbFilePath, final String dbUrl, final String username,
-                                 final String password) {
+                                 final String password, final boolean compactOnClose) {
         this.dbFilePath = dbFilePath;
         this.dbUrl = dbUrl;
         this.username = username;
         this.password = password;
+        this.compactOnClose = compactOnClose;
     }
 
     /**
@@ -61,7 +72,7 @@ public class H2ConnectionSettings {
      */
     public static H2ConnectionSettings embedded(final String dbFilePath) {
         return new H2ConnectionSettings(dbFilePath, null, EMBEDDED_DEFAULT_USER,
-                EMBEDDED_DEFAULT_PASSWORD);
+                EMBEDDED_DEFAULT_PASSWORD, true);
     }
 
     /**
@@ -106,7 +117,7 @@ public class H2ConnectionSettings {
                                        final Function<String, String> env) {
         return new H2ConnectionSettings(null, dbUrl,
                 CredentialResolver.resolveUser(username, EMBEDDED_DEFAULT_USER, env),
-                CredentialResolver.resolvePassword(password, env));
+                CredentialResolver.resolvePassword(password, env), true);
     }
 
     /**
@@ -136,6 +147,28 @@ public class H2ConnectionSettings {
      */
     public boolean isServerMode() {
         return dbUrl != null;
+    }
+
+    /**
+     * Copy these settings with close-time compaction switched off for an embedded database, for a
+     * JVM whose writes are too small to leave anything worth reclaiming - a test JVM whose run does
+     * not update the mapping. Compaction is what makes an embedded close slow on a large file
+     * (hundreds of milliseconds, paid once per persist), while a run that rewrites the mapping needs
+     * it to keep the file from growing. Server mode ignores it: the server owns its engine settings.
+     * See the "Embedded vs server-mode H2 connections" chapter in {@code WIKI.md}.
+     *
+     * @return settings identical to these, except that an embedded database does not compact on close
+     */
+    public H2ConnectionSettings withoutCloseCompaction() {
+        return new H2ConnectionSettings(dbFilePath, dbUrl, username, password, false);
+    }
+
+    /**
+     * @return whether an embedded database compacts its file when it closes; true unless
+     *         {@link #withoutCloseCompaction()} switched it off
+     */
+    public boolean isCompactOnClose() {
+        return compactOnClose;
     }
 
     /**
