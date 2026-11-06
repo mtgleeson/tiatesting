@@ -100,7 +100,7 @@ class TestRunnerServiceNoOpCatalogueSealTest {
                 nothingSelected, null);
 
         // then
-        assertFalse(nothingSelected.ranNoExpectedSuites());
+        assertFalse(nothingSelected.ranNoExpectedSuites(true));
         assertFalse(dataStore.lastSealedRunData.isMethodCatalogueRewritten());
         assertEquals("commit-2", dataStore.getTiaCore().getCommitValue());
         assertEquals(1, dataStore.readTestRunHistory().size());

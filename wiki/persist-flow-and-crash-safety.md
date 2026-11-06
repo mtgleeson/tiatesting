@@ -58,7 +58,7 @@ enclosing transaction across the whole sequence.
 
 Steps 1-3 are skipped entirely - and step 4 is written with `updated_db_mapping = false` - when the
 run executed **none of the suites Tia expected it to run**
-(`TestRunResult.ranNoExpectedSuites()`; the distributed equivalent is derived from the plan in
+(`TestRunResult.ranNoExpectedSuites(updatesMapping)`; the distributed equivalent is derived from the plan in
 `DistributedRunSealer`). A misconfigured build that timed no test has observed neither the commit
 nor the suites, so every one of steps 1-3 would be a claim it has not earned, and each fails in the
 silent, under-selecting direction: the seal would advance the stored commit past suites that never

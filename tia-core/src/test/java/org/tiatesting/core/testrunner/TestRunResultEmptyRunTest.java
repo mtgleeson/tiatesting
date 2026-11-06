@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Truth table for {@link TestRunResult#ranNoExpectedSuites()} - the predicate that separates a
+ * Truth table for {@link TestRunResult#ranNoExpectedSuites(boolean)} - the predicate that separates a
  * misconfigured build that executed nothing from the nothing-impacted run that legitimately executes
  * nothing, and so decides whether a run's stats and savings are recorded.
  */
@@ -65,10 +65,28 @@ class TestRunResultEmptyRunTest {
                 Collections.<String>emptySet(), Collections.singleton("com.example.IgnoredTest"));
 
         // when
-        boolean emptyRun = runResult(plan, Collections.singleton("com.example.SelectedTest"), 4).ranNoExpectedSuites();
+        boolean emptyRun = runResult(plan, Collections.singleton("com.example.SelectedTest"), 4).ranNoExpectedSuites(false);
 
         // then
         assertFalse(emptyRun);
+    }
+
+    /**
+     * A mapping run's one plan sees every class, so a plan that skipped only unselected classes means
+     * the selection never ran - a {@code -Dtest=} filter naming an ignored class, say. It stays an
+     * empty run, so it cannot seal past suites that never ran.
+     */
+    @Test
+    void aMappingPlanThatOnlySkippedUnselectedSuitesIsStillAnEmptyRun() {
+        // given
+        TestPlanOutcome plan = new TestPlanOutcome(Collections.<String>emptySet(), Collections.<String>emptySet(),
+                Collections.<String>emptySet(), Collections.singleton("com.example.IgnoredTest"));
+
+        // when
+        boolean emptyRun = runResult(plan, Collections.singleton("com.example.SelectedTest"), 4).ranNoExpectedSuites(true);
+
+        // then
+        assertTrue(emptyRun);
     }
 
     /**
@@ -82,7 +100,7 @@ class TestRunResultEmptyRunTest {
                 Collections.<String>emptySet(), Collections.singleton("com.example.SelectedTest"));
 
         // when
-        boolean emptyRun = runResult(plan, Collections.singleton("com.example.SelectedTest"), 4).ranNoExpectedSuites();
+        boolean emptyRun = runResult(plan, Collections.singleton("com.example.SelectedTest"), 4).ranNoExpectedSuites(true);
 
         // then
         assertTrue(emptyRun);
@@ -99,7 +117,7 @@ class TestRunResultEmptyRunTest {
         TestRunResult result = runResult(new HashSet<>(), 0, 0);
 
         // when
-        boolean emptyRun = result.ranNoExpectedSuites();
+        boolean emptyRun = result.ranNoExpectedSuites(true);
 
         // then
         assertTrue(emptyRun);
@@ -115,7 +133,7 @@ class TestRunResultEmptyRunTest {
         TestRunResult result = runResult(new HashSet<>(Arrays.asList("com.example.ATest")), 4, 0);
 
         // when
-        boolean emptyRun = result.ranNoExpectedSuites();
+        boolean emptyRun = result.ranNoExpectedSuites(true);
 
         // then
         assertTrue(emptyRun);
@@ -131,7 +149,7 @@ class TestRunResultEmptyRunTest {
         TestRunResult result = runResult(new HashSet<>(), 4, 0);
 
         // when
-        boolean emptyRun = result.ranNoExpectedSuites();
+        boolean emptyRun = result.ranNoExpectedSuites(true);
 
         // then
         assertFalse(emptyRun);
@@ -147,8 +165,8 @@ class TestRunResultEmptyRunTest {
         TestRunResult selectedRun = runResult(new HashSet<>(Arrays.asList("com.example.ATest")), 4, 1);
 
         // when
-        boolean allTestsEmpty = allTestsRun.ranNoExpectedSuites();
-        boolean selectedEmpty = selectedRun.ranNoExpectedSuites();
+        boolean allTestsEmpty = allTestsRun.ranNoExpectedSuites(true);
+        boolean selectedEmpty = selectedRun.ranNoExpectedSuites(true);
 
         // then
         assertFalse(allTestsEmpty);
@@ -166,8 +184,8 @@ class TestRunResultEmptyRunTest {
         TestRunResult suitesIgnored = runResult(null, 4, 0);
 
         // when
-        boolean everySuiteExpectedEmpty = everySuiteExpected.ranNoExpectedSuites();
-        boolean suitesIgnoredEmpty = suitesIgnored.ranNoExpectedSuites();
+        boolean everySuiteExpectedEmpty = everySuiteExpected.ranNoExpectedSuites(true);
+        boolean suitesIgnoredEmpty = suitesIgnored.ranNoExpectedSuites(true);
 
         // then
         assertTrue(everySuiteExpectedEmpty);

@@ -66,7 +66,7 @@ public class TestRunnerService {
      * Server-mode and Postgres closes are no-ops.
      *
      * <p><b>Empty runs.</b> A test plan that executed none of the suites Tia expected it to -
-     * {@link TestRunResult#ranNoExpectedSuites()} - persists nothing but its contribution to the run:
+     * {@link TestRunResult#ranNoExpectedSuites(boolean)} - persists nothing but its contribution to the run:
      * no stats, no full-suite baseline, no seal and so no commit advance, no failed-set update and no
      * suite-mapping metadata. It observed neither the commit nor the suites, so it is given no say
      * over either; see {@link #persistEmptyRun} for what each of those writes would have got wrong.
@@ -109,16 +109,16 @@ public class TestRunnerService {
      * describes: a distributed runner's share, an empty plan's contribution, or the suite mapping,
      * failed set, seal, contribution and history rows of an ordinary run.
      *
-     * @param updateDBMapping          should the test-suite to source-code mapping and the run
-     *                                 stats be updated
-     * @param updateDBTestRunHistory   should this run write a row to {@code tia_test_run_history}
-     * @param commitValue              the VCS commit / changelist the run was against
-     * @param branch                   the VCS branch the run targeted
      * <p>Before any write, the plan's attempt is resolved from what the run's JVMs have recorded and
      * the plan is added to this JVM's running totals: the mapping persist, the seal and the
      * distributed report all read the attempt. A single-host JVM then restates its contribution to
      * the run whichever branch it takes.
      *
+     * @param updateDBMapping          should the test-suite to source-code mapping and the run
+     *                                 stats be updated
+     * @param updateDBTestRunHistory   should this run write a row to {@code tia_test_run_history}
+     * @param commitValue              the VCS commit / changelist the run was against
+     * @param branch                   the VCS branch the run targeted
      * @param runStartTimestampMs      UTC epoch millis when the test plan started
      * @param unresolvedResult         the collected results of the test plan, its attempt not yet
      *                                 resolved
@@ -161,7 +161,7 @@ public class TestRunnerService {
 
         // A run that executed none of the suites Tia expected it to run knows nothing about this
         // commit, so it persists nothing that would claim otherwise - see persistEmptyRun.
-        if (testRunResult.ranNoExpectedSuites()){
+        if (testRunResult.ranNoExpectedSuites(updateDBMapping)){
             persistEmptyRun(testRunResult, updateDBMapping);
             persistRunContribution(testRunResult, updateDBTestRunHistory, false, commitValue, branch);
             return;
@@ -357,7 +357,7 @@ public class TestRunnerService {
         // Progress is still reported below: the runner's contribution and observed suites are facts
         // about this runner regardless, and reporting them is what lets the barrier release and the build reach
         // the sealer, which is where an empty *build* is recognised.
-        boolean ranNoExpectedSuites = testRunResult.ranNoExpectedSuites();
+        boolean ranNoExpectedSuites = testRunResult.ranNoExpectedSuites(updateDBMapping);
         if (ranNoExpectedSuites){
             logEmptyRun(testRunResult, updateDBMapping, false);
         }
@@ -563,7 +563,7 @@ public class TestRunnerService {
 
     /**
      * Persist an empty run - one that executed none of the suites Tia's selection expected it to run
-     * (see {@link TestRunResult#ranNoExpectedSuites()}). It writes its history row and nothing else,
+     * (see {@link TestRunResult#ranNoExpectedSuites(boolean)}). It writes its history row and nothing else,
      * and warns.
      *
      * <p><b>Why nothing else.</b> Every other write this persist makes is a claim about the commit or

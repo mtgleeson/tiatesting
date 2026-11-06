@@ -257,20 +257,25 @@ public class TestRunResult {
      * suites, and an empty selection alongside ignored suites means there was nothing to run in the
      * first place.
      *
-     * <p>A plan that ran nothing but skipped suites, none of them selected, is not an empty run either:
-     * it held only suites Tia ignored - with Surefire {@code forkCount > 1} every class is its own
-     * plan, and an ignored class's plan looks like this - so there was nothing for it to run. A plan
-     * that skipped a selected suite, or observed nothing at all, still is one.
+     * <p>On a run that does not update the mapping, a plan that ran nothing but skipped suites, none
+     * of them selected, is not an empty run either: it held only suites Tia ignored - with Surefire
+     * {@code forkCount > 1} every class is its own plan, and an ignored class's plan looks like this
+     * - so there was nothing for it to run. A plan that skipped a selected suite, or observed nothing
+     * at all, still is one. A mapping run gets no such exception: it runs in one JVM whose plan sees
+     * every class, so a plan that skipped only unselected classes means the selection never ran - a
+     * build-tool filter ({@code -Dtest=}) naming an ignored class, say - and sealing it would advance
+     * the stored commit past suites that never ran.
      *
      * <p>Read from {@link #getPlanOutcome()} rather than the cumulative tracker map, so the
      * question is asked of the attempt being persisted. A Surefire retry attempt executes the suites
      * holding the failed tests, so it does not read as an empty run; a retry contributes no run stats
      * regardless (see {@code CoreStatsIncrement.getNumRuns}).
      *
+     * @param updatesMapping whether the run updates the mapping
      * @return true when no test suite executed in this attempt though the selection expected at
      *         least one to
      */
-    public boolean ranNoExpectedSuites() {
+    public boolean ranNoExpectedSuites(final boolean updatesMapping) {
         if (!planOutcome.getSuitesRan().isEmpty()) {
             return false;
         }
@@ -280,7 +285,7 @@ public class TestRunResult {
         // outside its group. It is a plan with nothing to do, not a run that failed to execute.
         Set<String> skipped = planOutcome.getSuitesSkipped();
         Set<String> selected = selectedTests == null ? Collections.<String>emptySet() : selectedTests;
-        if (!skipped.isEmpty() && Collections.disjoint(skipped, selected)) {
+        if (!updatesMapping && !skipped.isEmpty() && Collections.disjoint(skipped, selected)) {
             return false;
         }
 

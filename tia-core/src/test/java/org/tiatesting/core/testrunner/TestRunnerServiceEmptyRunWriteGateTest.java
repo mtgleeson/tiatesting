@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * A run that executed none of the suites Tia expected it to run - see
- * {@link TestRunResult#ranNoExpectedSuites()} - has observed neither the commit nor the suites, so
+ * {@link TestRunResult#ranNoExpectedSuites(boolean)} - has observed neither the commit nor the suites, so
  * it must persist nothing that claims it has. These tests pin each write it is kept away from, and
  * each one matters in the silent, under-selecting direction:
  *
