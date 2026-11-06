@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,6 +30,38 @@ class TestRunContributionTotalsTest {
                                              long timeMs, long startMs, long endMs) {
         return new TestRunContribution("run-1", jvmId, true, null, rerunSuites.size(), failed,
                 rerunSuites, timeMs, 0L, startMs, endMs);
+    }
+
+    @Test
+    void aJvmThatRanNothingDoesNotStretchTheWallClock() {
+        // given two forks that ran side by side, and a test-retry worker handed no class, which
+        // started long after them
+        List<TestRunContribution> contributions = Arrays.asList(
+                first("a", 2, Collections.<String>emptySet(), 60L, 0L, 1000L, 1060L),
+                first("b", 1, Collections.<String>emptySet(), 70L, 0L, 1005L, 1075L),
+                first("idle", 0, Collections.<String>emptySet(), 30L, 0L, 2600L, 2630L));
+
+        // when
+        TestRunContributionTotals totals = TestRunContributionTotals.of(contributions);
+
+        // then the elapsed time is the working forks', while their time still adds up
+        assertEquals(75L, totals.getWallClockMs());
+        assertEquals(1000L, totals.getFirstStartMs());
+        assertEquals(160L, totals.getTestTimeMs());
+    }
+
+    @Test
+    void aRunWhereNothingRanStillHasAWallClock() {
+        // given a run that selected nothing, so its one JVM ran nothing
+        List<TestRunContribution> contributions = Collections.singletonList(
+                first("a", 0, Collections.<String>emptySet(), 50L, 0L, 1000L, 1050L));
+
+        // when
+        TestRunContributionTotals totals = TestRunContributionTotals.of(contributions);
+
+        // then
+        assertEquals(50L, totals.getWallClockMs());
+        assertEquals(1000L, totals.getFirstStartMs());
     }
 
     @Test

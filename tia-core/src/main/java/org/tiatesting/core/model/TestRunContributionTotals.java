@@ -39,9 +39,10 @@ public final class TestRunContributionTotals {
      * @param latestOutcomeFailedSuites the suites whose most recent execution failed
      * @param testTimeMs the summed plan time
      * @param suitesTimeMs the summed suite-attributable time
-     * @param wallClockMs the latest end minus the earliest start
+     * @param wallClockMs the latest end minus the earliest start, over contributions that ran a
+     *                    suite when any did
      * @param longestJvmTestTimeMs the largest per-JVM sum of plan time
-     * @param firstStartMs the earliest plan start
+     * @param firstStartMs the earliest plan start, over contributions that ran a suite when any did
      */
     private TestRunContributionTotals(boolean empty, int suitesRan, Set<String> failedSuites,
                                       Set<String> latestOutcomeFailedSuites, long testTimeMs,
@@ -66,6 +67,13 @@ public final class TestRunContributionTotals {
      * and one it ran and failed stays in it. A suite runs once in a first attempt, so first-attempt
      * rows never disagree with each other.
      *
+     * <p>The wall clock and first start are measured over the contributions that ran at least one
+     * suite, falling back to every contribution when none did. A JVM that ran nothing - a Gradle
+     * test-retry round's worker that was handed no class, or a fork that only skipped classes Tia
+     * ignored - can start long after the work it sits beside, and would otherwise stretch the
+     * elapsed time by the gap. Its plan time still counts in the summed test time, since the build
+     * really spent it.
+     *
      * @param contributions the contributions to add up; null or empty gives the empty totals
      * @return the totals
      */
@@ -79,6 +87,8 @@ public final class TestRunContributionTotals {
         long suitesTimeMs = 0L;
         long earliestStartMs = Long.MAX_VALUE;
         long latestEndMs = Long.MIN_VALUE;
+        long earliestRanStartMs = Long.MAX_VALUE;
+        long latestRanEndMs = Long.MIN_VALUE;
         Set<String> failedSuites = new LinkedHashSet<>();
         Set<String> latestOutcomeFailed = new LinkedHashSet<>();
         Map<String, Long> testTimeByJvm = new HashMap<>();
@@ -90,6 +100,10 @@ public final class TestRunContributionTotals {
             suitesTimeMs += contribution.getSuitesTimeMs();
             earliestStartMs = Math.min(earliestStartMs, contribution.getFirstStartMs());
             latestEndMs = Math.max(latestEndMs, contribution.getLastEndMs());
+            if (contribution.getSuitesRan() > 0) {
+                earliestRanStartMs = Math.min(earliestRanStartMs, contribution.getFirstStartMs());
+                latestRanEndMs = Math.max(latestRanEndMs, contribution.getLastEndMs());
+            }
             failedSuites.addAll(contribution.getSuitesFailed());
             testTimeByJvm.merge(contribution.getJvmId(), contribution.getTestTimeMs(), Long::sum);
             if (contribution.isRerun()) {
@@ -115,6 +129,10 @@ public final class TestRunContributionTotals {
             longestJvmTestTimeMs = Math.max(longestJvmTestTimeMs, jvmTestTimeMs.longValue());
         }
 
+        if (earliestRanStartMs != Long.MAX_VALUE) {
+            earliestStartMs = earliestRanStartMs;
+            latestEndMs = latestRanEndMs;
+        }
         return new TestRunContributionTotals(false, suitesRan, failedSuites, latestOutcomeFailed,
                 testTimeMs, suitesTimeMs, Math.max(0L, latestEndMs - earliestStartMs),
                 longestJvmTestTimeMs, earliestStartMs);
@@ -138,12 +156,18 @@ public final class TestRunContributionTotals {
     /** @return the summed suite-attributable time */
     public long getSuitesTimeMs() { return suitesTimeMs; }
 
-    /** @return the latest end minus the earliest start: the real elapsed time */
+    /**
+     * @return the latest end minus the earliest start: the real elapsed time, over the contributions
+     *         that ran a suite when any did
+     */
     public long getWallClockMs() { return wallClockMs; }
 
     /** @return the largest per-JVM sum of plan time, both attempt kinds of a JVM together */
     public long getLongestJvmTestTimeMs() { return longestJvmTestTimeMs; }
 
-    /** @return the earliest plan start, epoch millis; zero for the empty totals */
+    /**
+     * @return the earliest plan start, epoch millis, over the contributions that ran a suite when any
+     *         did; zero for the empty totals
+     */
     public long getFirstStartMs() { return firstStartMs; }
 }
