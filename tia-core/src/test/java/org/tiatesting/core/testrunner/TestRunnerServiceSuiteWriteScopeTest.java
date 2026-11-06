@@ -222,7 +222,7 @@ class TestRunnerServiceSuiteWriteScopeTest {
         runStats.setNumSuccessRuns(1);
 
         TestRunResult result = new TestRunResult(executed, new HashSet<>(), runnerTestSuites,
-                runnerTestSuites, selectedTests, new HashMap<>(), runStats, null, 1, TestRunResultFixture.syntheticPlanOutcome(executed.size(), 0, 0L),
+                runnerTestSuites, selectedTests, new HashMap<>(), runStats, null, 1, TestRunResultFixture.syntheticPlanOutcome(executed.size(), 0),
                 TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
         new TestRunnerService(dataStore).persistTestRunData(true, false,
                 "commit-" + durationMs, "main", System.currentTimeMillis(), result, null);

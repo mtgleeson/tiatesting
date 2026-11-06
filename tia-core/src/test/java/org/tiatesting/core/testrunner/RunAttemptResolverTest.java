@@ -22,7 +22,7 @@ class RunAttemptResolverTest {
     }
 
     private static TestPlanOutcome plan(String... exercised) {
-        return new TestPlanOutcome(names(exercised), names(), names(exercised), names(), 0L);
+        return new TestPlanOutcome(names(exercised), names(), names(exercised), names());
     }
 
     private static Supplier<Set<String>> others(String... failed) {
@@ -33,7 +33,7 @@ class RunAttemptResolverTest {
     void aSurefireRerunInTheSameJvmIsASameJvmRerun() {
         // given a JVM whose first plan failed suite A
         TestJvmContribution jvm = new TestJvmContribution("jvm-a");
-        jvm.record(false, new TestPlanOutcome(names("A", "B"), names("A"), names("A", "B"), names(), 0L), 10L, 0L);
+        jvm.record(false, new TestPlanOutcome(names("A", "B"), names("A"), names("A", "B"), names()), 0L, 10L, 0L);
 
         // when
         RunAttempt attempt = RunAttemptResolver.resolve(plan("A"), jvm, others());
@@ -58,7 +58,7 @@ class RunAttemptResolverTest {
     void anotherClassPlanInAMultiForkJvmIsAFirstAttempt() {
         // given a fork that already ran class A as its first plan
         TestJvmContribution jvm = new TestJvmContribution("jvm-a");
-        jvm.record(false, plan("A"), 10L, 0L);
+        jvm.record(false, plan("A"), 0L, 10L, 0L);
 
         // when
         RunAttempt attempt = RunAttemptResolver.resolve(plan("B"), jvm, others());

@@ -78,7 +78,7 @@ class TestRunnerServiceAllTestsRunTriggerTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
         return new TestRunResult(trackers, empty, empty, empty, empty, new HashMap<>(), runStats, null,
-                ignoredTestSuiteCount, TestRunResultFixture.syntheticPlanOutcome(2, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
+                ignoredTestSuiteCount, TestRunResultFixture.syntheticPlanOutcome(2, 0), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**

@@ -34,7 +34,7 @@ class TestRunResultEmptyRunTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
         return new TestRunResult(trackers, empty, empty, empty, selectedTests, new HashMap<>(),
-                new TestStats(), null, ignoredTestSuiteCount, TestRunResultFixture.syntheticPlanOutcome(suitesRanThisAttempt, 0, 0L),
+                new TestStats(), null, ignoredTestSuiteCount, TestRunResultFixture.syntheticPlanOutcome(suitesRanThisAttempt, 0),
                 TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 

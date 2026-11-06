@@ -22,8 +22,8 @@ class TestJvmContributionTest {
         return new HashSet<>(Arrays.asList(names));
     }
 
-    private static TestPlanOutcome plan(Set<String> ran, Set<String> failed, long startMs) {
-        return new TestPlanOutcome(ran, failed, ran, Collections.<String>emptySet(), startMs);
+    private static TestPlanOutcome plan(Set<String> ran, Set<String> failed) {
+        return new TestPlanOutcome(ran, failed, ran, Collections.<String>emptySet());
     }
 
     @Test
@@ -32,8 +32,8 @@ class TestJvmContributionTest {
         TestJvmContribution jvm = new TestJvmContribution("jvm-a");
 
         // when
-        jvm.record(false, plan(names("A"), names(), 1000L), 1400L, 0L);
-        jvm.record(false, plan(names("B"), names("B"), 1400L), 1700L, 0L);
+        jvm.record(false, plan(names("A"), names()), 1000L, 1400L, 0L);
+        jvm.record(false, plan(names("B"), names("B")), 1400L, 1700L, 0L);
         List<TestRunContribution> rows = jvm.snapshot("run-1", null);
 
         // then
@@ -51,10 +51,10 @@ class TestJvmContributionTest {
     void aPassingSameJvmRerunLeavesTheFailedSuites() {
         // given a fork whose class failed and then passed on a Surefire rerun
         TestJvmContribution jvm = new TestJvmContribution("jvm-a");
-        jvm.record(false, plan(names("A"), names("A"), 1000L), 1400L, 0L);
+        jvm.record(false, plan(names("A"), names("A")), 1000L, 1400L, 0L);
 
         // when
-        jvm.record(true, plan(names("A"), names(), 1400L), 1500L, 0L);
+        jvm.record(true, plan(names("A"), names()), 1400L, 1500L, 0L);
 
         // then
         assertTrue(jvm.failedSuites().isEmpty());

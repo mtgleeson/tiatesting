@@ -347,7 +347,7 @@ class TiaTestExecutionListenerFailureTest {
         TiaTestExecutionListener firstAttempt = startedListener(shared);
         runSuite(firstAttempt, suite, TestExecutionResult.failed(new AssertionError("flaky")));
         firstAttempt.testPlanExecutionFinished(testPlan());
-        // the row id derives from the start time, so the two attempts must not share a millisecond
+        // the rerun row is stamped with its plan start, so a later millisecond orders it first
         Thread.sleep(5);
 
         // when

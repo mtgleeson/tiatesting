@@ -72,10 +72,12 @@ class TestRunHistoryAssemblerTest {
         // when
         List<TestRunHistoryEntry> rows = TestRunHistoryAssembler.assemble(contributions, context(4, true));
 
-        // then
+        // then the rerun row has no savings and is stamped when the reruns started
         assertEquals(2, rows.size());
         assertTrue(rows.get(1).isRerun());
         assertEquals(0L, rows.get(1).getTimeSavingsMs());
+        assertEquals(1000L, rows.get(0).getRunTimestampMs());
+        assertEquals(5000L, rows.get(1).getRunTimestampMs());
     }
 
     @Test

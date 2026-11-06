@@ -51,7 +51,9 @@ final class TestRunHistoryAssembler {
      * Build one row. Its savings are zero for a rerun, an all-tests run (nothing ignored), or a run
      * that expected suites and ran none - the last having finished early because nothing ran, not
      * because Tia deselected anything. A run that ignored everything because nothing was impacted
-     * keeps its savings.
+     * keeps its savings. The first-attempt row is stamped with the run's start, and the rerun row
+     * with the start of the run's first rerun plan, so reports list the rerun after the attempt it
+     * retried.
      *
      * @param totals the row's contributions added up
      * @param rerun whether this is the rerun row
@@ -64,8 +66,9 @@ final class TestRunHistoryAssembler {
         boolean noSavings = rerun || context.ignoredSuiteCount == 0 || (ran == 0 && context.suitesWereSelected);
         long savingsMs = ReportUtils.runSavingsMs(context.allTestsRunTimeMs, totals.getTestTimeMs(), noSavings);
         int savingsPercent = (int) ReportUtils.percentOfTotal(savingsMs, context.allTestsRunTimeMs);
+        long runTimestampMs = rerun ? totals.getFirstStartMs() : context.runStartMs;
         return TestRunHistoryEntry.create(context.branch, context.commit, context.runId, rerun,
-                context.runStartMs, ran, context.ignoredSuiteCount, totals.getFailedSuites().size(),
+                runTimestampMs, ran, context.ignoredSuiteCount, totals.getFailedSuites().size(),
                 totals.getTestTimeMs(), totals.getWallClockMs(), context.updatesMapping && ran > 0,
                 savingsMs, savingsPercent, context.runOrigin, context.selectionDetails);
     }

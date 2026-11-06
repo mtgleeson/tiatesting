@@ -42,11 +42,10 @@ public final class TestRunResultFixture {
      *
      * @param ran the suites the plan finished
      * @param failed the suites that failed
-     * @param startMs the plan start
      * @return the outcome
      */
-    public static TestPlanOutcome planOutcome(final Set<String> ran, final Set<String> failed, final long startMs) {
-        return new TestPlanOutcome(ran, failed, ran, Collections.<String>emptySet(), startMs);
+    public static TestPlanOutcome planOutcome(final Set<String> ran, final Set<String> failed) {
+        return new TestPlanOutcome(ran, failed, ran, Collections.<String>emptySet());
     }
 
     /**
@@ -55,10 +54,9 @@ public final class TestRunResultFixture {
      *
      * @param ran how many suites the plan finished
      * @param failed how many of them failed
-     * @param startMs the plan start
      * @return the outcome
      */
-    public static TestPlanOutcome syntheticPlanOutcome(final int ran, final int failed, final long startMs) {
+    public static TestPlanOutcome syntheticPlanOutcome(final int ran, final int failed) {
         Set<String> ranSuites = new LinkedHashSet<>();
         Set<String> failedSuites = new LinkedHashSet<>();
         for (int i = 0; i < ran; i++) {
@@ -67,6 +65,6 @@ public final class TestRunResultFixture {
                 failedSuites.add("fixture-suite-" + i);
             }
         }
-        return planOutcome(ranSuites, failedSuites, startMs);
+        return planOutcome(ranSuites, failedSuites);
     }
 }

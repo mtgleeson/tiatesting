@@ -1305,7 +1305,7 @@ class DistributedRunSealerStatsHistoryTest {
         stats.setNumRuns(1);
         return new TestRunResult(trackers, new HashSet<String>(), runnerSuites, runnerSuites,
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, stats,
-                null, 1, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
+                null, 1, TestRunResultFixture.syntheticPlanOutcome(1, 0), TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 
     /**

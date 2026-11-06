@@ -238,7 +238,7 @@ class TestRunnerServiceFreshJvmRetryTest {
         runStats.setNumSuccessRuns(failed.isEmpty() ? 1 : 0);
         runStats.setNumFailRuns(failed.isEmpty() ? 0 : 1);
         return new TestRunResult(executed, failed, ALL_SUITES, executed.keySet(), ALL_SUITES, methods,
-                runStats, null, 0, TestRunResultFixture.planOutcome(executed.keySet(), failed, 0L),
+                runStats, null, 0, TestRunResultFixture.planOutcome(executed.keySet(), failed),
                 TestRunSelectionDetails.empty(), jvm, build);
     }
 

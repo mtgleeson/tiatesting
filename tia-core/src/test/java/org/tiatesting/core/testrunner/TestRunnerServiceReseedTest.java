@@ -191,7 +191,7 @@ class TestRunnerServiceReseedTest {
         runStats.setNumSuccessRuns(1);
         return new TestRunResult(executed, failedSuites, DISCOVERED,
                 executed.keySet(), executed.keySet(), methods, runStats, null, 0,
-                TestRunResultFixture.planOutcome(executed.keySet(), failedSuites, 0L),
+                TestRunResultFixture.planOutcome(executed.keySet(), failedSuites),
                 TestRunSelectionDetails.forFullRun(mode), jvm, build);
     }
 }

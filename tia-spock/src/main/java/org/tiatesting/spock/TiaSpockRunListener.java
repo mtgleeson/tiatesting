@@ -251,7 +251,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         Set<String> exercised = new LinkedHashSet<>(testSuiteTrackers.keySet());
         exercised.addAll(testSuitesFailed);
         TestPlanOutcome planOutcome = new TestPlanOutcome(testSuitesProcessed, testSuitesFailed, exercised,
-                SharedSpockSkipObservation.suitesObservedViaSkip(), testRunStartTime);
+                SharedSpockSkipObservation.suitesObservedViaSkip());
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult,
                 ignoredTestSuiteCount, planOutcome, selectionDetails, jvmContribution, testRunIdentity);

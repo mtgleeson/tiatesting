@@ -83,7 +83,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.ATest", "com.example.BTest", "com.example.CTest", "com.example.DTest"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, TestRunResultFixture.syntheticPlanOutcome(4, 0, 0L),
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, TestRunResultFixture.syntheticPlanOutcome(4, 0),
                 TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when - persist with history enabled
@@ -121,7 +121,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.UserDisabledD", "com.example.UserDisabledE", "com.example.UserDisabledF"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(4, 0, 0L),
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(4, 0),
                 TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
@@ -145,7 +145,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         // given - no trackers, no runner suites, selector ignored nothing
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(0, 0, 0L),
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(0, 0),
                 TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
@@ -180,7 +180,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         trackers.put("com.example.RetriedB", new TestSuiteTracker("com.example.RetriedB"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(2, 0, 0L),
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(2, 0),
                 TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when
@@ -209,7 +209,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         }
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(5, 0, 0L),
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, TestRunResultFixture.syntheticPlanOutcome(5, 0),
                 TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
 
         // when

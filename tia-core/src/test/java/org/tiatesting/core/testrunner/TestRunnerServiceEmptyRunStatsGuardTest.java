@@ -104,7 +104,7 @@ class TestRunnerServiceEmptyRunStatsGuardTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
         return new TestRunResult(trackers, empty, empty, empty, selectedTests, new HashMap<>(),
-                runStats, null, ignoredTestSuiteCount, TestRunResultFixture.syntheticPlanOutcome(suitesRanThisAttempt, 0, 0L),
+                runStats, null, ignoredTestSuiteCount, TestRunResultFixture.syntheticPlanOutcome(suitesRanThisAttempt, 0),
                 TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 

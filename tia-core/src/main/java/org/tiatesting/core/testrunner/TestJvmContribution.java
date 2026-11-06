@@ -66,13 +66,14 @@ public final class TestJvmContribution {
      *
      * @param rerunPlan whether core resolved the plan as a rerun of failed tests
      * @param plan what the plan did
+     * @param planStartMs the plan's start time, epoch millis
      * @param planEndMs the plan's end time, epoch millis
      * @param suitesTimeMs the summed measured run time of every suite this JVM has timed so far;
      *                     cumulative, so the larger of it and the stored value is kept
      */
     public synchronized void record(final boolean rerunPlan, final TestPlanOutcome plan,
-                                    final long planEndMs, final long suitesTimeMs) {
-        (rerunPlan ? reruns : firstAttempt).add(plan, planEndMs);
+                                    final long planStartMs, final long planEndMs, final long suitesTimeMs) {
+        (rerunPlan ? reruns : firstAttempt).add(plan, planStartMs, planEndMs);
         this.suitesTimeMs = Math.max(this.suitesTimeMs, suitesTimeMs);
     }
 
@@ -114,16 +115,17 @@ public final class TestJvmContribution {
          * Add one plan: its suites, its latest-outcome failures and its time.
          *
          * @param plan what the plan did
+         * @param planStartMs the plan's start time
          * @param planEndMs the plan's end time
          */
-        private void add(final TestPlanOutcome plan, final long planEndMs) {
+        private void add(final TestPlanOutcome plan, final long planStartMs, final long planEndMs) {
             used = true;
             ran.addAll(plan.getSuitesRan());
             exercised.addAll(plan.getSuitesExercised());
             failed.removeAll(plan.getSuitesExercised());
             failed.addAll(plan.getSuitesFailed());
-            testTimeMs += Math.max(0L, planEndMs - plan.getStartMs());
-            firstStartMs = Math.min(firstStartMs, plan.getStartMs());
+            testTimeMs += Math.max(0L, planEndMs - planStartMs);
+            firstStartMs = Math.min(firstStartMs, planStartMs);
             lastEndMs = Math.max(lastEndMs, planEndMs);
         }
     }

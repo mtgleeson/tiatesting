@@ -662,7 +662,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
                 System.getProperty("tiaDrainResultFile"));
         TestPlanOutcome planOutcome = new TestPlanOutcome(suitesFinishedThisAttempt, suitesFailedThisAttempt,
-                suitesExercisedThisAttempt, suitesSkippedThisAttempt, testRunStartTime);
+                suitesExercisedThisAttempt, suitesSkippedThisAttempt);
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
                 ignoredTestSuiteCount, planOutcome, selectionDetails, sharedTestRunData.getJvmContribution(),

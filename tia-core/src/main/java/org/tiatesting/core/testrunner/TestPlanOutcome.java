@@ -17,7 +17,6 @@ public final class TestPlanOutcome {
     private final Set<String> suitesFailed;
     private final Set<String> suitesExercised;
     private final Set<String> suitesSkipped;
-    private final long startMs;
 
     /**
      * Snapshot a plan's sets; the inputs may be live concurrent sets.
@@ -26,18 +25,15 @@ public final class TestPlanOutcome {
      * @param suitesFailed the suites that failed in the plan
      * @param suitesExercised the suites the plan ran a test of; the failed suites are added to it
      * @param suitesSkipped the suites the plan skipped
-     * @param startMs the plan's start time, epoch millis
      */
     public TestPlanOutcome(final Set<String> suitesRan, final Set<String> suitesFailed,
-                           final Set<String> suitesExercised, final Set<String> suitesSkipped,
-                           final long startMs) {
+                           final Set<String> suitesExercised, final Set<String> suitesSkipped) {
         this.suitesRan = Collections.unmodifiableSet(new LinkedHashSet<>(suitesRan));
         this.suitesFailed = Collections.unmodifiableSet(new LinkedHashSet<>(suitesFailed));
         Set<String> exercised = new LinkedHashSet<>(suitesExercised);
         exercised.addAll(suitesFailed);
         this.suitesExercised = Collections.unmodifiableSet(exercised);
         this.suitesSkipped = Collections.unmodifiableSet(new LinkedHashSet<>(suitesSkipped));
-        this.startMs = startMs;
     }
 
     /** @return the suites the plan finished */
@@ -51,7 +47,4 @@ public final class TestPlanOutcome {
 
     /** @return the suites the plan skipped */
     public Set<String> getSuitesSkipped() { return suitesSkipped; }
-
-    /** @return the plan's start time, epoch millis */
-    public long getStartMs() { return startMs; }
 }

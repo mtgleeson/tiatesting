@@ -192,7 +192,7 @@ class TestRunnerServiceMethodRunStatsTest {
 
         Set<String> failed = suiteFailed ? suites : Collections.<String>emptySet();
         return new TestRunResult(trackers, new HashSet<>(failed), runnerSuites, suites, suites, observed,
-                new TestStats(), null, runnerSuites.size() - 1, TestRunResultFixture.planOutcome(suites, failed, 0L),
+                new TestStats(), null, runnerSuites.size() - 1, TestRunResultFixture.planOutcome(suites, failed),
                 details, jvm, build);
     }
 }

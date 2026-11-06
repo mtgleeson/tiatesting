@@ -273,7 +273,7 @@ class TestRunnerServiceConcurrentStatsTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         trackers.put("com.example.SomeTest", new TestSuiteTracker("com.example.SomeTest"));
         return new TestRunResult(trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), runStats, null, ignoredTestSuiteCount, TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L),
+                new HashSet<>(), new HashMap<>(), runStats, null, ignoredTestSuiteCount, TestRunResultFixture.syntheticPlanOutcome(1, 0),
                 TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
     }
 

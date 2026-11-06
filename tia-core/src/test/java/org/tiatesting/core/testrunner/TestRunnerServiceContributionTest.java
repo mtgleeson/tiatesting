@@ -80,7 +80,7 @@ class TestRunnerServiceContributionTest {
     private static TestRunResult result(TestJvmContribution jvm, Set<String> ran, Set<String> failed) {
         Set<String> empty = Collections.emptySet();
         return new TestRunResult(new HashMap<>(), failed, empty, ran, ran, new HashMap<>(), new TestStats(),
-                null, 1, TestRunResultFixture.planOutcome(ran, failed, 1000L), TestRunSelectionDetails.empty(),
+                null, 1, TestRunResultFixture.planOutcome(ran, failed), TestRunSelectionDetails.empty(),
                 jvm, TestRunResultFixture.runIdentity(TestRunResultFixture.RUN_ID));
     }
 

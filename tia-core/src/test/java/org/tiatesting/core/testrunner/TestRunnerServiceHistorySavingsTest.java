@@ -80,7 +80,7 @@ class TestRunnerServiceHistorySavingsTest {
      */
     private TestRunResult runResult(int ignoredTestSuiteCount){
         return runResult(ignoredTestSuiteCount, new TestJvmContribution(), TestRunResultFixture.runIdentity(),
-                TestRunResultFixture.syntheticPlanOutcome(1, 0, 0L));
+                TestRunResultFixture.syntheticPlanOutcome(1, 0));
     }
 
     /**
@@ -207,16 +207,19 @@ class TestRunnerServiceHistorySavingsTest {
             Set<String> suite = Collections.singleton("com.example.FlakyTest");
             long firstStart = System.currentTimeMillis();
             service.persistTestRunData(false, true, "abc123", "main", firstStart, runResult(2, firstJvm, build,
-                    TestRunResultFixture.planOutcome(suite, suite, firstStart)), null);
+                    TestRunResultFixture.planOutcome(suite, suite)), null);
 
             // when the failed suite is retried and passes
             long runStart = firstStart + 1;
             service.persistTestRunData(false, true, "abc123", "main", runStart,
                     runResult(2, sameJvm ? firstJvm : new TestJvmContribution(), build,
-                            TestRunResultFixture.planOutcome(suite, Collections.<String>emptySet(), runStart)), null);
+                            TestRunResultFixture.planOutcome(suite, Collections.<String>emptySet())), null);
 
-            // then
-            TestRunHistoryEntry row = dataStore.readTestRunHistory().get(0);
+            // then the build has its own rerun row
+            String rerunId = TestRunHistoryEntry.idFor("main", "abc123", build.getRunId(), true);
+            TestRunHistoryEntry row = dataStore.readTestRunHistory().stream()
+                    .filter(entry -> entry.getId().equals(rerunId)).findFirst()
+                    .orElseThrow(() -> new AssertionError(rerun + " must write a rerun row"));
             assertTrue(row.isRerun(), rerun + " must be flagged as a rerun");
             assertEquals(0L, row.getTimeSavingsMs(), rerun + " must record no serial savings");
             assertEquals(0L, row.getWallClockSavingsMs(), rerun + " must record no wall-clock savings");

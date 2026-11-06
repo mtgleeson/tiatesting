@@ -18,7 +18,7 @@ import java.util.Set;
 public final class TestRunContributionTotals {
 
     private static final TestRunContributionTotals EMPTY = new TestRunContributionTotals(true, 0,
-            Collections.<String>emptySet(), Collections.<String>emptySet(), 0L, 0L, 0L, 0L);
+            Collections.<String>emptySet(), Collections.<String>emptySet(), 0L, 0L, 0L, 0L, 0L);
 
     private final boolean empty;
     private final int suitesRan;
@@ -28,6 +28,7 @@ public final class TestRunContributionTotals {
     private final long suitesTimeMs;
     private final long wallClockMs;
     private final long longestJvmTestTimeMs;
+    private final long firstStartMs;
 
     /**
      * Store computed totals; use {@link #of(Collection)}.
@@ -40,10 +41,12 @@ public final class TestRunContributionTotals {
      * @param suitesTimeMs the summed suite-attributable time
      * @param wallClockMs the latest end minus the earliest start
      * @param longestJvmTestTimeMs the largest per-JVM sum of plan time
+     * @param firstStartMs the earliest plan start
      */
     private TestRunContributionTotals(boolean empty, int suitesRan, Set<String> failedSuites,
                                       Set<String> latestOutcomeFailedSuites, long testTimeMs,
-                                      long suitesTimeMs, long wallClockMs, long longestJvmTestTimeMs) {
+                                      long suitesTimeMs, long wallClockMs, long longestJvmTestTimeMs,
+                                      long firstStartMs) {
         this.empty = empty;
         this.suitesRan = suitesRan;
         this.failedSuites = Collections.unmodifiableSet(failedSuites);
@@ -52,6 +55,7 @@ public final class TestRunContributionTotals {
         this.suitesTimeMs = suitesTimeMs;
         this.wallClockMs = wallClockMs;
         this.longestJvmTestTimeMs = longestJvmTestTimeMs;
+        this.firstStartMs = firstStartMs;
     }
 
     /**
@@ -113,7 +117,7 @@ public final class TestRunContributionTotals {
 
         return new TestRunContributionTotals(false, suitesRan, failedSuites, latestOutcomeFailed,
                 testTimeMs, suitesTimeMs, Math.max(0L, latestEndMs - earliestStartMs),
-                longestJvmTestTimeMs);
+                longestJvmTestTimeMs, earliestStartMs);
     }
 
     /** @return true when no contribution went in */
@@ -139,4 +143,7 @@ public final class TestRunContributionTotals {
 
     /** @return the largest per-JVM sum of plan time, both attempt kinds of a JVM together */
     public long getLongestJvmTestTimeMs() { return longestJvmTestTimeMs; }
+
+    /** @return the earliest plan start, epoch millis; zero for the empty totals */
+    public long getFirstStartMs() { return firstStartMs; }
 }
