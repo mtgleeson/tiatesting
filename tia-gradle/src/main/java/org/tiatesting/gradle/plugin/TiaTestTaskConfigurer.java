@@ -235,8 +235,7 @@ public class TiaTestTaskConfigurer {
                         claimDistributedRun(project, testTask, tiaTaskExtension, workspaceIdentity);
                     } else {
                         warnWhenATiaTaskForksMoreThanOneJvm(testTask,
-                                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
-                                !Boolean.FALSE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
+                                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()));
                         selectTestsAndHandOff(project, testTask, tiaTaskExtension, workspaceIdentity, resolver,
                                 selectionMode);
                     }
@@ -1042,33 +1041,41 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
     }
 
     /**
-     * Warn when a test task Tia writes to the database for runs its suites in more than one JVM.
-     * Tia does not support that. While updating the mapping, coverage is attributed per suite only
-     * when suites run one after another in one JVM, the forks' persists race, and one fork's seal
-     * clears flags another still needs. While recording run history (the default, even with mapping
-     * off), each fork writes its own history row, each credited savings against the full baseline.
-     * Warned rather than refused because the
-     * build still runs its tests correctly, and the README has only ever recommended a single fork.
-     * See "Multi-fork persist" in the "Persist flow and crash safety" chapter of {@code WIKI.md}. A
-     * distributed test task is refused instead, by {@link #refuseATestTaskThatForksMoreThanOneJvm}.
+     * Warn when a test task that updates the mapping runs its suites in more than one JVM. Tia does
+     * not support that: coverage is attributed per suite only when suites run one after another in
+     * one JVM, the forks' persists race, and one fork's seal clears flags another still needs. Warned
+     * rather than refused because the build still runs its tests correctly. A task that only records
+     * run history is not warned: its forks add up to one history row. See "Multi-fork persist" in the
+     * "Persist flow and crash safety" chapter of {@code WIKI.md}. A distributed test task is refused
+     * instead, by {@link #refuseATestTaskThatForksMoreThanOneJvm}.
      *
      * @param testTask the test task about to run with Tia enabled
      * @param updatesMapping whether the task updates the mapping
-     * @param recordsHistory whether the task records run history
      */
-    private static void warnWhenATiaTaskForksMoreThanOneJvm(final Test testTask, final boolean updatesMapping,
-                                                            final boolean recordsHistory) {
-        String forkingSetting = multiJvmForkingSetting(testTask);
-        if (forkingSetting == null || (!updatesMapping && !recordsHistory)) {
-            return;
+    private static void warnWhenATiaTaskForksMoreThanOneJvm(final Test testTask, final boolean updatesMapping) {
+        String warning = multiJvmForkingWarning(testTask, updatesMapping);
+        if (warning != null) {
+            LOGGER.warn(warning);
         }
-        String consequence = updatesMapping
-                ? "coverage can be attributed to the wrong suites, and the forks' results can overwrite each other"
-                : "each fork records its own row in the run history, each credited savings against the full "
-                        + "baseline";
-        LOGGER.warn("Tia is enabled for test task '{}', which sets {}. Running a test task's suites in more "
-                + "than one JVM is not supported: {}. Use maxParallelForks = 1 and forkEvery = 0 for this test "
-                + "task.", testTask.getPath(), forkingSetting, consequence);
+    }
+
+    /**
+     * Build the warning {@link #warnWhenATiaTaskForksMoreThanOneJvm} logs, or nothing when the task
+     * does not need one. Package-private for tests.
+     *
+     * @param testTask the test task about to run with Tia enabled
+     * @param updatesMapping whether the task updates the mapping
+     * @return the warning, or null when the task runs one JVM or does not update the mapping
+     */
+    static String multiJvmForkingWarning(final Test testTask, final boolean updatesMapping) {
+        String forkingSetting = multiJvmForkingSetting(testTask);
+        if (forkingSetting == null || !updatesMapping) {
+            return null;
+        }
+        return "Tia is enabled for test task '" + testTask.getPath() + "', which sets " + forkingSetting
+                + ". Updating the mapping from a test task that runs its suites in more than one JVM is "
+                + "not supported: coverage can be attributed to the wrong suites, and the forks' results "
+                + "can overwrite each other. Use maxParallelForks = 1 and forkEvery = 0 for this test task.";
     }
 
     /**

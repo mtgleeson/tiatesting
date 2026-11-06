@@ -7,6 +7,7 @@ import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TestStats;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -256,6 +257,11 @@ public class TestRunResult {
      * suites, and an empty selection alongside ignored suites means there was nothing to run in the
      * first place.
      *
+     * <p>A plan that ran nothing but skipped suites, none of them selected, is not an empty run either:
+     * it held only suites Tia ignored - with Surefire {@code forkCount > 1} every class is its own
+     * plan, and an ignored class's plan looks like this - so there was nothing for it to run. A plan
+     * that skipped a selected suite, or observed nothing at all, still is one.
+     *
      * <p>Read from {@link #getPlanOutcome()} rather than the cumulative tracker map, so the
      * question is asked of the attempt being persisted. A Surefire retry attempt executes the suites
      * holding the failed tests, so it does not read as an empty run; a retry contributes no run stats
@@ -266,6 +272,15 @@ public class TestRunResult {
      */
     public boolean ranNoExpectedSuites() {
         if (!planOutcome.getSuitesRan().isEmpty()) {
+            return false;
+        }
+
+        // A plan that skipped suites, none of which it was meant to run, held nothing to run - a
+        // Surefire per-class plan of a class Tia ignored, or a distributed runner's plan of a suite
+        // outside its group. It is a plan with nothing to do, not a run that failed to execute.
+        Set<String> skipped = planOutcome.getSuitesSkipped();
+        Set<String> selected = selectedTests == null ? Collections.<String>emptySet() : selectedTests;
+        if (!skipped.isEmpty() && Collections.disjoint(skipped, selected)) {
             return false;
         }
 

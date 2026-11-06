@@ -6,6 +6,7 @@ import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -36,6 +37,55 @@ class TestRunResultEmptyRunTest {
         return new TestRunResult(trackers, empty, empty, empty, selectedTests, new HashMap<>(),
                 new TestStats(), null, ignoredTestSuiteCount, TestRunResultFixture.syntheticPlanOutcome(suitesRanThisAttempt, 0),
                 TestRunSelectionDetails.empty(), new TestJvmContribution(), TestRunResultFixture.runIdentity());
+    }
+
+    /**
+     * Build a {@link TestRunResult} for a plan with the given outcome.
+     *
+     * @param plan what the plan ran and skipped
+     * @param selectedTests the suites Tia selected to run
+     * @param ignoredTestSuiteCount the suites Tia's selector chose to ignore
+     * @return the run result under test
+     */
+    private TestRunResult runResult(TestPlanOutcome plan, Set<String> selectedTests, int ignoredTestSuiteCount) {
+        Set<String> empty = new HashSet<>();
+        return new TestRunResult(new HashMap<>(), empty, empty, empty, selectedTests, new HashMap<>(),
+                new TestStats(), null, ignoredTestSuiteCount, plan, TestRunSelectionDetails.empty(),
+                new TestJvmContribution(), TestRunResultFixture.runIdentity());
+    }
+
+    /**
+     * A Surefire per-class plan holding only a class Tia ignored had nothing to run, so it is not an
+     * empty run - with {@code forkCount > 1} every ignored class gets a plan like this.
+     */
+    @Test
+    void aPlanThatOnlySkippedUnselectedSuitesIsNotAnEmptyRun() {
+        // given
+        TestPlanOutcome plan = new TestPlanOutcome(Collections.<String>emptySet(), Collections.<String>emptySet(),
+                Collections.<String>emptySet(), Collections.singleton("com.example.IgnoredTest"));
+
+        // when
+        boolean emptyRun = runResult(plan, Collections.singleton("com.example.SelectedTest"), 4).ranNoExpectedSuites();
+
+        // then
+        assertFalse(emptyRun);
+    }
+
+    /**
+     * A plan that skipped a suite it was selected to run - disabled in source, say - is still an empty
+     * run, as before.
+     */
+    @Test
+    void aPlanThatSkippedASelectedSuiteIsStillAnEmptyRun() {
+        // given
+        TestPlanOutcome plan = new TestPlanOutcome(Collections.<String>emptySet(), Collections.<String>emptySet(),
+                Collections.<String>emptySet(), Collections.singleton("com.example.SelectedTest"));
+
+        // when
+        boolean emptyRun = runResult(plan, Collections.singleton("com.example.SelectedTest"), 4).ranNoExpectedSuites();
+
+        // then
+        assertTrue(emptyRun);
     }
 
     /**
