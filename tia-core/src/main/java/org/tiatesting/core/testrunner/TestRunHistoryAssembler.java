@@ -53,7 +53,8 @@ final class TestRunHistoryAssembler {
      * because Tia deselected anything. A run that ignored everything because nothing was impacted
      * keeps its savings. The first-attempt row is stamped with the run's start, and the rerun row
      * with the start of the run's first rerun plan, so reports list the rerun after the attempt it
-     * retried.
+     * retried. The mapping flag is the run's own: an empty run passes false, having sealed nothing,
+     * while a mapping run that ignored everything because nothing was impacted still sealed.
      *
      * @param totals the row's contributions added up
      * @param rerun whether this is the rerun row
@@ -69,7 +70,7 @@ final class TestRunHistoryAssembler {
         long runTimestampMs = rerun ? totals.getFirstStartMs() : context.runStartMs;
         return TestRunHistoryEntry.create(context.branch, context.commit, context.runId, rerun,
                 runTimestampMs, ran, context.ignoredSuiteCount, totals.getFailedSuites().size(),
-                totals.getTestTimeMs(), totals.getWallClockMs(), context.updatesMapping && ran > 0,
+                totals.getTestTimeMs(), totals.getWallClockMs(), context.updatesMapping,
                 savingsMs, savingsPercent, context.runOrigin, context.selectionDetails);
     }
 
@@ -98,7 +99,8 @@ final class TestRunHistoryAssembler {
          * @param runStartMs the run's start time
          * @param ignoredSuiteCount the suites Tia ignored for the run
          * @param suitesWereSelected whether the selection expected at least one suite to run
-         * @param updatesMapping whether the run updates the mapping
+         * @param updatesMapping whether the run updated the mapping, stamped on its rows; false for an
+         *                       empty run, which seals nothing
          * @param allTestsRunTimeMs the full-suite baseline savings are measured against
          * @param runOrigin where the run came from
          * @param selectionDetails the run's selection breakdown

@@ -30,8 +30,21 @@ class TestRunHistoryAssemblerTest {
      * @return the context
      */
     private static TestRunHistoryAssembler.RunContext context(int ignored, boolean selected) {
+        return context(ignored, selected, false);
+    }
+
+    /**
+     * Build the run-constant fields of a run.
+     *
+     * @param ignored the suites Tia ignored
+     * @param selected whether the selection expected any suite to run
+     * @param updatesMapping whether the run updated the mapping
+     * @return the context
+     */
+    private static TestRunHistoryAssembler.RunContext context(int ignored, boolean selected,
+                                                              boolean updatesMapping) {
         return new TestRunHistoryAssembler.RunContext("main", "c1", "run-1", 1000L, ignored, selected,
-                false, BASELINE_MS, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), TestRunSelectionDetails.empty());
+                updatesMapping, BASELINE_MS, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), TestRunSelectionDetails.empty());
     }
 
     private static TestRunContribution first(String jvmId, int ran, long timeMs, long startMs, long endMs,
@@ -102,5 +115,17 @@ class TestRunHistoryAssemblerTest {
 
         // then
         assertEquals(0L, rows.get(0).getTimeSavingsMs());
+    }
+
+    @Test
+    void aMappingRunThatRanNothingBecauseNothingWasImpactedIsStillAMappingUpdate() {
+        // given a mapping run that selected nothing, so its one JVM ran nothing and it sealed
+        List<TestRunContribution> contributions = Collections.singletonList(first("a", 0, 50L, 1000L, 1050L));
+
+        // when
+        List<TestRunHistoryEntry> rows = TestRunHistoryAssembler.assemble(contributions, context(11, false, true));
+
+        // then
+        assertTrue(rows.get(0).isUpdatedDbMapping());
     }
 }
