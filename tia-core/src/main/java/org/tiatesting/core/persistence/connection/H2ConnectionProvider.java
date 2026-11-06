@@ -1,5 +1,6 @@
 package org.tiatesting.core.persistence.connection;
 
+import org.h2.api.ErrorCode;
 import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,8 +16,9 @@ import java.util.Objects;
 /**
  * {@link ConnectionProvider} for H2. Ported verbatim from {@code H2DataStore}'s connection-URL
  * construction and {@code getConnection()} body (see the "Library publish-time stamping" and
- * connection-retry chapters in {@code WIKI.md} for the surrounding design context) - this class
- * only relocates that logic, it does not change it.
+ * connection-retry chapters in {@code WIKI.md} for the surrounding design context). Server mode
+ * retries a transient connection failure; embedded mode waits, for a bounded time, while another
+ * JVM - a parallel test fork - has the database file open.
  */
 public class H2ConnectionProvider implements ConnectionProvider {
 
@@ -27,6 +29,11 @@ public class H2ConnectionProvider implements ConnectionProvider {
     // Base backoff between server-mode connection retries, multiplied by the attempt number for a
     // simple linear backoff (250ms, then 500ms, ...).
     static final long CONNECTION_RETRY_BACKOFF_MS = 250L;
+    // Embedded mode: how long to wait for a database file another JVM has open (a parallel test
+    // fork persisting at the same moment) before giving up, and the backoff between attempts.
+    static final long EMBEDDED_LOCK_WAIT_MS = 30_000L;
+    static final long EMBEDDED_LOCK_BACKOFF_MS = 100L;
+    static final long EMBEDDED_LOCK_MAX_BACKOFF_MS = 1_000L;
 
     private final Logger log = LoggerFactory.getLogger(H2ConnectionProvider.class);
     private final H2ConnectionSettings settings;
@@ -65,19 +72,21 @@ public class H2ConnectionProvider implements ConnectionProvider {
      * Acquire a connection to the H2 database. In server mode the acquisition is retried a few
      * times with a short backoff, because the connection crosses a real network/server boundary
      * where a single transient abort (a reset socket, or a server still warming up after sitting
-     * idle) is expected and should not fail the whole task. In embedded mode a failure is
-     * deterministic (bad path, locked file), so it is surfaced immediately without retry.
+     * idle) is expected and should not fail the whole task. In embedded mode a file another JVM
+     * has open is waited for, for up to {@link #EMBEDDED_LOCK_WAIT_MS}, since parallel test forks
+     * of one build each persist at the end of their test plans; any other embedded failure is
+     * deterministic (a bad path, a corrupt file) and is surfaced immediately.
      *
      * @return an open connection to the configured H2 database
      * @throws SQLException if the connection cannot be established (after exhausting the
-     *         server-mode retries, or on the first embedded-mode failure)
+     *         server-mode retries or the embedded wait, or on the first other embedded failure)
      */
     @Override
     public Connection get() throws SQLException {
         if (settings.isServerMode()) {
             return acquireServerConnectionWithRetry();
         }
-        return acquireConnection();
+        return acquireEmbeddedConnectionWaitingForLock();
     }
 
     /**
@@ -114,6 +123,10 @@ public class H2ConnectionProvider implements ConnectionProvider {
      * would tear down the whole server database for all of them. Server-mode {@code close()} is
      * therefore a no-op - individual connections are already closed by each operation's
      * {@code finally} block.
+     *
+     * <p>The shutdown connection is opened without the embedded lock wait: when another JVM holds
+     * the file, this JVM does not have the database open and there is nothing for it to close, so
+     * waiting would only delay the caller.
      */
     @Override
     public void close() {
@@ -128,7 +141,7 @@ public class H2ConnectionProvider implements ConnectionProvider {
         // because the database is already shut down; that's expected and the outer catch swallows
         // it. Failures during close are logged at debug so cleanup errors never mask the real
         // exception a calling try/finally is unwinding.
-        try (Connection connection = get();
+        try (Connection connection = acquireConnection();
              Statement statement = connection.createStatement()) {
             statement.execute("SHUTDOWN");
         } catch (Throwable t) {
@@ -165,6 +178,53 @@ public class H2ConnectionProvider implements ConnectionProvider {
     }
 
     /**
+     * Acquire an embedded-mode connection, waiting while another JVM has the database file open.
+     * Two processes can never hold one embedded H2 file at once, and parallel test forks of one
+     * build each persist at the end of their test plans, so a fork that finds the file held waits
+     * with a doubling backoff for up to {@link #EMBEDDED_LOCK_WAIT_MS}. Any other failure is
+     * deterministic (a bad path, a corrupt file) and is surfaced immediately.
+     *
+     * @return an open connection
+     * @throws SQLException the first failure that is not a held file, or the held-file failure once
+     *         the wait is exhausted
+     */
+    private Connection acquireEmbeddedConnectionWaitingForLock() throws SQLException {
+        long deadlineMs = currentTimeMs() + EMBEDDED_LOCK_WAIT_MS;
+        long backoffMs = EMBEDDED_LOCK_BACKOFF_MS;
+        boolean waiting = false;
+        while (true) {
+            try {
+                return acquireConnection();
+            } catch (SQLException e) {
+                if (e.getErrorCode() != ErrorCode.DATABASE_ALREADY_OPEN_1) {
+                    throw e;
+                }
+                if (currentTimeMs() >= deadlineMs) {
+                    log.warn("Gave up after waiting {}ms for the embedded H2 database {}, which another JVM "
+                            + "still has open.", EMBEDDED_LOCK_WAIT_MS, jdbcURL);
+                    throw e;
+                }
+                if (!waiting) {
+                    log.info("The embedded H2 database {} is open in another JVM (for example a parallel "
+                            + "test fork); waiting up to {}ms for it.", jdbcURL, EMBEDDED_LOCK_WAIT_MS);
+                    waiting = true;
+                }
+                backoffBeforeRetry(backoffMs);
+                backoffMs = Math.min(backoffMs * 2, EMBEDDED_LOCK_MAX_BACKOFF_MS);
+            }
+        }
+    }
+
+    /**
+     * The clock the embedded lock wait measures against. Package-private so a test can control it.
+     *
+     * @return the current time, epoch millis
+     */
+    long currentTimeMs() {
+        return System.currentTimeMillis();
+    }
+
+    /**
      * Open a single raw connection to the configured H2 database with no retry. Package-private so
      * a test can override it to simulate transient connection failures.
      *
@@ -179,7 +239,8 @@ public class H2ConnectionProvider implements ConnectionProvider {
     }
 
     /**
-     * Wait for the given backoff before the next server-mode connection retry. Package-private so a
+     * Wait for the given backoff before the next connection attempt - a server-mode retry or an
+     * embedded-mode wait for a held file. Package-private so a
      * test can override it to avoid real delays. Restores the interrupt flag and aborts the retry
      * loop (by throwing) if the thread is interrupted while waiting.
      *
