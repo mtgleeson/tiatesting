@@ -292,6 +292,15 @@ public class H2ConnectionProvider implements ConnectionProvider {
      * flushes those buffered pages to disk before releasing the file lock - so the plugin JVM must
      * close the datastore before a forked test JVM opens the same file.
      *
+     * <p>{@code MAX_COMPACT_TIME=0} is appended when the settings switch close-time compaction off
+     * (see {@link H2ConnectionSettings#withoutCloseCompaction()}). The graceful {@code SHUTDOWN} in
+     * {@link #close()} then still flushes every committed change to the file but skips compacting
+     * it: on a 19 GB database that cut the close from about 460 ms to about 1 ms for a run's small
+     * writes, while a mapping-scale rewrite left uncompacted more than doubled the file in ten runs,
+     * which is why only a JVM that does not update the mapping switches it off. The setting is an
+     * engine option applied when the database is first opened in the JVM, which with
+     * {@code DB_CLOSE_DELAY=-1} is this provider's first connection.
+     *
      * <p>In <b>server mode</b> the user-supplied URL is used verbatim. The embedded-only
      * options above are deliberately omitted: {@code PAGE_SIZE} / {@code CACHE_SIZE} /
      * {@code DB_CLOSE_DELAY} / {@code DB_CLOSE_ON_EXIT} configure the database engine instance,
@@ -314,6 +323,7 @@ public class H2ConnectionProvider implements ConnectionProvider {
                 + ";PAGE_SIZE=" + pageSizeByte
                 + ";CACHE_SIZE=" + cacheSizeKB
                 + ";DB_CLOSE_DELAY=-1"
-                + ";DB_CLOSE_ON_EXIT=FALSE";
+                + ";DB_CLOSE_ON_EXIT=FALSE"
+                + (settings.isCompactOnClose() ? "" : ";MAX_COMPACT_TIME=0");
     }
 }

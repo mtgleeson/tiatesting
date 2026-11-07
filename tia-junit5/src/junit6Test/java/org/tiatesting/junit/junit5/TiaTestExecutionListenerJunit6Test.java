@@ -107,7 +107,7 @@ class TiaTestExecutionListenerJunit6Test {
         assertEquals(Collections.singleton(FAILING), shared.getTestSuitesFailed());
         assertTrue(shared.getSuitesObserved().contains(DISABLED), "@Disabled suite observed");
         // The launcher swallows listener exceptions, so a broken persist would otherwise pass.
-        try (DataStore dataStore = DataStoreFactory.fromSystemProperties("main")) {
+        try (DataStore dataStore = DataStoreFactory.fromSystemProperties("main", true)) {
             List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
             assertEquals(1, history.size(), "one history row persisted");
             assertEquals(1, history.get(0).getNumSuitesFailed());

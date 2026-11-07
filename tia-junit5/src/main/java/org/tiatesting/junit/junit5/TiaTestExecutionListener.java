@@ -235,7 +235,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         this.headCommit = enabled ? ForkSystemProperties.commitValueFromSystemProperties() : null;
         this.branch = enabled ? ForkSystemProperties.branchFromSystemProperties() : null;
         this.testRunIdentity = enabled ? TestRunIdentity.fromSystemProperties() : null;
-        DataStore dataStore = enabled ? DataStoreFactory.fromSystemProperties(this.branch) : null;
+        DataStore dataStore = enabled ? DataStoreFactory.fromSystemProperties(this.branch, updateDBMapping) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDirs = System.getProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS);
         // Null for every ordinary build, whose persist is therefore exactly the one it always took.

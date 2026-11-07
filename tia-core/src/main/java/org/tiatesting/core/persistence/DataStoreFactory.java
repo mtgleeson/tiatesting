@@ -70,7 +70,7 @@ public final class DataStoreFactory {
                                        final String password, final String dialectOverride,
                                        final String branch, final String schemaSuffix) {
         return fromConfig(dbFilePath, dbUrl, user, password, dialectOverride, branch, schemaSuffix,
-                System::getenv);
+                true, System::getenv);
     }
 
     /**
@@ -87,13 +87,16 @@ public final class DataStoreFactory {
      * @param dialectOverride an explicit dialect id, or {@code null}/blank to infer it from {@code dbUrl}
      * @param branch         VCS branch name, the base of the schema name
      * @param schemaSuffix   the caller-declared schema suffix, or null for none
+     * @param compactOnClose whether an embedded H2 database compacts its file when it closes; see
+     *                       {@link H2ConnectionSettings#withoutCloseCompaction()}. Other datastores
+     *                       ignore it
      * @param env            lookup from environment variable name to value, e.g. {@code System::getenv}
      * @return the constructed {@link DataStore} for the resolved dialect
      */
     static DataStore fromConfig(final String dbFilePath, final String dbUrl, final String user,
                                 final String password, final String dialectOverride,
                                 final String branch, final String schemaSuffix,
-                                final Function<String, String> env) {
+                                final boolean compactOnClose, final Function<String, String> env) {
         SqlDialect dialect = SqlDialectRegistry.forUrl(dbUrl, dialectOverride);
         String schema = BranchSchema.schemaName(branch, schemaSuffix);
         boolean h2 = "h2".equals(dialect.id());
@@ -107,8 +110,9 @@ public final class DataStoreFactory {
         String resolvedPassword = CredentialResolver.resolvePassword(password, env);
 
         if (h2) {
-            H2ConnectionSettings settings = H2ConnectionSettings.fromConfig(dbFilePath, dbUrl,
+            H2ConnectionSettings resolved = H2ConnectionSettings.fromConfig(dbFilePath, dbUrl,
                     resolvedUser, resolvedPassword);
+            H2ConnectionSettings settings = compactOnClose ? resolved : resolved.withoutCloseCompaction();
             ConnectionProvider connectionProvider = new H2ConnectionProvider(settings);
             return new JdbcDataStore(dialect, connectionProvider, schema);
         }
@@ -198,13 +202,21 @@ public final class DataStoreFactory {
      * test-runner listeners, which read connection config from system properties rather than a
      * build-tool extension.
      *
+     * <p>A test JVM whose run does not update the mapping writes only its contribution, history
+     * rows and similar small records, so an embedded H2 database it opens skips close-time
+     * compaction: the close is otherwise the slowest part of such a persist on a large file, and it
+     * is paid once per test plan. A mapping run keeps compacting, since its rewrites would otherwise
+     * grow the file. See the "Embedded vs server-mode H2 connections" chapter in {@code WIKI.md}.
+     *
      * @param branch the VCS branch name, used to derive the per-branch schema selected on each
      *               connection
+     * @param updatesMapping whether this JVM's run updates the mapping; false switches off
+     *                       close-time compaction for an embedded H2 database
      * @return the constructed {@link DataStore} for the resolved dialect
      * @throws IllegalArgumentException if the dialect cannot be resolved (see
      *         {@link SqlDialectRegistry#forUrl(String, String)})
      */
-    public static DataStore fromSystemProperties(final String branch) {
+    public static DataStore fromSystemProperties(final String branch, final boolean updatesMapping) {
         // The password arrives as a path, never as a value: a value here would have been a system
         // property in this JVM, and surefire dumps the fork's system properties into the report XML.
         // A null path means no password was configured, so resolution falls through to the
@@ -221,6 +233,8 @@ public final class DataStoreFactory {
                 password,
                 System.getProperty(PROP_DB_DIALECT),
                 branch,
-                System.getProperty(PROP_DB_SCHEMA_SUFFIX));
+                System.getProperty(PROP_DB_SCHEMA_SUFFIX),
+                updatesMapping,
+                System::getenv);
     }
 }

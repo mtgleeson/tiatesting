@@ -68,7 +68,7 @@ class DataStoreFactoryCredentialsTest {
 
         // when
         DataStore store = DataStoreFactory.fromConfig(null, POSTGRES_URL, null, null, null,
-                "main", null, env::get);
+                "main", null, true, env::get);
 
         // then
         assertEquals("envuser", field(providerOf(store), "user"));
@@ -84,7 +84,7 @@ class DataStoreFactoryCredentialsTest {
 
         // when
         DataStore store = DataStoreFactory.fromConfig(null, POSTGRES_URL, "configured", "configsecret",
-                null, "main", null, env::get);
+                null, "main", null, true, env::get);
 
         // then
         assertEquals("configured", field(providerOf(store), "user"));
@@ -103,7 +103,7 @@ class DataStoreFactoryCredentialsTest {
 
         // when
         DataStore store = DataStoreFactory.fromConfig(null, POSTGRES_URL, null, null, null,
-                "main", null, env::get);
+                "main", null, true, env::get);
 
         // then
         assertNull(field(providerOf(store), "user"));
@@ -118,7 +118,7 @@ class DataStoreFactoryCredentialsTest {
 
         // when
         DataStore store = DataStoreFactory.fromConfig(null, url, null, null, null, "main", null,
-                env::get);
+                true, env::get);
 
         // then
         H2ConnectionSettings settings = H2ConnectionSettings.fromConfig(null, url, null, null);
@@ -135,7 +135,7 @@ class DataStoreFactoryCredentialsTest {
 
         // when
         DataStore store = DataStoreFactory.fromConfig(null, "jdbc:h2:tcp://h2host:9092/tiadb",
-                null, null, null, "main", null, env::get);
+                null, null, null, "main", null, true, env::get);
 
         // then
         H2ConnectionSettings settings = (H2ConnectionSettings) field(providerOf(store), "settings");
