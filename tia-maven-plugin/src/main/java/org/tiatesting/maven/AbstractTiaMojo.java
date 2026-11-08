@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 public abstract class AbstractTiaMojo extends AbstractMojo {
 
@@ -724,6 +725,27 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     protected DataStore buildDataStore(final String branch) throws MojoExecutionException {
         return buildDataStore(branch, getTiaDBSchemaSuffix());
+    }
+
+    /**
+     * Run a test selection and report a refusal as a build failure. Selection refuses a run whose
+     * configuration or workspace it can't work with by throwing {@link IllegalStateException} -
+     * for example a run that updates the mapping from a workspace whose head is behind the stored
+     * commit (see the "Persist flow and crash safety" chapter in {@code WIKI.md}). Rethrown as a
+     * {@link MojoExecutionException}, Maven shows Tia's message as the build failure rather than
+     * reporting the plugin as having crashed.
+     *
+     * @param selection the selection to run
+     * @param <T> the selection's result type
+     * @return the selection's result
+     * @throws MojoExecutionException if the selection refuses the run
+     */
+    protected static <T> T selectTests(final Supplier<T> selection) throws MojoExecutionException {
+        try {
+            return selection.get();
+        } catch (IllegalStateException e) {
+            throw new MojoExecutionException(e.getMessage(), e);
+        }
     }
 
     /**

@@ -304,6 +304,7 @@ class TiaDistStatusMojoTest {
          * @return the fixed head commit {@code "commit-1"}
          */
         @Override public String getHeadCommit() { return "commit-1"; }
+        @Override public boolean isHeadBehind(String commit) { return false; }
 
         /**
          * Report no diffs at all; this goal performs no test selection, so nothing consumes them.

@@ -971,6 +971,11 @@ class AgentMojoDistributedTest {
             return headCommit;
         }
 
+        @Override
+        public boolean isHeadBehind(String commit) {
+            return false;
+        }
+
         /**
          * Never called on the distributed runner path, which claims a planned group instead of
          * diffing.

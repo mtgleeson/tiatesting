@@ -96,6 +96,11 @@ final class InMemoryPomRepository implements VCSReader {
         return "head";
     }
 
+    @Override
+    public boolean isHeadBehind(String commit) {
+        return false;
+    }
+
     /**
      * @param baseChangeNum unused.
      * @param sourceFilesDirs unused.

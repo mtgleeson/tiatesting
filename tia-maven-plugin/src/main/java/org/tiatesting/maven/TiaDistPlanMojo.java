@@ -58,6 +58,15 @@ import java.util.function.Supplier;
 @Mojo(name = "dist-plan", defaultPhase = LifecyclePhase.NONE)
 public class TiaDistPlanMojo extends AbstractTiaMojo {
 
+    /**
+     * Plan the distributed run in the sequence described on the class.
+     *
+     * @throws MojoExecutionException if a precondition or the distributed configuration is invalid,
+     *                                the selection refuses the run (for example a mapping run whose
+     *                                workspace head is behind the stored commit), or the plan can't
+     *                                be persisted or written
+     * @throws MojoFailureException never thrown by this goal; declared by the {@code Mojo} contract
+     */
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         System.out.println("Planning a distributed Tia test run:");
@@ -98,11 +107,11 @@ public class TiaDistPlanMojo extends AbstractTiaMojo {
             // also on, so whenever this point is reached with local-change checking enabled the run
             // is not updating the mapping and selecting against the local workspace is exactly what
             // was asked for. When tiaUpdateDBMapping is on it has already been guaranteed false.
-            TestSelectorResult selection = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
-                    testFilesDirs,
+            TestSelectorResult selection = selectTests(() -> testSelector.selectTestsToIgnore(vcsReader,
+                    sourceFilesDirs, testFilesDirs,
                     TestSuiteRunnabilityClassifier.fromCsv(getProject().getBuild().getTestOutputDirectory()),
                     isTiaCheckLocalChanges(), libraryConfig, staticMappingConfig,
-                    isTiaUpdateDBMapping(), selectionMode);
+                    isTiaUpdateDBMapping(), selectionMode));
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {

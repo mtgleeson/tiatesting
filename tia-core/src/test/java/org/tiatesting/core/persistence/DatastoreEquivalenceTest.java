@@ -505,6 +505,11 @@ class DatastoreEquivalenceTest {
             return "synthetic-head";
         }
 
+        @Override
+        public boolean isHeadBehind(String commit) {
+            return false;
+        }
+
         /**
          * Build a single modified-source diff context for {@link #FOO_FILE} with synthetic
          * before/after content covering every stored line range for that file.

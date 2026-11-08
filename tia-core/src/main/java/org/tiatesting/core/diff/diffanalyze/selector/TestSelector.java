@@ -110,6 +110,9 @@ public class TestSelector {
      *                      still run. A request on a database with no stored mapping is a seed.
      *                      See the "Forced runs and re-seed" chapter in {@code WIKI.md}.
      * @return list of test suites to ignore in the current test run.
+     * @throws IllegalStateException if the run updates the mapping, isn't a re-seed, and the
+     *                               workspace head is behind the stored commit - checked before
+     *                               anything is written, see {@link #requireHeadNotBehindStoredCommit}
      */
     public TestSelectorResult selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames,
@@ -125,6 +128,9 @@ public class TestSelector {
         // metadata (names + stats, no coverage edges) is loaded once below. The full
         // suite-class-method mapping is never bulk-loaded on this path.
         TiaData tiaCore = dataStore.getTiaCore();
+
+        // Before any write: a mapping run must not be behind the commit the mapping already reflects.
+        requireHeadNotBehindStoredCommit(vcsReader, tiaCore.getCommitValue(), updateDBMapping, requestedMode);
 
         if (updateDBMapping) {
             reconcileTrackedLibrariesIfConfigured(libraryConfig);
@@ -936,6 +942,42 @@ public class TestSelector {
             methodIds.addAll(methodsTrackedByFile.get(mappingKey).keySet());
         }
         return methodIds;
+    }
+
+    /**
+     * Refuse a run that updates the mapping from a workspace whose head is behind the stored
+     * commit - typically a rebuild of an older build. The mapping already reflects the newer code,
+     * so the run would either move the stored commit back or write coverage for older code under
+     * the newer commit. A re-seed is allowed: it rebuilds the whole mapping at the head, and the
+     * stored commit moves back to it. Runs that don't update the mapping are never refused and
+     * don't pay for the check; with no stored commit there is nothing to be behind. See the
+     * "Persist flow and crash safety" chapter in {@code WIKI.md}.
+     *
+     * @param vcsReader the VCS reader, asked whether its head is behind the stored commit
+     * @param storedCommit the stored commit, or {@code null} before the first seal
+     * @param updateDBMapping whether this run updates the mapping
+     * @param mode the requested selection mode
+     * @throws IllegalStateException if the run updates the mapping, is not a re-seed, and the head
+     *                               is behind the stored commit
+     */
+    static void requireHeadNotBehindStoredCommit(final VCSReader vcsReader, final String storedCommit,
+                                                 final boolean updateDBMapping, final SelectionMode mode) {
+        if (!updateDBMapping || storedCommit == null || !vcsReader.isHeadBehind(storedCommit)) {
+            return;
+        }
+        String head = abbreviateCommit(vcsReader.getHeadCommit());
+        String stored = abbreviateCommit(storedCommit);
+        if (mode == SelectionMode.RESEED) {
+            log.warn("Re-seeding at {}, which is behind the stored commit {}: the mapping is rebuilt for "
+                    + "this older commit and the stored commit moves back to it.", head, stored);
+            return;
+        }
+        throw new IllegalStateException("Tia can't update the mapping from this workspace: its head " + head
+                + " is behind the stored commit " + stored + ", and the mapping already reflects the newer "
+                + "code (this usually means an older build was rebuilt). A run that updates the mapping "
+                + "must be at or after the stored commit. To test this commit, run with "
+                + "tiaUpdateDBMapping=false (Gradle: updateDBMapping = false). To rebuild the mapping at "
+                + "this commit, run with tiaReseed=true (Gradle: reseed = true).");
     }
 
     /**

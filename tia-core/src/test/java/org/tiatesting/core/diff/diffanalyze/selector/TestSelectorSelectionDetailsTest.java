@@ -236,6 +236,11 @@ class TestSelectorSelectionDetailsTest {
         }
 
         @Override
+        public boolean isHeadBehind(String commit) {
+            return false;
+        }
+
+        @Override
         public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
                                                         List<String> testFilesDirs, boolean checkLocalChanges) {
             if (diff == null) {

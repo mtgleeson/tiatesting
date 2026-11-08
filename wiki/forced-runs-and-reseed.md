@@ -181,3 +181,6 @@ History rows show the mode only for a seed or forced run:
 - **The `seed_run` column was replaced without a backfill.** `tia_distributed_run.selection_mode`
   defaults to `SELECTIVE` and `seed_run` is dropped. A distributed seed run left open across the
   upgrade reads as selective and must be re-planned.
+- **A re-seed at an older commit is allowed** and moves the stored commit back to it, while a
+  select-all at a commit behind the stored one is refused. See "Rebuilding an older build" in
+  [Persist flow and crash safety](persist-flow-and-crash-safety.md).

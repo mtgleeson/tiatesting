@@ -238,6 +238,7 @@ class TiaDistPlanTaskTest {
          * @return the fixed head commit {@code "head-1"}
          */
         @Override public String getHeadCommit() { return "head-1"; }
+        @Override public boolean isHeadBehind(String commit) { return false; }
 
         /**
          * Report no diffs at all, since the precondition failure paths above never reach the

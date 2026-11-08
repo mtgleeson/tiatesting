@@ -1240,6 +1240,11 @@ class TiaTestTaskConfigurerDistributedTest {
             return headCommit;
         }
 
+        @Override
+        public boolean isHeadBehind(String commit) {
+            return false;
+        }
+
         /**
          * Never called on the daemon-side claim path, which claims a planned group instead of
          * diffing.

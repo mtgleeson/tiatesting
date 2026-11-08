@@ -464,10 +464,76 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * Query Perforce for every file changed in the changelist range {@code baseCl+1..headCl}.
-     * Mirrors the submit-range query in {@link #getSourceFilesImpactedFromPreviousSubmit} but
-     * applies no file-type or source-dir filter. Returns an empty list when the workspace head
-     * is already at {@code baseCl}.
+     * The changelists a submitted-range diff covers, given the stored changelist and the workspace
+     * head. Normally the head is ahead and the range is {@code stored+1..head}. When the head is
+     * behind the stored changelist - an older build rebuilt, for example - the range is
+     * {@code head+1..stored} and {@link #isReversed()} is set: the files changed in it are exactly
+     * the files that differ between the stored version and the head, and walking them newest first
+     * with each action inverted gives the change from the stored version to the head. See the
+     * "Persist flow and crash safety" chapter in {@code WIKI.md}.
+     */
+    static final class ChangelistRange {
+        private final int from;
+        private final int to;
+        private final boolean reversed;
+
+        /**
+         * @param from the first changelist in the range, inclusive
+         * @param to the last changelist in the range, inclusive
+         * @param reversed whether the head is behind the stored changelist
+         */
+        private ChangelistRange(final int from, final int to, final boolean reversed) {
+            this.from = from;
+            this.to = to;
+            this.reversed = reversed;
+        }
+
+        /**
+         * Work out the range between the stored changelist and the head. The stored changelist
+         * itself is never included when the head is ahead (it was already analysed), and the head
+         * itself is never included when the head is behind (it's the version being compared to).
+         *
+         * @param baseCl the changelist stored in the mapping
+         * @param headCl the workspace head changelist
+         * @return the range, or {@code null} when the head is at the stored changelist
+         */
+        static ChangelistRange between(final String baseCl, final String headCl) {
+            int base = Integer.parseInt(baseCl);
+            int head = Integer.parseInt(headCl);
+            if (base == head) {
+                return null;
+            }
+            return base < head
+                    ? new ChangelistRange(base + 1, head, false)
+                    : new ChangelistRange(head + 1, base, true);
+        }
+
+        /** @return the first changelist in the range, inclusive */
+        int getFrom() {
+            return from;
+        }
+
+        /** @return the last changelist in the range, inclusive */
+        int getTo() {
+            return to;
+        }
+
+        /** @return true when the head is behind the stored changelist */
+        boolean isReversed() {
+            return reversed;
+        }
+
+        /** @return the range as a Perforce revision range, {@code <from>,<to>} */
+        String toRevisionRange() {
+            return from + "," + to;
+        }
+    }
+
+    /**
+     * Query Perforce for every file changed between the stored changelist and the workspace
+     * head, in either direction (see {@link ChangelistRange}). Mirrors the submit-range query in
+     * {@link #getSourceFilesImpactedFromPreviousSubmit} but applies no file-type or source-dir
+     * filter. Returns an empty list when the workspace head is already at {@code baseCl}.
      *
      * <p>The range is queried in client syntax ({@code //<client>/...}) rather than stream
      * syntax, so the server expands the whole client view - including stream
@@ -484,12 +550,12 @@ public class P4DiffAnalyzer {
     private List<IFileSpec> getRangeChangedFileSpecs(final P4Connection p4Connection,
                                                      final String baseCl, final String headCl)
             throws P4JavaException {
-        if (baseCl.equals(headCl)) {
+        ChangelistRange range = ChangelistRange.between(baseCl, headCl);
+        if (range == null) {
             return Collections.emptyList();
         }
-        int clFrom = Integer.parseInt(baseCl) + 1;
         String clientName = p4Connection.getClient().getName();
-        String filePaths = "//" + clientName + "/...@" + clFrom + "," + headCl;
+        String filePaths = "//" + clientName + "/...@" + range.toRevisionRange();
         List<IFileSpec> changedFiles = p4Connection.getServer().getDepotFiles(
                 FileSpecBuilder.makeFileSpecList(filePaths), true);
         return (changedFiles != null) ? changedFiles : Collections.emptyList();
@@ -687,12 +753,15 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * Find all the source code files in a list of revisions from a given submit number to the head of the VCS.
-     * For each impacted source code file, load the file content from the starting revision and the head revision.
+     * Find all the source code files that differ between the changelist stored in the mapping and
+     * the workspace head. Normally the head is ahead and the changelists {@code baseCl+1..clTo}
+     * are analysed. When the head is behind the stored changelist (an older build rebuilt, for
+     * example) the changelists {@code clTo+1..baseCl} are analysed in reverse, so the result is
+     * still the change from the stored version to the head - see {@link ChangelistRange}.
      *
      * @param p4Context object used to hold data about a Perforce server being analysed by Tia.
      * @param baseCl the current changelist stored in the mapping
-     * @param clTo the newest changelist number in the range being analysed
+     * @param clTo the workspace head changelist
      * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
@@ -700,14 +769,19 @@ public class P4DiffAnalyzer {
                                                                 List<IFileSpec> sourceAndTestFilesSpecs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts;
 
-        if (baseCl.equals(clTo)){
+        ChangelistRange range = ChangelistRange.between(baseCl, clTo);
+        if (range == null){
             log.info("Workspace Head is at the same version tracked by Tia, no submitted differences to check for.");
             return new HashSet<>();
         }
+        if (range.isReversed()) {
+            log.info("The workspace head {} is behind the stored changelist {}: diffing the stored version "
+                    + "against the head over the changelists in between.", clTo, baseCl);
+        }
 
-        int clFrom = Integer.parseInt(baseCl) + 1; // don't include the current CL in the range to check - we've already analyzed this CL
-        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(), Integer.toString(clFrom), clTo,
-                sourceAndTestFilesSpecs);
+        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(),
+                Integer.toString(range.getFrom()), Integer.toString(range.getTo()), sourceAndTestFilesSpecs,
+                range.isReversed());
         log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet().stream().map( key ->
                 convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
 
@@ -728,7 +802,8 @@ public class P4DiffAnalyzer {
      * for the ADD CL and once for the EDIT CL. {@code sortFileChanges} (called inside
      * {@link #buildDiffContextsForFileSpecs}) orders these per-CL entries oldest-first so the
      * action-override logic in {@code buildDiffContext} can collapse ADD-then-EDIT to ADD
-     * correctly.
+     * correctly. For a reversed range they're ordered newest first and each action is inverted
+     * instead, so the collapse gives the change from the stored version back to the head.
      *
      * <p>The earlier {@code allRevs=false} form returned only the highest revision in the
      * range per file - so an ADD-then-EDIT file came back with action=EDIT alone and was
@@ -740,11 +815,14 @@ public class P4DiffAnalyzer {
      * @param clTo the newest changelist number in the range being analysed
      * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the
      *                                source project being analysed
+     * @param reversed whether the range runs from the head up to a stored changelist above it; the
+     *                 changes are then walked newest first with each action inverted
      * @return map keyed by depot path with the value being the matching {@link SourceFileDiffContext}
      */
     Map<String, SourceFileDiffContext> getSourceFilesImpactedFromPreviousSubmit(P4Connection p4Connection,
                                                                                         String clFrom, String clTo,
-                                                                                        List<IFileSpec> sourceAndTestFilesSpecs){
+                                                                                        List<IFileSpec> sourceAndTestFilesSpecs,
+                                                                                        boolean reversed){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts = new HashMap<>();
         log.info("Finding the impacted sources code files in P4 for the changelist range from {} to {}", clFrom, clTo);
 
@@ -769,7 +847,8 @@ public class P4DiffAnalyzer {
                 return sourceFileDiffContexts;
             }
 
-            buildDiffContextsForFileSpecs(p4Connection, changedFiles, sourceFileDiffContexts, sourceAndTestFilesSpecs);
+            buildDiffContextsForFileSpecs(p4Connection, changedFiles, sourceFileDiffContexts, sourceAndTestFilesSpecs,
+                    reversed);
         } catch (P4JavaException e) {
             throw new VCSAnalyzerException(e);
         }
@@ -833,7 +912,7 @@ public class P4DiffAnalyzer {
                 log.info("No local workspace changes found");
             } else {
                 sourceCodeFiles = buildDiffContextsForFileSpecs(p4Connection, openedFiles, sourceFileDiffContexts,
-                        sourceAndTestFilesSpecs);
+                        sourceAndTestFilesSpecs, false);
             }
 
         } catch (P4JavaException e) {
@@ -843,10 +922,27 @@ public class P4DiffAnalyzer {
         return sourceCodeFiles;
     }
 
+    /**
+     * Build a diff context for each source or test file in a list of Perforce file changes. The
+     * changes are filtered to tracked source and test files, resolved to local paths with one
+     * {@code p4 where} call, and collapsed per file by {@code buildDiffContext}, so a file
+     * changed in several changelists ends up with a single context describing the overall change.
+     *
+     * @param p4Connection the Perforce connection being used for the analysis.
+     * @param fileSpecs the file changes, one entry per (file, changelist) for a submitted range
+     * @param sourceFileDiffContexts the map the contexts are added to, keyed by depot path
+     * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the
+     *                                source project being analysed
+     * @param reversed whether the changes come from a range running from the head up to a stored
+     *                 changelist above it; they're then walked newest first with each action inverted
+     * @param <T> the file spec type
+     * @return the source and test file entries from {@code fileSpecs}
+     */
     private <T extends IFileSpec> List<T> buildDiffContextsForFileSpecs(P4Connection p4Connection,
                                                                         List<T> fileSpecs,
                                                                         Map<String, SourceFileDiffContext> sourceFileDiffContexts,
-                                                                        List<IFileSpec> sourceAndTestFilesSpecs){
+                                                                        List<IFileSpec> sourceAndTestFilesSpecs,
+                                                                        boolean reversed){
         List<T> sourceCodeFiles = filterValidSourceOrTestFiles(fileSpecs, sourceAndTestFilesSpecs);
 
         // Deduplicate depot paths for the `where` call. With allRevs=true on the upstream
@@ -874,14 +970,17 @@ public class P4DiffAnalyzer {
             throw new VCSAnalyzerException(e);
         }
 
-        sortFileChanges(sourceCodeFiles);
+        sortFileChanges(sourceCodeFiles, reversed);
         for (T fileSpec: sourceCodeFiles){
             String depotPath = fileSpec.getDepotPathString();
-            FileAction changeType = fileSpec.getAction();
+            ChangeType changeType = convertP4ChangeType(fileSpec.getAction());
+            if (reversed) {
+                changeType = invert(changeType);
+            }
             String localPath = localFileSpecs.get(depotPath).getLocalPathString();
 
-            if (isFileAdded(changeType)){
-                // if the old path doesn't exist but the new path is source code, a new source file has been added
+            if (changeType == ChangeType.ADD){
+                // the file doesn't exist on the "before" side, so it only has a new path
                 addDiffContext(null, localPath, changeType, sourceFileDiffContexts, depotPath);
             } else {
                 // file has been modified or deleted
@@ -894,17 +993,25 @@ public class P4DiffAnalyzer {
 
     /**
      * Filter out any files that have changed that aren't source or test files.
-     * We only track an analyze source and test files in Tia.
+     * We only track an analyze source and test files in Tia. Entries with no depot path are
+     * skipped: they're info or warning entries rather than files, for example the single
+     * "no such file(s)" entry Perforce returns for a range with no matching revisions.
      *
-     * @param allFileSpecs
-     * @param sourceAndTestFilesSpecs
-     * @return
+     * @param allFileSpecs the file changes returned by Perforce
+     * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
+     * @param <T> the file spec type
+     * @return the entries that are source or test files in a tracked directory
      */
     private <T extends IFileSpec> List<T> filterValidSourceOrTestFiles(List<T> allFileSpecs, List<IFileSpec> sourceAndTestFilesSpecs){
         List<T> validSourceOrTestFiles = new ArrayList<>();
 
         for (T fileSpec: allFileSpecs) {
             String depotPath = fileSpec.getDepotPathString();
+
+            if (depotPath == null) {
+                log.debug("Skipping a Perforce result with no depot path: {}", fileSpec.getStatusMessage());
+                continue;
+            }
 
             if (isFileSourceCode(depotPath) && isFileInSourceOrTestDir(depotPath, sourceAndTestFilesSpecs)){
                 validSourceOrTestFiles.add(fileSpec);
@@ -916,16 +1023,19 @@ public class P4DiffAnalyzer {
 
     /**
      * When we retrieve the list of changes from between points, it will return all the individual CLs.
-     * To process the CL's and understand the file changes correctly, we need to process the files in order of change.
-     * This allows us to understand the state of the file at the beginning of the range of CL's, and at the end.
+     * To process the CL's and understand the file changes correctly, we need to process the files in the order the
+     * diff walks them. This allows us to understand the state of the file at the beginning of the walk, and at the end.
      *
-     * For example, if a file was added and then edited, the change type for this file for processing within Tia should
-     * be added (not edited).
+     * For a forward range the walk is oldest first: if a file was added and then edited, the change type for this
+     * file for processing within Tia should be added (not edited). For a reversed range the walk goes from the stored
+     * version back to the head, so it's newest first.
      *
-     * @param sourceCodeFiles
+     * @param sourceCodeFiles the entries to sort in place
+     * @param newestFirst whether to sort newest first
      */
-    private void sortFileChanges(List<? extends IFileSpec> sourceCodeFiles){
-        sourceCodeFiles.sort(Comparator.comparing(IFileSpec::getChangelistId));
+    private void sortFileChanges(List<? extends IFileSpec> sourceCodeFiles, boolean newestFirst){
+        Comparator<IFileSpec> byChangelist = Comparator.comparing(IFileSpec::getChangelistId);
+        sourceCodeFiles.sort(newestFirst ? byChangelist.reversed() : byChangelist);
     }
 
     /**
@@ -973,9 +1083,19 @@ public class P4DiffAnalyzer {
         return tiaMappingPath;
     }
 
-    private void addDiffContext(String diffOldPath, String diffNewPath, FileAction changeType,
+    /**
+     * Build the diff context for one file change, collapsed with any earlier change to the same
+     * file in the walk, and record it in the map.
+     *
+     * @param diffOldPath the local path on the "before" side, or null when the file doesn't exist there
+     * @param diffNewPath the local path on the "after" side, or null for a modify or delete
+     * @param changeType the change, already inverted for a reversed range
+     * @param sourceFileDiffContexts the map of diff contexts keyed by depot path
+     * @param pathForTracking the depot path of the file
+     */
+    private void addDiffContext(String diffOldPath, String diffNewPath, ChangeType changeType,
                                 Map<String, SourceFileDiffContext> sourceFileDiffContexts, String pathForTracking) {
-        SourceFileDiffContext diffContext = buildDiffContext(diffOldPath, diffNewPath, convertP4ChangeType(changeType),
+        SourceFileDiffContext diffContext = buildDiffContext(diffOldPath, diffNewPath, changeType,
                 sourceFileDiffContexts, pathForTracking);
 
         if (diffContext != null){
@@ -1377,8 +1497,22 @@ public class P4DiffAnalyzer {
         }
     }
 
-    private boolean isFileAdded(FileAction changeType){
-        return convertP4ChangeType(changeType) == ChangeType.ADD;
+    /**
+     * Invert a change for a range walked from the stored version back to the head: a file added in
+     * the range exists on the stored side only, so seen from there it was deleted, and the reverse
+     * for a delete. A modify stays a modify.
+     *
+     * @param changeType the change as Perforce recorded it, possibly null for an unmapped action
+     * @return the change seen from the stored version
+     */
+    private static ChangeType invert(final ChangeType changeType) {
+        if (changeType == ChangeType.ADD) {
+            return ChangeType.DELETE;
+        }
+        if (changeType == ChangeType.DELETE) {
+            return ChangeType.ADD;
+        }
+        return changeType;
     }
 
     private ChangeType convertP4ChangeType(FileAction p4ChangeType){

@@ -26,6 +26,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -94,7 +95,7 @@ class P4DiffAnalyzerChangelistRangeTest {
 
         // when
         Map<String, SourceFileDiffContext> contexts =
-                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs);
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs, false);
 
         // then - exactly one range query, no per-CL fetches
         verify(server, times(1)).getDepotFiles(any(), eq(true));
@@ -121,7 +122,7 @@ class P4DiffAnalyzerChangelistRangeTest {
         when(client.where(any())).thenReturn(Collections.singletonList(fooWhere));
 
         // when
-        analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "101", "103", sourceAndTestFilesSpecs);
+        analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "101", "103", sourceAndTestFilesSpecs, false);
 
         // then - the query path uses client syntax over the full view, not the stream path
         @SuppressWarnings("unchecked")
@@ -155,7 +156,7 @@ class P4DiffAnalyzerChangelistRangeTest {
 
         // when
         Map<String, SourceFileDiffContext> contexts =
-                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs);
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs, false);
 
         // then - Foo collapses from (add then edit) to ADD, Bar collapses from (edit then delete) to DELETE
         SourceFileDiffContext foo = contexts.get(FOO_DEPOT);
@@ -181,7 +182,7 @@ class P4DiffAnalyzerChangelistRangeTest {
 
         // when
         Map<String, SourceFileDiffContext> contexts =
-                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "100", sourceAndTestFilesSpecs);
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "100", sourceAndTestFilesSpecs, false);
 
         // then
         assertTrue(contexts.isEmpty());
@@ -214,7 +215,7 @@ class P4DiffAnalyzerChangelistRangeTest {
 
         // when
         Map<String, SourceFileDiffContext> contexts =
-                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs);
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs, false);
 
         // then - the range query was made with allRevs=true (NOT false). A revert of the
         // production fix would fail this verify call.
@@ -256,7 +257,7 @@ class P4DiffAnalyzerChangelistRangeTest {
 
         // when - no IllegalStateException ("Duplicate key") is thrown
         Map<String, SourceFileDiffContext> contexts =
-                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs);
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs, false);
 
         // then - the where call received a deduplicated list (one entry, not two). Capture
         // its argument and assert size == 1 by depot path. A revert of the dedup fix would
@@ -276,6 +277,68 @@ class P4DiffAnalyzerChangelistRangeTest {
         // and - the diff context for Foo is present and correctly tracks the file
         SourceFileDiffContext foo = contexts.get(FOO_DEPOT);
         assertNotNull(foo, "Foo should be in the contexts");
+    }
+
+    /**
+     * Perforce answers a range with no matching revisions - for example one whose start is above
+     * its end - with a single "no such file(s)" warning, which p4java returns as a file spec with
+     * no depot path. The analyzer must treat it as "no changes" rather than dereference the
+     * missing path.
+     */
+    @Test
+    void warningEntryWithNoDepotPath_isSkippedNotDereferenced() throws P4JavaException {
+        // given - the range query returns only a warning entry
+        IFileSpec noSuchFiles = spec(null, null, null, 0);
+        when(server.getDepotFiles(any(), eq(true))).thenReturn(Collections.singletonList(noSuchFiles));
+        when(client.where(any())).thenReturn(Collections.emptyList());
+
+        // when
+        Map<String, SourceFileDiffContext> contexts =
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "1011", "1005",
+                        sourceAndTestFilesSpecs, false);
+
+        // then
+        assertTrue(contexts.isEmpty());
+    }
+
+    /**
+     * With the head behind the stored changelist the range holds the changes from the head up to
+     * the stored version. Walked newest first with each action inverted, they collapse to the
+     * change from the stored version (which the mapping describes) to the head.
+     */
+    @Test
+    void reversedRange_collapsesToTheChangeFromStoredToHead() throws P4JavaException {
+        // given - head 100, stored 104; the range 101..104 as Perforce returns it
+        String bazDepot = "//apps/example/src/main/java/com/example/Baz.java";
+        String quxDepot = "//apps/example/src/main/java/com/example/Qux.java";
+        IFileSpec fooAdd = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.ADD, 101);
+        IFileSpec fooEdit = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.EDIT, 103);
+        IFileSpec barEdit = spec(BAR_DEPOT, "/ws/Bar.java", FileAction.EDIT, 101);
+        IFileSpec barDelete = spec(BAR_DEPOT, "/ws/Bar.java", FileAction.DELETE, 103);
+        IFileSpec bazDelete = spec(bazDepot, "/ws/Baz.java", FileAction.DELETE, 101);
+        IFileSpec bazAdd = spec(bazDepot, "/ws/Baz.java", FileAction.ADD, 104);
+        IFileSpec quxEdit = spec(quxDepot, "/ws/Qux.java", FileAction.EDIT, 102);
+        when(server.getDepotFiles(any(), eq(true))).thenReturn(Arrays.asList(
+                fooAdd, fooEdit, barEdit, barDelete, bazDelete, bazAdd, quxEdit));
+        List<IFileSpec> whereResults = Arrays.asList(
+                spec(FOO_DEPOT, "/ws/Foo.java", null, 0), spec(BAR_DEPOT, "/ws/Bar.java", null, 0),
+                spec(bazDepot, "/ws/Baz.java", null, 0), spec(quxDepot, "/ws/Qux.java", null, 0));
+        when(client.where(any())).thenReturn(whereResults);
+
+        // when
+        Map<String, SourceFileDiffContext> contexts =
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "101", "104",
+                        sourceAndTestFilesSpecs, true);
+
+        // then - Foo exists only at the stored version, Bar only at the head
+        assertEquals(ChangeType.DELETE, contexts.get(FOO_DEPOT).getChangeType());
+        assertEquals("/ws/Foo.java", contexts.get(FOO_DEPOT).getOldFilePath());
+        assertEquals(ChangeType.ADD, contexts.get(BAR_DEPOT).getChangeType());
+        assertNull(contexts.get(BAR_DEPOT).getOldFilePath());
+        assertEquals("/ws/Bar.java", contexts.get(BAR_DEPOT).getNewFilePath());
+        // and - Baz and Qux exist at both ends
+        assertEquals(ChangeType.MODIFY, contexts.get(bazDepot).getChangeType());
+        assertEquals(ChangeType.MODIFY, contexts.get(quxDepot).getChangeType());
     }
 
     /**

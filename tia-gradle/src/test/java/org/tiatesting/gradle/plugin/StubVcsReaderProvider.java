@@ -49,6 +49,11 @@ public class StubVcsReaderProvider implements VCSReaderProvider {
             }
 
             @Override
+            public boolean isHeadBehind(String commit) {
+                return false;
+            }
+
+            @Override
             public Set<SourceFileDiffContext> getDiffFiles(final String baseChangeNum, final List<String> sourceFilesDirs,
                                                            final List<String> testFilesDirs,
                                                            final boolean checkLocalChanges) {

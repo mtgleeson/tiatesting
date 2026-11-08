@@ -97,6 +97,20 @@ public class GitReader implements VCSReader {
         return gitContext.getHeadObjectId().getName();
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The head is behind when it is the merge base of itself and the commit, found with one
+     * merge-base walk bounded by the distance to that base.
+     *
+     * @param commit {@inheritDoc}
+     * @return {@inheritDoc}
+     */
+    @Override
+    public boolean isHeadBehind(final String commit) {
+        return gitDiffAnalyzer.isHeadBehind(gitContext, commit);
+    }
+
     @Override
     public String getBranchName(){
         return gitContext.getBranchName();

@@ -564,6 +564,36 @@ public class GitDiffAnalyzer {
     }
 
     /**
+     * Check whether the head is a strict ancestor of the given commit, the equivalent of
+     * {@code git merge-base --is-ancestor HEAD <commit>} with the two not equal. The merge-base
+     * walk stops at the first common ancestor, so it costs no more than the commits between the
+     * two and that ancestor, and nothing when the head is the commit. A commit that isn't in the
+     * local repository (a shallow clone, for example) counts as not behind and is left to the diff
+     * to report.
+     *
+     * @param gitContext the Git context (repository + head).
+     * @param commit the commit to compare the head with.
+     * @return true when the head is behind {@code commit}.
+     */
+    boolean isHeadBehind(final GitContext gitContext, final String commit) {
+        Repository repository = gitContext.getRepository();
+        ObjectId headId = gitContext.getHeadObjectId();
+        try {
+            ObjectId commitId = getObjectId(gitContext, commit);
+            if (commitId == null || commitId.equals(headId) || !repository.getObjectDatabase().has(commitId)) {
+                return false;
+            }
+            try (RevWalk walk = new RevWalk(repository)) {
+                RevCommit head = walk.parseCommit(headId);
+                RevCommit mergeBase = findMergeBase(repository, head, walk.parseCommit(commitId));
+                return head.equals(mergeBase);
+            }
+        } catch (IOException e) {
+            throw new VCSAnalyzerException(e);
+        }
+    }
+
+    /**
      * Find which of the given paths have a different blob in one tree than in the other,
      * including a path present in only one of them, with a single recursive tree walk.
      *

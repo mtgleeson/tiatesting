@@ -275,6 +275,7 @@ class TiaDistStatusTaskTest {
          * @return the fixed head commit {@code "head-1"}
          */
         @Override public String getHeadCommit() { return "head-1"; }
+        @Override public boolean isHeadBehind(String commit) { return false; }
 
         /**
          * Report no diffs at all; this task performs no test selection, so nothing consumes them.

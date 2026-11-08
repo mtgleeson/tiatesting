@@ -54,6 +54,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -110,6 +111,28 @@ class TestSelectorUpdateDBMappingGateTest {
 
         assertTrue(dataStore.readTrackedLibraries().isEmpty(),
                 "Non-primary build must not insert tia_library rows.");
+    }
+
+    /**
+     * A mapping run refused for a head behind the stored commit must write nothing - the check
+     * runs before the library reconcile.
+     */
+    @Test
+    void refusedHeadBehindRunDoesNotReconcileLibraries() {
+        // given
+        seedStoredCommit("1010");
+        LibraryImpactAnalysisConfig libraryConfig = libraryConfigFor("com.example:lib", "/projects/lib");
+        TestSelector testSelector = new TestSelector(dataStore, new File("."));
+
+        // when
+        assertThrows(IllegalStateException.class, () -> testSelector.selectTestsToIgnore(
+                new StubVCSReader(Collections.emptySet(), true), Collections.emptyList(),
+                Collections.emptyList(), TestSuiteRunnabilityClassifier.disabled(),
+                false, libraryConfig, null, true, SelectionMode.SELECTIVE));
+
+        // then
+        assertTrue(dataStore.readTrackedLibraries().isEmpty(),
+                "A refused mapping run must not insert tia_library rows.");
     }
 
     /**
@@ -303,9 +326,19 @@ class TestSelectorUpdateDBMappingGateTest {
 
     private static class StubVCSReader implements VCSReader {
         private final Set<SourceFileDiffContext> diffs;
+        private final boolean headBehind;
 
         StubVCSReader(Set<SourceFileDiffContext> diffs) {
+            this(diffs, false);
+        }
+
+        /**
+         * @param diffs the diff set {@link #getDiffFiles} returns
+         * @param headBehind what {@link #isHeadBehind} answers
+         */
+        StubVCSReader(Set<SourceFileDiffContext> diffs, boolean headBehind) {
             this.diffs = diffs;
+            this.headBehind = headBehind;
         }
 
         @Override
@@ -316,6 +349,11 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override
         public String getHeadCommit() {
             return "head";
+        }
+
+        @Override
+        public boolean isHeadBehind(String commit) {
+            return headBehind;
         }
 
         @Override

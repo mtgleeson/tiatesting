@@ -43,7 +43,7 @@ wiki can also be read front to back.
   how the estimate is built and why coverage-collecting runs get an amortised overhead figure.
 - [Database schema (tables and relationships)](wiki/database-schema.md) - every table, its purpose
   and the relationships between the mapping, library-impact and audit clusters.
-- [Persist flow and crash safety](wiki/persist-flow-and-crash-safety.md) - the seal-last invariant
+- [Persist flow and crash safety](wiki/persist-flow-and-crash-safety.md) - the seal-last invariant, and rebuilds of an older build
   and the failure-mode taxonomy that keeps crashes self-correcting.
 - [Failed-suite tracking](wiki/failed-suite-tracking.md) - what counts as a suite failure per test
   framework, how a suite's latest outcome carries across Surefire retries, the incremental failed-set

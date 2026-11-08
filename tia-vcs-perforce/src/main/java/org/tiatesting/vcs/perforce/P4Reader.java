@@ -111,6 +111,31 @@ public class P4Reader implements VCSReader {
         return p4Context.getHeadCL();
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Changelist numbers are ordered, so this compares the head changelist Tia already read
+     * with the given one and makes no server call.
+     *
+     * @param commit {@inheritDoc}
+     * @return {@inheritDoc}
+     */
+    @Override
+    public boolean isHeadBehind(final String commit) {
+        return isChangelistBehind(getHeadCommit(), commit);
+    }
+
+    /**
+     * Compare two changelist numbers.
+     *
+     * @param headCl the workspace head changelist
+     * @param commit the changelist to compare it with
+     * @return true when {@code headCl} is lower than {@code commit}
+     */
+    static boolean isChangelistBehind(final String headCl, final String commit) {
+        return Integer.parseInt(headCl) < Integer.parseInt(commit);
+    }
+
     @Override
     public String getBranchName(){
         return p4Context.getBranchName();

@@ -350,11 +350,53 @@ Failed-tests recovery: if step 2 (`updateTestSuitesFailed`) ran but step 3 (the 
 
 Library drain recovery: this is now folded into the seal's atomicity guarantee. Either the drain cleanup (deleted pending rows, advanced tracked-library baselines) and the commit-value advance both happened, or neither did - there is no longer a window where the pendings are gone but the commit value didn't advance, or vice versa.
 
+### Rebuilding an older build: a head behind the stored commit
+
+Tia diffs from the stored commit to the workspace head. CI can rebuild an older build after a newer
+one has sealed: build A ran at changelist 1005, build B sealed at 1010, and A is rebuilt at 1005. The
+head is then behind the stored commit.
+
+**A run that updates the mapping is refused.** Selection checks this before it writes anything,
+library reconcile included (`TestSelector.requireHeadNotBehindStoredCommit`, asking
+`VCSReader.isHeadBehind`), and fails with an error naming both commits. The mapping already reflects
+1010, so a mapping run at 1005 would either move the stored commit back or write coverage for 1005
+code under the 1010 label. Run with `tiaUpdateDBMapping=false` to test the older commit, or with
+`tiaReseed=true` to rebuild the mapping there. `tiaSelectAllTests` is refused too: it updates rows in
+place, so rows describing code that only exists at 1010 would survive.
+
+**A re-seed is allowed**, with a WARN. Its clear-out deletes every suite it didn't observe, and each
+observed suite's rows are deleted and re-inserted, so the mapping afterwards describes 1005 only. The
+stored commit moves back to 1005, and the next build diffs 1005 against its head.
+
+**A run that doesn't update the mapping selects as usual**, and doesn't pay for the check. It diffs
+the stored version against the head. On Git that's the tree diff Tia always does. On Perforce the
+changelists `head+1..stored` are queried and walked newest first with each action inverted, so a
+file added in that range counts as deleted and the reverse for a deleted file:
+
+| History in 1006..1010 | Seen from 1010 | Result |
+|---|---|---|
+| added, then edited | edited, then deleted | deleted |
+| edited, then deleted | added, then edited | added |
+| deleted, then added | deleted, then added | modified |
+
+The "before" content is read at the stored changelist and the "after" content at the head, as for a
+forward diff, so the method matching needs no change.
+
+What "behind" means, and what it costs:
+
+- **Perforce**: the head changelist number is lower than the stored one. A number comparison, no
+  server call.
+- **Git**: the head is a strict ancestor of the stored commit, found with one merge-base walk that
+  is skipped when the two are equal. A head that diverged from the stored commit (after a reset or
+  force-push) is not behind and keeps the ordinary behaviour, and so does a stored commit that isn't
+  in the local repository.
+
 ### What is intentionally NOT mitigated
 
 - **Cross-call atomicity across the whole of `persistTestRunData`**: still not implemented, and not needed - steps 1-2 (suite mapping, failed set) are safe to be ahead of the stored commit by construction (self-correcting edges, the `unsealed` flag, and an incremental failed-set), so only step 3 needed to become atomic, and it now is. A wrapping transaction across steps 1-2 as well would risk MVStore undo-log blow-up on large mapping updates for no additional correctness benefit.
 - **Multi-fork persist when updating the mapping (Maven `forkCount > 1` / `reuseForks=false`, Gradle `maxParallelForks > 1` / `forkEvery > 0`)**: not supported. Tia relies on tests running sequentially in one JVM so JaCoCo coverage can be attributed per-suite. Running multiple forks concurrently will produce mappings polluted with cross-suite coverage and races between fork persists - not a partial-write issue but a fundamental architectural one. Use a single fork when Tia is updating the mapping DB. The unsealed-flag clear inherits this limitation directly: it is unscoped across all suites, so one fork's seal clears flags a peer fork set for suites that fork never touched (see "The `unsealed` flag" above). The Gradle plugin warns when a mapping test task sets either, and refuses it for a distributed runner. **With the mapping off, several forks are supported:** the run history adds every fork up into one row per run (see "Runs and contributions" in [Test-run history log](test-run-history.md)), the failed-suite set is written per fork for the suites each executed, and on embedded H2 a fork that finds the file held by another waits for it (see [H2 connection modes](h2-connection-modes.md)).
 - **Exactly-once semantics for history rows**: a crash between the seal and `persistTestRunHistoryEntry` means the run was sealed but no audit row exists for it. The mapping is consistent; only the audit log is short. Tia uses an idempotent MERGE on the deterministic id, so this could be addressed by retrying the history write - but the current code accepts the gap because the audit log isn't load-bearing for select-tests.
+- **A stored commit advanced while a run executes**: the head-behind check above runs at selection time. If another mapping build seals a newer commit while this run is still testing, this run's seal can still stamp its older commit. Guarding the seal would need a VCS comparison in the test JVM; the race predates the check and isn't specific to rebuilds.
 
 ### Why a wrapping transaction across the whole persist isn't needed today
 

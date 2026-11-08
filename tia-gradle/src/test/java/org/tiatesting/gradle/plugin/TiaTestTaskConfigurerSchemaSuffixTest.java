@@ -271,6 +271,11 @@ class TiaTestTaskConfigurerSchemaSuffixTest {
             return "commit-1";
         }
 
+        @Override
+        public boolean isHeadBehind(String commit) {
+            return false;
+        }
+
         /**
          * Never called: these tests run the task action, which resolves configuration rather than
          * diffing.
