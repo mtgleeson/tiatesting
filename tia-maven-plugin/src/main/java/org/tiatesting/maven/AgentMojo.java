@@ -218,7 +218,9 @@ public class AgentMojo extends AbstractTiaMojo {
      * @param workspaceIdentity this build's workspace identity, supplying both the branch and the
      *                          VCS reader the diff is read through
      * @return the suites this build must run and skip, and any library-impact drain result
-     * @throws MojoExecutionException if the datastore cannot be opened
+     * @throws MojoExecutionException if the datastore cannot be opened, or the selection refuses the
+     *                                run (for example a mapping run whose workspace head is behind
+     *                                the stored commit)
      */
     private TestSelectorResult getTestSelectorResult(final WorkspaceIdentity workspaceIdentity)
             throws MojoExecutionException {
@@ -247,11 +249,11 @@ public class AgentMojo extends AbstractTiaMojo {
             // test JVM's seal knows whether to re-seed.
             // prepare-agent binds to initialize, so on a clean build there are no compiled test
             // classes yet and the classifier keeps every new test file.
-            TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs,
-                    testFilesDirs,
+            TestSelectorResult testSelectorResult = selectTests(() -> testSelector.selectTestsToIgnore(gitReader,
+                    sourceFilesDirs, testFilesDirs,
                     TestSuiteRunnabilityClassifier.fromCsv(getProject().getBuild().getTestOutputDirectory()),
                     isCheckLocalChanges(), libraryConfig, staticMappingConfig,
-                    isTiaUpdateDBMapping(), selectionMode);
+                    isTiaUpdateDBMapping(), selectionMode));
             getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
             return testSelectorResult;
         }
