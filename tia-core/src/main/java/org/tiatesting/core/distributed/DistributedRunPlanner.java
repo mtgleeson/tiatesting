@@ -9,6 +9,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
+import org.tiatesting.core.model.DistributedRunRetention;
 import org.tiatesting.core.model.NestedTestSuites;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.DataStore;
@@ -31,10 +32,11 @@ import java.util.function.Supplier;
  * nothing in this class touches a filesystem or a build-tool API, which is what keeps it
  * unit-testable against a real embedded H2 datastore without either of those.
  *
- * <p>Because {@link DataStore#persistDistributedRunPlan} clears the previous run's rows in the
- * same transaction as the new plan's insert, {@link #plan} reads and logs the previous run's
- * unfinished groups before that write happens - once the write runs, that evidence is gone and an
- * abandoned run leaves no trace beyond the log line this class emits.
+ * <p>Because {@link DataStore#persistDistributedRunPlan} deletes the runs this plan replaces in the
+ * same transaction as the new plan's insert, {@link #plan} reads and logs those runs' unfinished
+ * groups before that write happens - once the write runs, that evidence is gone and an abandoned
+ * run leaves no trace beyond the log line this class emits. Which runs are replaced is decided by
+ * {@link DistributedRunRetention}, since a primary build and its preflight builds share one schema.
  */
 public final class DistributedRunPlanner {
 
@@ -64,15 +66,15 @@ public final class DistributedRunPlanner {
      * uses {@code diskTestSuiteProvider} to split that case across the configured group count by
      * even count, falling back to a single empty group only when the provider finds nothing on
      * disk (a forced full run is logged as such and balanced by stored run time instead); (2) warns
-     * about any previous run's groups that never reached {@code COMPLETED}, since the persist step
-     * below clears them; (3) weights the selection's suites and balances them into groups via
+     * about any unsealed run the persist step below will delete - see {@link
+     * #warnAboutRunsBeingDeleted}; (3) weights the selection's suites and balances them into groups via
      * {@link #balance}; (4) warns if the configured target run time was missed - deliberately done
      * here rather than inside {@link #balance}, since {@code balance} is also the {@code
      * select-tests} preview's entry point and a preview that logs "planning did not meet its
      * target" would claim a plan was created when nothing was; (5) projects the result onto the
      * persisted {@link DistributedRunPlan} types, carrying the selection's library-impact drain
-     * result onto the run row; (6) persists the plan, which clears the previous run's rows in the
-     * same transaction; (7) stages {@code selection}'s selection breakdown under this run's id via
+     * result onto the run row; (6) persists the plan, which deletes the runs {@link
+     * DistributedRunRetention} says it replaces in the same transaction; (7) stages {@code selection}'s selection breakdown under this run's id via
      * {@link DataStore#persistDistributedRunSelectionDetails}, so the sealer can later copy it onto
      * the build's single {@code tia_test_run_history} row; (8) when the plan has no groups, seals
      * the run itself - see {@link #sealEmptyPlan}; and (9) returns a summary of what was persisted.
@@ -140,7 +142,7 @@ public final class DistributedRunPlanner {
                     selectionMode.getLabel());
         }
 
-        warnAboutIncompletePreviousRuns();
+        warnAboutRunsBeingDeleted(updateDBMapping, createdAtMs);
 
         GroupingResult result = balance(selection, updateDBMapping, config.getGroupCount(),
                 config.getTargetRunTimeMs(), config.getMaxGroups(), diskTestSuiteProvider);
@@ -499,57 +501,58 @@ public final class DistributedRunPlanner {
     }
 
     /**
-     * Read every distributed run currently in the plan tables and log a WARN for any run that has
-     * not reached {@code SEALED} - before this build's plan write clears those rows in the same
-     * transaction as its insert. A run that reached {@code SEALED} is an ordinary supersession and
-     * is not warned about, since it completed cleanly and left no abandoned work behind.
+     * Log a WARN for each unsealed run this build's plan write is about to delete, before the
+     * write removes the evidence. Applies {@link DistributedRunRetention} to the run rows as they
+     * stand now - the same rule the plan write repeats inside its transaction - so only runs
+     * actually being deleted are named; a concurrent build's run that is being kept is neither read
+     * nor named. Sealed runs are deleted silently, since they completed and left no abandoned work.
      *
-     * <p>An unsealed run is warned about in one of two ways: when at least one group never reached
-     * {@code COMPLETED}, the group numbers are named explicitly, since this log line is the only
-     * trace that abandoned work leaves once the persist below clears the rows - and for each
-     * {@code CLAIMED} group of a non-full run, so are its observed-of-assigned count and the assigned
-     * suites its runner never observed, read here because nothing is left to read them from once
-     * the rows are gone. This is the log every pipeline keeps, where a runner whose tests passed but
-     * whose completion was refused may never have its own log published. A {@code PENDING} group ran
-     * nothing, and a full run's disk-scan assignment is never fully observed, so neither is read or
-     * named. The reads happen only when an unsealed previous run exists, and only in the plan step;
-     * when every group
-     * did reach {@code COMPLETED} but the run itself is still not {@code SEALED}, the sealer died
-     * after the last group finished - the build still failed and its rows are still being deleted,
-     * so it is warned about too, distinctly, since there are no incomplete groups to name.
+     * <p>A run is superseded (a replan of this id, or an earlier mapping-owning run when this build
+     * owns the mapping) or abandoned (a run that does not own the mapping, unsealed past {@link
+     * DistributedRunRetention#ABANDONED_AGE_MS}); the two get distinct messages with the same group
+     * detail - see {@link #describeIncompleteGroups}. This is the log every pipeline keeps, and for
+     * an abandoned run it is the last trace it leaves.
+     *
+     * @param updateDBMapping whether this build owns mapping-DB updates, which decides whether it
+     *                        supersedes earlier mapping-owning runs
+     * @param nowMs the plan's creation time, which the retention ages are measured against
      */
-    private void warnAboutIncompletePreviousRuns() {
-        for (DistributedRun previousRun : dataStore.readAllDistributedRuns()) {
-            List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups(previousRun.getRunId());
-            Map<Integer, List<String>> unobservedSuitesByGroup = new HashMap<>();
-            Map<Integer, Integer> assignedCountByGroup = new HashMap<>();
-            if (previousRun.getStatus() != DistributedRunStatus.SEALED && !previousRun.isFullRun()) {
-                for (DistributedRunGroup group : groups) {
-                    if (group.getStatus() == DistributedRunGroupStatus.CLAIMED) {
-                        Integer groupNumber = Integer.valueOf(group.getGroupNumber());
-                        unobservedSuitesByGroup.put(groupNumber, dataStore.readUnobservedGroupSuites(
-                                previousRun.getRunId(), group.getGroupNumber()));
-                        assignedCountByGroup.put(groupNumber, Integer.valueOf(dataStore
-                                .readDistributedRunGroupSuites(previousRun.getRunId(), group.getGroupNumber())
-                                .size()));
-                    }
-                }
-            }
-            List<String> incomplete = incompleteGroupsToWarnAbout(previousRun, groups,
-                    unobservedSuitesByGroup, assignedCountByGroup);
+    private void warnAboutRunsBeingDeleted(boolean updateDBMapping, long nowMs) {
+        DistributedRunRetention retention = DistributedRunRetention.decide(dataStore.readAllDistributedRuns(),
+                config.getRunId(), updateDBMapping, nowMs);
+        for (DistributedRun run : retention.getSupersededUnsealed()) {
+            List<String> incomplete = describeIncompleteGroups(run);
             if (incomplete == null) {
                 continue;
             }
-
             if (incomplete.isEmpty()) {
                 log.warn("Distributed run '{}' is being superseded before it sealed, even though "
                                 + "every group reached COMPLETED - the sealer may have failed "
                                 + "after the last group finished.",
-                        previousRun.getRunId());
+                        run.getRunId());
             } else {
                 log.warn("Distributed run '{}' is being superseded before completing - {} did not "
                                 + "reach COMPLETED: {}",
-                        previousRun.getRunId(),
+                        run.getRunId(),
+                        incomplete.size() == 1 ? "this group" : "these groups",
+                        incomplete);
+            }
+        }
+        for (DistributedRun run : retention.getAbandoned()) {
+            List<String> incomplete = describeIncompleteGroups(run);
+            if (incomplete == null) {
+                continue;
+            }
+            long ageHours = (nowMs - run.getCreatedAtMs()) / (60L * 60L * 1000L);
+            if (incomplete.isEmpty()) {
+                log.warn("Distributed run '{}' is being reaped as abandoned - it was planned {}h ago "
+                                + "and never sealed, even though every group reached COMPLETED - "
+                                + "the sealer may have failed after the last group finished.",
+                        run.getRunId(), ageHours);
+            } else {
+                log.warn("Distributed run '{}' is being reaped as abandoned - it was planned {}h ago "
+                                + "and never sealed - {} did not reach COMPLETED: {}",
+                        run.getRunId(), ageHours,
                         incomplete.size() == 1 ? "this group" : "these groups",
                         incomplete);
             }
@@ -557,9 +560,40 @@ public final class DistributedRunPlanner {
     }
 
     /**
-     * Decide whether a previous run warrants a warning before {@link #plan}'s persist clears it,
+     * Read a run's groups and describe each that never reached {@code COMPLETED}, for a warning
+     * about to be logged before the run's rows are deleted. For each {@code CLAIMED} group of a
+     * non-full run, also reads its observed-of-assigned count and the assigned suites its runner
+     * never observed, since nothing is left to read them from once the rows are gone. A {@code
+     * PENDING} group ran nothing, and a full run's disk-scan assignment is never fully observed, so
+     * neither is read.
+     *
+     * @param run the unsealed run about to be deleted
+     * @return the group descriptions from {@link #incompleteGroupsToWarnAbout}: empty when every
+     *         group completed, null if the run turned out to be sealed
+     */
+    private List<String> describeIncompleteGroups(DistributedRun run) {
+        List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups(run.getRunId());
+        Map<Integer, List<String>> unobservedSuitesByGroup = new HashMap<>();
+        Map<Integer, Integer> assignedCountByGroup = new HashMap<>();
+        if (run.getStatus() != DistributedRunStatus.SEALED && !run.isFullRun()) {
+            for (DistributedRunGroup group : groups) {
+                if (group.getStatus() == DistributedRunGroupStatus.CLAIMED) {
+                    Integer groupNumber = Integer.valueOf(group.getGroupNumber());
+                    unobservedSuitesByGroup.put(groupNumber, dataStore.readUnobservedGroupSuites(
+                            run.getRunId(), group.getGroupNumber()));
+                    assignedCountByGroup.put(groupNumber, Integer.valueOf(dataStore
+                            .readDistributedRunGroupSuites(run.getRunId(), group.getGroupNumber())
+                            .size()));
+                }
+            }
+        }
+        return incompleteGroupsToWarnAbout(run, groups, unobservedSuitesByGroup, assignedCountByGroup);
+    }
+
+    /**
+     * Decide whether a run warrants a warning before {@link #plan}'s persist deletes it,
      * and if so, which groups (if any) never reached {@code COMPLETED}. Package-private and
-     * static so the decision {@link #warnAboutIncompletePreviousRuns} exists to make is
+     * static so the decision {@link #warnAboutRunsBeingDeleted} exists to make is
      * unit-testable directly against the three cases that matter - sealed, unsealed with
      * incomplete groups, and unsealed with every group complete - without a log-capture harness.
      *
@@ -570,7 +604,7 @@ public final class DistributedRunPlanner {
      * completion step never ran. Every other group stays {@code "group N (STATUS)"}. The reads are
      * passed in rather than made here so the method stays testable without a store.
      *
-     * @param previousRun the previous run being read before this build's plan clears it
+     * @param previousRun the run being read before this build's plan write deletes it
      * @param groups the previous run's groups
      * @param unobservedSuitesByGroup the assigned suites each group never observed, keyed by group
      *                                number; holds entries only for groups to be named

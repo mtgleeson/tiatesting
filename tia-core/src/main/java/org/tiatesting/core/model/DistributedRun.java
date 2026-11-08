@@ -48,7 +48,7 @@ public final class DistributedRun {
      *                  LOCAL} or a declared label), or null for a run planned before the source
      *                  was recorded - the sealer then falls back to its own environment
      * @param updatesMapping whether the build owns mapping-DB updates ({@code tiaUpdateDBMapping}),
-     *                       which decides the run's retention - see {@code DistributedRunRetention}
+     *                       which decides the run's retention - see {@link DistributedRunRetention}
      */
     public DistributedRun(String runId, String branch, String commitValue,
                           DistributedRunStatus status, int groupCount, int groupsAvailable,
@@ -93,7 +93,7 @@ public final class DistributedRun {
      *                  LOCAL} or a declared label), or null for a run planned before the source
      *                  was recorded - the sealer then falls back to its own environment
      * @param updatesMapping whether the build owns mapping-DB updates ({@code tiaUpdateDBMapping}),
-     *                       which decides the run's retention - see {@code DistributedRunRetention}
+     *                       which decides the run's retention - see {@link DistributedRunRetention}
      * @return an OPEN run with no seal recorded
      */
     public static DistributedRun open(String runId, String branch, String commitValue,
@@ -179,7 +179,7 @@ public final class DistributedRun {
     /**
      * Whether the build owns mapping-DB updates. A plan from a mapping-owning build supersedes
      * every earlier mapping-owning run in the schema; a run that does not own the mapping is never
-     * superseded and is only reaped by age - see {@code DistributedRunRetention} and the
+     * superseded and is only reaped by age - see {@link DistributedRunRetention} and the
      * "Concurrent distributed builds" chapter in {@code WIKI.md}.
      *
      * @return true when the build owns mapping updates

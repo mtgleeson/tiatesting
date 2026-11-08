@@ -2,7 +2,6 @@ package org.tiatesting.core.distributed;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
@@ -11,6 +10,7 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunStatus;
+import org.tiatesting.core.model.DistributedRunRetention;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
@@ -661,8 +661,8 @@ class DistributedRunPlannerTest {
     }
 
     /**
-     * Verify that planning a second run clears the first run's rows entirely, leaving only the
-     * new run behind - even when the first run had a group already marked COMPLETED directly via
+     * Verify that a second primary (mapping-owning) plan clears the first primary run's rows
+     * entirely, leaving only the new run behind - even when the first run had a group already marked COMPLETED directly via
      * SQL, simulating a build that finished some groups before the second plan superseded it.
      * The WARN naming the unfinished groups is not asserted here since no log-capture harness
      * exists elsewhere in this test tree; only the clearing behaviour is checked directly.
@@ -674,7 +674,7 @@ class DistributedRunPlannerTest {
         // given
         DistributedRunConfig firstConfig = DistributedRunConfig.validated("run-old", 2, null, null, null, null);
         DistributedRunPlanner firstPlanner = new DistributedRunPlanner(dataStore, firstConfig);
-        firstPlanner.plan(threeSuiteSelection(), "main", "commit-old", false, true, 100L, noSeedSuites());
+        firstPlanner.plan(threeSuiteSelection(), "main", "commit-old", true, true, 100L, noSeedSuites());
         try (Connection connection = connectionProvider.get();
              Statement statement = connection.createStatement()) {
             // A raw connection from the provider is not pinned to the per-branch schema the way
@@ -689,7 +689,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanner secondPlanner = new DistributedRunPlanner(dataStore, secondConfig);
 
         // when
-        secondPlanner.plan(threeSuiteSelection(), "main", "commit-new", false, true, 200L, noSeedSuites());
+        secondPlanner.plan(threeSuiteSelection(), "main", "commit-new", true, true, 200L, noSeedSuites());
 
         // then
         assertNull(dataStore.readDistributedRun("run-old"));
@@ -1395,7 +1395,6 @@ class DistributedRunPlannerTest {
      * values, since that flag decides which later plans may delete the run.
      */
     @Test
-    @Disabled("enabled in stage 2: the wholesale clear deletes run-primary")
     void plan_recordsWhetherTheBuildUpdatesTheMapping() {
         // given
         DistributedRunPlanner primary = new DistributedRunPlanner(dataStore,
@@ -1416,12 +1415,12 @@ class DistributedRunPlannerTest {
      * Verifies the ordering {@link DistributedRunPlanner#plan} depends on: {@link
      * DataStore#readAllDistributedRuns()} must be called before {@link
      * DataStore#persistDistributedRunPlan} in the same {@code plan()} call, because the persist
-     * clears the previous run's rows in the same transaction - once it runs, the evidence the read
+     * deletes the runs it replaces in the same transaction - once it runs, the evidence the read
      * exists to find is gone. Uses a dynamic-proxy {@link DataStore} wrapper that records the order
      * the two methods are invoked in, rather than a log-capture harness, since the ordering (not
-     * the log text) is what {@code warnAboutIncompletePreviousRuns} exists to get right.
+     * the log text) is what {@code warnAboutRunsBeingDeleted} exists to get right.
      *
-     * <p>Bite-checked by temporarily moving the {@code warnAboutIncompletePreviousRuns()} call in
+     * <p>Bite-checked by temporarily moving the {@code warnAboutRunsBeingDeleted(...)} call in
      * {@link DistributedRunPlanner#plan} to below {@code dataStore.persistDistributedRunPlan(...)}
      * and re-running this test: it failed, as expected, before the change was reverted.
      */
@@ -1467,6 +1466,100 @@ class DistributedRunPlannerTest {
         };
         return (DataStore) Proxy.newProxyInstance(DataStore.class.getClassLoader(),
                 new Class<?>[] { DataStore.class }, handler);
+    }
+
+    /**
+     * Wrap a {@link DataStore} so every {@code readDistributedRunGroups} call records the run id it
+     * was asked for. The planner reads a previous run's groups only to warn about it, so this shows
+     * which runs a plan warned about without a log-capture harness.
+     *
+     * @param delegate the real data store to forward every call to
+     * @param groupReads the list to append each requested run id to
+     * @return the recording proxy
+     */
+    private static DataStore groupReadRecordingDataStore(DataStore delegate, List<String> groupReads) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            if (method.getName().equals("readDistributedRunGroups")) {
+                groupReads.add((String) args[0]);
+            }
+            try {
+                return method.invoke(delegate, args);
+            } catch (InvocationTargetException e) {
+                throw e.getCause();
+            }
+        };
+        return (DataStore) Proxy.newProxyInstance(DataStore.class.getClassLoader(),
+                new Class<?>[] { DataStore.class }, handler);
+    }
+
+    /**
+     * Reproduces the reported failure end to end: a preflight build planning while another
+     * preflight build is running must leave the first build's plan readable by its runners, and
+     * must not name it in a supersession warning.
+     */
+    @Test
+    void plan_concurrentPreflightRunSurvivesAndIsNotWarnedAbout() {
+        // given
+        new DistributedRunPlanner(dataStore, DistributedRunConfig.validated("pre-a", 2, null, null, null, null))
+                .plan(threeSuiteSelection(), "main", "commit-1", false, true, 1000L, noSeedSuites());
+        List<String> groupReads = new ArrayList<>();
+        DistributedRunPlanner second = new DistributedRunPlanner(groupReadRecordingDataStore(dataStore, groupReads),
+                DistributedRunConfig.validated("pre-b", 2, null, null, null, null));
+
+        // when
+        second.plan(threeSuiteSelection(), "main", "commit-1", false, true, 2000L, noSeedSuites());
+
+        // then
+        DistributedRun survivor = new DistributedRunCoordinator(dataStore,
+                DistributedRunConfig.forRunner("pre-a", "runner-1")).readRun();
+        assertEquals("pre-a", survivor.getRunId());
+        assertFalse(groupReads.contains("pre-a"), "a kept concurrent run must not be read for a warning");
+    }
+
+    /**
+     * Verify primary supersession still happens and is still warned about: the earlier unsealed
+     * primary run's groups are read for the warning, its rows are gone, and its runner fails.
+     */
+    @Test
+    void plan_primarySupersedesAnUnsealedPrimaryRunAndWarnsAboutIt() {
+        // given
+        new DistributedRunPlanner(dataStore, DistributedRunConfig.validated("primary-1", 2, null, null, null, null))
+                .plan(threeSuiteSelection(), "main", "commit-1", true, true, 1000L, noSeedSuites());
+        List<String> groupReads = new ArrayList<>();
+        DistributedRunPlanner second = new DistributedRunPlanner(groupReadRecordingDataStore(dataStore, groupReads),
+                DistributedRunConfig.validated("primary-2", 2, null, null, null, null));
+
+        // when
+        second.plan(threeSuiteSelection(), "main", "commit-2", true, true, 2000L, noSeedSuites());
+
+        // then
+        assertTrue(groupReads.contains("primary-1"));
+        DistributedRunCoordinator staleRunner = new DistributedRunCoordinator(dataStore,
+                DistributedRunConfig.forRunner("primary-1", "runner-1"));
+        IllegalStateException failure = assertThrows(IllegalStateException.class, staleRunner::readRun);
+        assertTrue(failure.getMessage().contains("No distributed run is planned under tiaRunId 'primary-1'"));
+    }
+
+    /**
+     * Verify an unsealed preflight run past the age limit is read for the abandoned warning and
+     * deleted.
+     */
+    @Test
+    void plan_abandonedPreflightRunIsWarnedAboutAndDeleted() {
+        // given
+        new DistributedRunPlanner(dataStore, DistributedRunConfig.validated("pre-old", 2, null, null, null, null))
+                .plan(threeSuiteSelection(), "main", "commit-1", false, true, 1000L, noSeedSuites());
+        List<String> groupReads = new ArrayList<>();
+        DistributedRunPlanner later = new DistributedRunPlanner(groupReadRecordingDataStore(dataStore, groupReads),
+                DistributedRunConfig.validated("pre-new", 2, null, null, null, null));
+
+        // when
+        later.plan(threeSuiteSelection(), "main", "commit-1", false, true,
+                1001L + DistributedRunRetention.ABANDONED_AGE_MS, noSeedSuites());
+
+        // then
+        assertTrue(groupReads.contains("pre-old"));
+        assertNull(dataStore.readDistributedRun("pre-old"));
     }
 
     /**

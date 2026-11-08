@@ -8,6 +8,7 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
+import org.tiatesting.core.model.DistributedRunRetention;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
@@ -163,6 +164,142 @@ class JdbcDataStoreDistributedPlanTest {
         suites.put(0, Arrays.asList("com.example.BTest", "com.example.ATest"));
         suites.put(1, Arrays.asList("com.example.CTest"));
         return new DistributedRunPlan(run, groups, suites, drainResult);
+    }
+
+    /**
+     * Build a one-group plan for a run with the given mapping ownership and creation time, so a
+     * test controls exactly what the retention rule sees.
+     *
+     * @param runId the run id
+     * @param updatesMapping whether the build owns mapping updates
+     * @param createdAtMs the plan's creation time, also the retention rule's "now"
+     * @return the plan
+     */
+    private static DistributedRunPlan planFor(String runId, boolean updatesMapping, long createdAtMs) {
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L,
+                createdAtMs, SelectionMode.SELECTIVE, null, updatesMapping);
+        return new DistributedRunPlan(run,
+                Collections.singletonList(DistributedRunGroup.pending(runId, 0, 1000L)),
+                Collections.singletonMap(0, Collections.singletonList("com.example.ATest")), null);
+    }
+
+    /**
+     * Mark a run sealed directly in SQL. The real election needs every group completed, which
+     * these retention tests do not care about.
+     *
+     * @param runId the run to mark
+     * @param sealedAtMs the seal time to record
+     * @throws Exception if the update fails
+     */
+    private void markSealed(String runId, long sealedAtMs) throws Exception {
+        try (Connection connection = dataStore.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("UPDATE tia_distributed_run SET status = 'SEALED', sealed_by = 'r', "
+                    + "sealed_at = " + sealedAtMs + " WHERE run_id = '" + runId + "'");
+        }
+    }
+
+    /**
+     * Reproduces the concurrent-preflight collision: a second build that does not own the
+     * mapping must not delete the first one's plan.
+     */
+    @Test
+    void shouldKeepAConcurrentPreflightRunWhenAnotherPreflightPlans() throws Exception {
+        // given
+        dataStore.persistDistributedRunPlan(planFor("pre-a", false, 1000L));
+
+        // when
+        dataStore.persistDistributedRunPlan(planFor("pre-b", false, 2000L));
+
+        // then
+        assertEquals("pre-a", dataStore.readDistributedRun("pre-a").getRunId());
+        assertEquals(1, dataStore.readDistributedRunGroups("pre-a").size());
+        assertEquals(Collections.singletonList("com.example.ATest"),
+                dataStore.readDistributedRunGroupSuites("pre-a", 0));
+        assertEquals(2L, countRows("tia_distributed_run"));
+    }
+
+    /**
+     * Verify a preflight plan never deletes the primary build's run.
+     */
+    @Test
+    void shouldKeepThePrimaryRunWhenAPreflightPlans() {
+        // given
+        dataStore.persistDistributedRunPlan(planFor("primary-1", true, 1000L));
+
+        // when
+        dataStore.persistDistributedRunPlan(planFor("pre-a", false, 2000L));
+
+        // then
+        assertEquals("primary-1", dataStore.readDistributedRun("primary-1").getRunId());
+    }
+
+    /**
+     * Verify a primary plan still supersedes the previous primary run but keeps a young
+     * preflight run.
+     */
+    @Test
+    void shouldSupersedeThePreviousPrimaryRunButKeepAYoungPreflight() {
+        // given
+        dataStore.persistDistributedRunPlan(planFor("primary-1", true, 1000L));
+        dataStore.persistDistributedRunPlan(planFor("pre-a", false, 2000L));
+
+        // when
+        dataStore.persistDistributedRunPlan(planFor("primary-2", true, 3000L));
+
+        // then
+        assertNull(dataStore.readDistributedRun("primary-1"));
+        assertTrue(dataStore.readDistributedRunGroups("primary-1").isEmpty());
+        assertEquals("pre-a", dataStore.readDistributedRun("pre-a").getRunId());
+    }
+
+    /**
+     * Verify a sealed preflight run survives a plan inside the grace and is deleted by one after it.
+     *
+     * @throws Exception if the direct update fails
+     */
+    @Test
+    void shouldDeleteASealedPreflightRunOnlyAfterTheGrace() throws Exception {
+        // given
+        dataStore.persistDistributedRunPlan(planFor("pre-a", false, 1000L));
+        markSealed("pre-a", 2000L);
+        dataStore.persistDistributedRunPlan(planFor("pre-b", false, 2000L + DistributedRunRetention.SEALED_GRACE_MS));
+        assertEquals("pre-a", dataStore.readDistributedRun("pre-a").getRunId());
+
+        // when
+        dataStore.persistDistributedRunPlan(planFor("pre-c", false, 2001L + DistributedRunRetention.SEALED_GRACE_MS));
+
+        // then
+        assertNull(dataStore.readDistributedRun("pre-a"));
+        assertEquals("pre-b", dataStore.readDistributedRun("pre-b").getRunId());
+    }
+
+    /**
+     * Verify an abandoned preflight run is reaped past the age limit, staging rows included, since
+     * those are the rows that can be as large as the method catalogue.
+     *
+     * @throws Exception if the direct insert or a row-count query fails
+     */
+    @Test
+    void shouldReapAnAbandonedPreflightRunWithItsStagingRows() throws Exception {
+        // given
+        dataStore.persistDistributedRunPlan(planFor("pre-a", false, 1000L));
+        try (Connection connection = dataStore.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO tia_distributed_run_method_stage "
+                    + "(run_id, id, method_name, line_number_start, line_number_end) "
+                    + "VALUES ('pre-a', 42, 'com.example.A.foo()V', 10, 20)");
+        }
+        dataStore.persistDistributedRunSelectionDetails("pre-a", sampleSelectionDetails());
+
+        // when
+        dataStore.persistDistributedRunPlan(planFor("pre-b", false, 1001L + DistributedRunRetention.ABANDONED_AGE_MS));
+
+        // then
+        assertNull(dataStore.readDistributedRun("pre-a"));
+        assertEquals(0L, countRows("tia_distributed_run_method_stage"));
+        assertTrue(dataStore.readDistributedRunSelectionDetails("pre-a").getTriggers().isEmpty());
+        assertEquals(1L, countRows("tia_distributed_run"));
     }
 
     /**
@@ -546,9 +683,9 @@ class JdbcDataStoreDistributedPlanTest {
 
     /**
      * Verify that writing a second plan clears every trace of the first: the old run id no longer
-     * resolves, its groups and suites are gone, and only the new run's rows remain. This is the
-     * core retention behaviour - the plan tables hold exactly one run because Tia isolates each
-     * branch in its own schema, so nothing needs to be filtered on write, only cleared.
+     * resolves, its groups and suites are gone, and only the new run's rows remain. Both runs come
+     * from {@code samplePlan}, which owns the mapping, so this is primary-build supersession: the
+     * plan tables hold only the new run afterwards.
      *
      * @throws Exception if a row-count query fails
      */
@@ -771,9 +908,9 @@ class JdbcDataStoreDistributedPlanTest {
     /**
      * Verify that a new plan write clears a previously staged breakdown for a different run id.
      * {@code persistDistributedRunPlan} itself does not write a breakdown - the planner does that
-     * in a separate call - but its {@code tablesToClear} step must still sweep both
-     * run-id-keyed selection tables, exactly as it sweeps the four plan tables, so a replanned
-     * build never risks reading a previous run's stale breakdown.
+     * in a separate call - but its retention delete must still remove the superseded run from
+     * both run-id-keyed selection tables, exactly as from the plan tables, so a replanned build
+     * never risks reading a previous run's stale breakdown.
      */
     @Test
     void shouldClearAStagedBreakdownWhenANewPlanIsWritten() {

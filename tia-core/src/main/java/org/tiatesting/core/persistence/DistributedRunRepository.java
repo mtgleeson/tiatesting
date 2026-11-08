@@ -6,6 +6,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
+import org.tiatesting.core.model.DistributedRunRetention;
 import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
@@ -24,6 +25,20 @@ import static org.tiatesting.core.persistence.TiaSchema.*;
  * history row, and the sealer election. See the distributed test runs chapter in {@code WIKI.md}.
  */
 class DistributedRunRepository extends JdbcRepository {
+
+    /**
+     * Every table holding a distributed run's rows, children before the run row. The plan
+     * write's retention delete removes a run from each of them.
+     */
+    private static final String[] RUN_SCOPED_TABLES = {
+            TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE,
+            TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE,
+            TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD,
+            TABLE_TIA_DISTRIBUTED_RUN_GROUP,
+            TABLE_TIA_DISTRIBUTED_RUN,
+            TABLE_TIA_DISTRIBUTED_RUN_SELECTION,
+            TABLE_TIA_DISTRIBUTED_RUN_TRIGGER
+    };
 
     private final TestRunContributionRepository contributionRepository;
 
@@ -44,17 +59,19 @@ class DistributedRunRepository extends JdbcRepository {
     /**
      * Implements {@link DataStore#persistDistributedRunPlan}.
      *
-     * <p>Clears the four plan tables plus the two run-id-keyed selection-breakdown tables before
-     * inserting, so the plan tables hold exactly one run and a replanned run never keeps a
-     * previous run's staged breakdown. Tia isolates each branch in its own schema, so every row
-     * cleared belongs to this branch's previous build - sealed or abandoned - and this is the only
-     * retention mechanism the distributed tables have. This method itself does not write a new
-     * breakdown - {@link #persistDistributedRunSelectionDetails} does that in a separate call once
-     * this one returns.
+     * <p>Deletes the runs {@link DistributedRunRetention} says this plan replaces - a replan of the
+     * same id, every earlier mapping-owning run when this build owns the mapping, and runs that do
+     * not own the mapping once sealed past the grace or abandoned past the age limit - from all
+     * seven run-scoped tables before inserting. The decision reads the run rows on this
+     * transaction's connection, so it and the delete see the same rows. Several builds can be in
+     * flight against one schema (a primary build and its preflight builds), so nothing else is
+     * touched; see the "Concurrent distributed builds" chapter in {@code WIKI.md}. This method
+     * itself does not write a new breakdown - {@link #persistDistributedRunSelectionDetails} does
+     * that in a separate call once this one returns.
      *
      * <p>All of it runs under one transaction. The rollback catches {@link Exception} rather than
      * {@link SQLException} deliberately: an unchecked exception that escaped without rolling back
-     * would leave the tables cleared but the new plan unwritten, so every runner would find
+     * would leave the old runs deleted but the new plan unwritten, so every runner would find
      * nothing to claim and exit successfully - a green build that ran no tests.
      *
      * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before starting the transaction, since this can
@@ -86,20 +103,9 @@ class DistributedRunRepository extends JdbcRepository {
             schemaManager.ensureSchema(connection);
             connection.setAutoCommit(false);
             try {
-                String[] tablesToClear = {
-                        TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE,
-                        TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE,
-                        TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD,
-                        TABLE_TIA_DISTRIBUTED_RUN_GROUP,
-                        TABLE_TIA_DISTRIBUTED_RUN,
-                        TABLE_TIA_DISTRIBUTED_RUN_SELECTION,
-                        TABLE_TIA_DISTRIBUTED_RUN_TRIGGER
-                };
-                try (Statement clearStatement = connection.createStatement()) {
-                    for (String table : tablesToClear) {
-                        clearStatement.executeUpdate(dialect.clearTableTransactionallySql(table));
-                    }
-                }
+                DistributedRunRetention retention = DistributedRunRetention.decide(readAllRuns(connection),
+                        run.getRunId(), run.isUpdatesMapping(), run.getCreatedAtMs());
+                deleteRuns(connection, retention.getRunIdsToDelete());
                 try (PreparedStatement statement = connection.prepareStatement(runSql)) {
                     statement.setString(1, run.getRunId());
                     statement.setString(2, run.getBranch());
@@ -275,20 +281,59 @@ class DistributedRunRepository extends JdbcRepository {
      * @return the runs currently planned, most recently created first, empty if there are none
      */
     List<DistributedRun> readAllDistributedRuns() {
-        String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " ORDER BY " + COL_CREATED_AT + " DESC";
-        List<DistributedRun> runs = new ArrayList<>();
         try (Connection connection = getConnection()) {
             schemaManager.ensureSchema(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    runs.add(mapRunRow(resultSet));
-                }
-            }
+            return readAllRuns(connection);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }
+    }
+
+    /**
+     * Read every run row on the given connection, most recently created first. Shared by {@link
+     * #readAllDistributedRuns} and the plan write, which must read inside its own transaction so
+     * its retention decision and its delete see the same rows.
+     *
+     * @param connection the connection to read on, with the per-branch schema selected
+     * @return the runs, empty if there are none
+     * @throws SQLException if the query fails
+     */
+    private static List<DistributedRun> readAllRuns(Connection connection) throws SQLException {
+        String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " ORDER BY " + COL_CREATED_AT + " DESC";
+        List<DistributedRun> runs = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet resultSet = statement.executeQuery()) {
+            while (resultSet.next()) {
+                runs.add(mapRunRow(resultSet));
+            }
+        }
         return runs;
+    }
+
+    /**
+     * Delete every row of the given runs from each run-scoped table, on the caller's connection and
+     * so inside its transaction. Every table but the trigger table has a primary key leading with
+     * {@code run_id}, and the trigger table has its own {@code run_id} index, so each delete is an
+     * index lookup. Deleting a run another planner already deleted is a no-op.
+     *
+     * @param connection the plan write's connection, with its transaction open
+     * @param runIds the runs to delete, sorted; nothing is issued when empty
+     * @throws SQLException if a delete fails
+     */
+    private static void deleteRuns(Connection connection, List<String> runIds) throws SQLException {
+        if (runIds.isEmpty()) {
+            return;
+        }
+        String placeholders = String.join(", ", Collections.nCopies(runIds.size(), "?"));
+        for (String table : RUN_SCOPED_TABLES) {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "DELETE FROM " + table + " WHERE " + COL_RUN_ID + " IN (" + placeholders + ")")) {
+                for (int i = 0; i < runIds.size(); i++) {
+                    statement.setString(i + 1, runIds.get(i));
+                }
+                statement.executeUpdate();
+            }
+        }
     }
 
     /**
