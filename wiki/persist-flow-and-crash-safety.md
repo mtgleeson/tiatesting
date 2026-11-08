@@ -378,6 +378,10 @@ file added in that range counts as deleted and the reverse for a deleted file:
 | added, then edited | edited, then deleted | deleted |
 | edited, then deleted | added, then edited | added |
 | deleted, then added | deleted, then added | modified |
+| added, then deleted | added, then deleted | no change (dropped) |
+
+The same collapse applies to a forward range: a file added and then deleted between the stored
+changelist and the head exists at neither end and is not part of the diff.
 
 The "before" content is read at the stored changelist and the "after" content at the head, as for a
 forward diff, so the method matching needs no change.
