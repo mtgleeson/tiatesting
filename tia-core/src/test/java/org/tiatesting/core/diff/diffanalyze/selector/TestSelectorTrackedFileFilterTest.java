@@ -230,6 +230,7 @@ class TestSelectorTrackedFileFilterTest {
 
         @Override public String getBranchName() { return "test"; }
         @Override public String getHeadCommit() { return "head"; }
+        @Override public boolean isHeadBehind(String commit) { return false; }
 
         @Override
         public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,

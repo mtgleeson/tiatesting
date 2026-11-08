@@ -51,6 +51,12 @@ every piece of logic that produces a value:
 5. Print `DistributedRunPlanSummary.toConsoleSummary()` and write `toJson()` to
    `<tiaBuildDir>/tia-run-plan.json` via `DistributedRunPlanWriter`.
 
+Step 3 also refuses a plan for a run that updates the mapping when the workspace head is behind
+the stored commit, before anything is written - the usual cause is a rebuild of an older build.
+Runners never select, so they need no check of their own. A re-seed plan at an older commit is
+allowed. See "Rebuilding an older build" in
+[Persist flow and crash safety](persist-flow-and-crash-safety.md).
+
 Step 3 is why the plan row carries a library-impact drain result. The selection has already
 deleted the pending stamp rows and advanced the publish sequences by the time the planner is
 entered; that drain cannot be repeated, and repeating it per-runner would race, so the plan row is

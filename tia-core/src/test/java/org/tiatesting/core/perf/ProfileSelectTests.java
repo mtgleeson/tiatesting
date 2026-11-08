@@ -180,6 +180,7 @@ public final class ProfileSelectTests {
 
         @Override public String getBranchName() { return branchName; }
         @Override public String getHeadCommit() { return "synthetic-head"; }
+        @Override public boolean isHeadBehind(String commit) { return false; }
 
         /**
          * Build {@code diffFiles} modified-source diff contexts with synthetic before/after

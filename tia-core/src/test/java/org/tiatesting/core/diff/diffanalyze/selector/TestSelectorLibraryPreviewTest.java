@@ -376,6 +376,7 @@ class TestSelectorLibraryPreviewTest {
 
         @Override public String getBranchName() { return "test"; }
         @Override public String getHeadCommit() { return headCommit; }
+        @Override public boolean isHeadBehind(String commit) { return false; }
 
         /**
          * Return the fixed diff set, recording the source dirs the diff was restricted to.

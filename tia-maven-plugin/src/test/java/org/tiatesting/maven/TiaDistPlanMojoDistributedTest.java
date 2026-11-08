@@ -190,6 +190,11 @@ class TiaDistPlanMojoDistributedTest {
             throw new UnsupportedOperationException("should not be reached: precondition must fail first");
         }
 
+        @Override
+        public boolean isHeadBehind(String commit) {
+            return false;
+        }
+
         /**
          * @param baseChangeNum ignored
          * @param sourceFilesDirs ignored

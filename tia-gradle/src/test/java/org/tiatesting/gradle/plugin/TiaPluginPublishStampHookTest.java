@@ -380,6 +380,7 @@ class TiaPluginPublishStampHookTest {
     private static final class ForcedSelectionStubVCSReader implements VCSReader {
         @Override public String getBranchName() { return "main"; }
         @Override public String getHeadCommit() { return "head-1"; }
+        @Override public boolean isHeadBehind(String commit) { return false; }
 
         @Override
         public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
@@ -437,6 +438,7 @@ class TiaPluginPublishStampHookTest {
     private static final class StubVCSReader implements VCSReader {
         @Override public String getBranchName() { return "main"; }
         @Override public String getHeadCommit() { return "head-1"; }
+        @Override public boolean isHeadBehind(String commit) { return false; }
 
         @Override
         public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,

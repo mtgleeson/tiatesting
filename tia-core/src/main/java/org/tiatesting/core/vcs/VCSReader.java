@@ -27,6 +27,21 @@ public interface VCSReader {
     String getHeadCommit();
 
     /**
+     * Report whether the workspace head is behind the given commit: the commit descends from the
+     * head, so the head is older code than the commit. A run that updates the mapping is refused
+     * in that case, because the mapping already reflects the newer code. See the "Persist flow and
+     * crash safety" chapter in {@code WIKI.md}.
+     *
+     * <p>Called once per mapping-run selection, before the diff. Implementations should cost at
+     * most one bounded VCS walk, and nothing when the head equals {@code commit}.
+     *
+     * @param commit a commit value as stored in the mapping
+     * @return true when the head is strictly behind {@code commit}; false when it is equal, ahead,
+     *         diverged from it (Git), or {@code commit} isn't in the repository
+     */
+    boolean isHeadBehind(String commit);
+
+    /**
      * Find all the source and test files changed from a given commit value to the head of the VCS
      * (or in the local workspace), as diff contexts carrying their paths and change type but
      * <strong>no file content</strong>. Content is fetched separately via
