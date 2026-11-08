@@ -176,8 +176,8 @@ class DistributedRunCoordinatorTest {
     }
 
     /**
-     * Verify a runner whose run id has no run row fails loudly. The plan write clears the previous
-     * run's rows, so this is a straggler from a build that has been superseded; exiting quietly
+     * Verify a runner whose run id has no run row fails loudly. A later plan write deletes the runs
+     * it supersedes, so this is a straggler from a build that has been superseded; exiting quietly
      * would report a green build that ran no tests at all, which is the exact silent failure the
      * whole claim protocol exists to prevent.
      */

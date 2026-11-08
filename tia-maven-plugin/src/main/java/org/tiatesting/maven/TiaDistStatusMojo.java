@@ -15,8 +15,9 @@ import org.tiatesting.core.vcs.WorkspaceIdentity;
  * a CI step watching the fan-out.
  *
  * <p>Invoked as {@code mvn <plugin>:dist-status}. With no {@code -DtiaRunId} it reports the most
- * recently planned run, which is normally the only one, since each plan write clears the previous
- * run's rows; pass {@code -DtiaRunId} to name a specific one. Suite names are omitted by default and
+ * recently planned run. Preflight builds share the plan tables with the primary build, so several
+ * runs can be present (see the "Concurrent distributed builds" chapter in {@code WIKI.md}); pass
+ * {@code -DtiaRunId} to name a specific one. Suite names are omitted by default and
  * printed with {@code -DtiaDistStatusSuites=true}, since a group's assigned suite list is unbounded
  * in size.
  *

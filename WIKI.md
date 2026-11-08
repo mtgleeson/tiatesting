@@ -54,7 +54,8 @@ wiki can also be read front to back.
   clear-out inside the seal transaction, retries, distributed runs, and the measured cost.
 - [Distributed test runs (group assignment and the run lifecycle)](wiki/distributed-test-runs.md) -
   how one logical build is split across CI runners: the plan, the claim protocol, the completion
-  barrier and the sealer election, plus what a pipeline has to run.
+  barrier and the sealer election, plus what a pipeline has to run, and how a primary build and its
+  preflight builds share one schema.
 - [Embedded vs server-mode H2 connections](wiki/h2-connection-modes.md) - connection resolution,
   the embedded engine options and the shared-server considerations.
 - [Database credentials](wiki/database-credentials.md) - the four channels a build can supply the

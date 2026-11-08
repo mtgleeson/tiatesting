@@ -464,6 +464,12 @@ public interface DataStore extends AutoCloseable {
      * assignment - in a single transaction, so a runner reading the plan never observes it
      * partially written.
      *
+     * <p>Deletes, in the same transaction, the existing runs this plan replaces: a replan of the
+     * same id, every earlier mapping-owning run when this build owns the mapping, and runs that do
+     * not own the mapping once sealed for over an hour or unsealed for over a day - see {@link
+     * org.tiatesting.core.model.DistributedRunRetention} and the "Concurrent distributed builds"
+     * chapter in {@code WIKI.md}. Every other run is left alone.
+     *
      * <p>Includes the library-impact drain result the plan's own test selection already performed.
      * That drain deleted pending rows and advanced sequences before the plan was built and cannot
      * be repeated, so storing it here is what lets the run's outstanding cleanup outlive the
@@ -540,10 +546,10 @@ public interface DataStore extends AutoCloseable {
     List<String> readUnrunnableGroupSuites(final String runId, final int groupNumber);
 
     /**
-     * Read every distributed run currently held in the plan tables. Because Tia isolates each
-     * branch in its own schema and each plan write clears the previous run, this normally returns
-     * at most one row - the previous build's run, which the planner inspects so it can warn about
-     * groups that never completed before clearing them.
+     * Read every distributed run currently held in the plan tables. A primary build and its
+     * preflight builds share one schema, so this can return several runs; the planner inspects
+     * them so it can warn about the groups that never completed of each unsealed run its plan
+     * write is about to delete. See the "Concurrent distributed builds" chapter in {@code WIKI.md}.
      *
      * @return the runs currently planned, most recently created first, empty if there are none
      */

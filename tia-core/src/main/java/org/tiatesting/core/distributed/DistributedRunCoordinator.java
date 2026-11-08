@@ -28,16 +28,17 @@ import java.util.Set;
  * the plan's fan-out legitimately finds. The other two mean this runner cannot know whether its
  * share of the suite ran, and exiting successfully would report a green build for untested code:
  * <ul>
- *   <li><b>No run row.</b> Writing a plan clears the previous run's rows, so a job from a
- *       superseded build finds nothing. Its tests were never going to run under this id.</li>
+ *   <li><b>No run row.</b> Writing a plan deletes the runs it supersedes - an earlier
+ *       mapping-owning build's, or one reaped by age - so a job from such a build finds nothing.
+ *       Its tests were never going to run under this id.</li>
  *   <li><b>Commit mismatch.</b> The plan's suite lists were chosen by diffing one commit; a
  *       workspace on another commit would run a selection made for different code.</li>
  * </ul>
  *
- * <p>The run is looked up by the configured run id, never by "the only run in the table". On H2
- * the plan write's retention clear is a {@code DELETE FROM} that locks nothing on an empty table,
- * so two planners racing can both leave a row behind, and a coordinator that assumed a single row
- * would then attach the wrong runner to the wrong build.
+ * <p>The run is looked up by the configured run id, never by "the only run in the table": a
+ * primary build and its preflight builds share the plan tables, so a coordinator that assumed a
+ * single row would attach a runner to the wrong build. See the "Concurrent distributed builds"
+ * chapter in {@code WIKI.md}.
  *
  * <p>See the "Distributed test runs" chapter in {@code WIKI.md} for the claim protocol this wraps.
  */

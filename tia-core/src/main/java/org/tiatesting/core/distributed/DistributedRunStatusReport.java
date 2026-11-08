@@ -71,14 +71,14 @@ public final class DistributedRunStatusReport {
      *
      * <p>Reads every run held in the branch's plan tables once, rather than fetching the requested
      * run on its own, so that the "no such run" message can name what is actually there instead -
-     * the most common cause of a missing run is a later plan write having cleared it, and a user who
+     * the most common cause of a missing run is a later plan write having deleted it, and a user who
      * is told only that their id is absent has no way to see that a newer id took its place.
      *
      * @param dataStore the datastore to read from; opened by the caller against the branch whose
      *                  schema holds the run, and closed by the caller
-     * @param runId the run to report on, or null/blank to report on the most recently planned run -
-     *              which is normally the only one, since each plan write clears the previous run's
-     *              rows
+     * @param runId the run to report on, or null/blank to report on the most recently planned run.
+     *              Several runs can be present, since preflight builds share the plan tables with
+     *              the primary build and only a mapping-owning build's plan supersedes earlier runs
      * @param includeSuiteNames whether to list each group's assigned suite names under the table;
      *                          the names are read either way, since the assigned count comes from
      *                          the same query, so this only controls whether they are printed
@@ -118,8 +118,8 @@ public final class DistributedRunStatusReport {
         if (allRuns.size() > 1 && isBlank(runId)) {
             report.append(lineSep).append(lineSep)
                     .append("Note: the plan tables hold ").append(allRuns.size())
-                    .append(" runs, and this is the most recently planned one. Pass a run id to ")
-                    .append("report on one of the others.");
+                    .append(" runs - preflight builds share them with the primary build - and this ")
+                    .append("is the most recently planned one. Pass a run id to report on another.");
         }
         return report.toString();
     }
@@ -127,7 +127,7 @@ public final class DistributedRunStatusReport {
     /**
      * Pick the run to report on: the one matching {@code runId} when given, otherwise the most
      * recently planned. Matching by scanning the already-read list rather than by a second targeted
-     * read, since the plan tables normally hold at most one row and the caller needs the full list
+     * read, since the plan tables hold a handful of rows at most and the caller needs the full list
      * anyway to explain a miss.
      *
      * @param allRuns every run held in the branch's plan tables, most recently created first
@@ -169,8 +169,9 @@ public final class DistributedRunStatusReport {
 
         StringBuilder message = new StringBuilder();
         message.append("No distributed run is planned under run id '").append(runId)
-                .append("' on this branch. Either that build was superseded by a later plan, whose ")
-                .append("write cleared its rows, or the plan step was never run for that id.")
+                .append("' on this branch. Either that build was superseded by a later plan, its ")
+                .append("rows were reaped by a later plan after it sealed or was abandoned, or the ")
+                .append("plan step was never run for that id.")
                 .append(lineSep).append(lineSep)
                 .append("The plan tables currently hold:");
         for (DistributedRun run : allRuns) {
@@ -252,8 +253,9 @@ public final class DistributedRunStatusReport {
     }
 
     /**
-     * Append the run-level block: what the run is, what it was planned against, how far through it
-     * is, and whether it sealed. The "Estimated:" line reports {@code n/a (seed run - no run-time
+     * Append the run-level block: what the run is, what it was planned against, whether its build
+     * owns mapping updates (the "Mapping:" line, which tells the primary build's run from a
+     * preflight one), how far through it is, and whether it sealed. The "Estimated:" line reports {@code n/a (seed run - no run-time
      * data yet)} for a seed run rather than its zeroed {@code estimatedTotalMs}, since a seed run has
      * no run-time data to estimate from at all - see {@link DistributedRun#getSelectionMode()}.
      *
@@ -275,6 +277,8 @@ public final class DistributedRunStatusReport {
         report.append("Distributed run '").append(run.getRunId()).append("'").append(lineSep);
         report.append("  Branch:     ").append(run.getBranch()).append(lineSep);
         report.append("  Commit:     ").append(run.getCommitValue()).append(lineSep);
+        report.append("  Mapping:    ").append(run.isUpdatesMapping()
+                ? "updated by this build" : "not updated by this build").append(lineSep);
         report.append("  Status:     ").append(run.getStatus()).append(" - ").append(completed)
                 .append(" of ").append(groups.size()).append(" group(s) completed").append(lineSep);
         report.append("  Planned:    ").append(timestamp(run.getCreatedAtMs()))
@@ -478,7 +482,7 @@ public final class DistributedRunStatusReport {
      *
      * <p>Two cases get named rather than merely listed. A {@code PENDING} group means no runner ever
      * claimed it, so nothing will complete it on its own - the pipeline fanned out fewer jobs than
-     * the plan has groups, and the run will stay open until a later plan clears it. A run whose
+     * the plan has groups, and the run will stay open until a later plan deletes it. A run whose
      * groups have every one completed while the run row is still {@code OPEN} means the completion
      * barrier was reached and the seal itself failed, which is a different problem from a runner
      * still working and is worth saying out loud rather than leaving the reader to infer from an

@@ -20,8 +20,8 @@ import org.tiatesting.core.vcs.WorkspaceIdentity;
  *
  * <p>Invoked as {@code ./gradlew tia-dist-status}. The run reported on is {@code --runId} when
  * given, otherwise the extension's {@code tia { runId = ... } }, otherwise the most recently planned
- * run - which is normally the only one, since each plan write clears the previous run's rows. The
- * command-line flag comes first so a developer can inspect any run from a workspace whose build file
+ * run. Preflight builds share the plan tables with the primary build, so several runs can be
+ * present (see the "Concurrent distributed builds" chapter in {@code WIKI.md}). The command-line flag comes first so a developer can inspect any run from a workspace whose build file
  * is configured for a different one. Suite names are omitted unless {@code --suites} is passed, since
  * a group's assigned suite list is unbounded in size.
  *

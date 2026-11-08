@@ -58,12 +58,13 @@ the only place its outstanding cleanup can survive the planning process exiting.
 it at the end of the build. See the drain-rule section of the
 [library publish-time stamping](library-publish-time-stamping.md) chapter for what the cleanup is.
 
-The write itself (`DataStore.persistDistributedRunPlan`) clears the previous run's rows in the same
-transaction as its own insert, so there is only ever one plan in a branch's schema. Because that
-clear destroys the evidence, `DistributedRunPlanner` reads the previous run **first** and logs a
-WARN naming any group that never reached `COMPLETED` - that log line is the only trace an abandoned
-run leaves. A previous run that did reach `SEALED` is an ordinary supersession and is not warned
-about; a run whose groups all completed but which never sealed gets its own, distinct warning,
+The write itself (`DataStore.persistDistributedRunPlan`) deletes the runs it replaces in the same
+transaction as its own insert - an earlier run of the primary build, or a preflight run that sealed
+or was abandoned long enough ago; see [Concurrent distributed builds](#concurrent-distributed-builds).
+Because that delete destroys the evidence, `DistributedRunPlanner` reads those runs **first** and
+logs a WARN naming any group that never reached `COMPLETED` - that log line is the only trace an
+abandoned run leaves. A replaced run that did reach `SEALED` is an ordinary supersession and is not
+warned about; a run whose groups all completed but which never sealed gets its own, distinct warning,
 since there are no incomplete groups to name.
 
 One check is worth knowing about because it fails the build rather than degrading: after projecting
@@ -268,7 +269,9 @@ Around that, `DistributedRunCoordinator.claim` adds two checks that fail the bui
 that does not:
 
 - **No run row under the configured `tiaRunId`** - this build was superseded by a later one whose
-  plan write cleared these rows, or the plan step was never run for this id. Its tests were never
+  plan write deleted these rows (a later primary build, or a reap of a preflight run that sealed or
+  was abandoned long ago - see [Concurrent distributed builds](#concurrent-distributed-builds)), or
+  the plan step was never run for this id. Its tests were never
   going to run under this id.
 - **A commit mismatch** between the plan and the runner's workspace - the plan's suite lists were
   chosen by diffing one commit, so running them against another would test different code than they
@@ -1148,7 +1151,8 @@ clause. The five clauses it can produce:
 - *"the group is now `<STATUS>` under runner '`<key>`', so it is no longer this runner's to
   complete"* - another runner holds it. Usually a runner-key collision or a re-claim.
 - *"the run's group rows are gone, so a newer build's plan write superseded this run"* - a
-  concurrent primary build on the same branch planned over this one.
+  concurrent primary build on the same branch planned over this one (preflight builds never do - see
+  [Concurrent distributed builds](#concurrent-distributed-builds)).
 
 That ERROR is in the runner's own log, which a pipeline may never publish: many CI setups keep
 runner logs only for jobs that failed, and a runner whose tests passed but whose completion was
@@ -1182,9 +1186,9 @@ catalogue built from a partial edge set, because the first costs a rebuild and t
 stops selecting tests. So there is no "force complete" and no override.
 
 **What to do: nothing, in almost every case.** An unsealed run is the safe direction - the stored
-commit stayed where it was, so the next build re-selects and re-runs that work. The next
-The plan step clears the stale run's rows outright (warning about it first, naming the incomplete
-groups), and the build proceeds normally. The only thing worth acting on is the *cause*: a
+commit stayed where it was, so the next build re-selects and re-runs that work. The next primary
+plan deletes a stale primary run's rows outright, and a stale preflight run is reaped after 24
+hours - either way with a WARN naming the incomplete groups first - and the build proceeds normally. The only thing worth acting on is the *cause*: a
 `PENDING` group means the fan-out step is reading the group count wrong, and a `CLAIMED` group that
 never completed usually means the completion step is not wired to always run.
 
@@ -1233,6 +1237,46 @@ planning invocation, the test invocation and the completion invocation.
 
 Multi-module support is future work, not something the configuration can be adjusted to fix, and the
 failure message says so.
+
+## Concurrent distributed builds
+
+More than one distributed build can be in flight against a branch's schema at once: the primary
+build (`tiaUpdateDBMapping=true`) and any number of preflight builds testing pending changes
+(`tiaUpdateDBMapping=false`, usually with `tiaCheckLocalChanges=true`). Preflight builds must use
+the primary schema - a suffixed schema has no mapping, so every preflight would be a seed run - so
+the plan tables hold several builds' runs, each keyed by its own `tiaRunId`.
+
+`tia_distributed_run.updates_mapping` records which kind each run is. A plan write deletes only
+the runs `DistributedRunRetention` says it replaces, in the same transaction as its insert:
+
+| Earlier run | Deleted when |
+|---|---|
+| Same `tiaRunId` (a replan) | always |
+| Owns the mapping, and the new plan owns it too | always - supersession |
+| Does not own the mapping, sealed | sealed more than 1 hour ago |
+| Does not own the mapping, unsealed | planned more than 24 hours ago - abandoned |
+
+So a preflight plan never deletes the primary build's run, and no plan deletes another build's
+young preflight run. Supersession is kept for mapping-owning runs because a stale primary build
+that kept running could otherwise seal an older commit over a newer one; a stale preflight build
+writes only its history row, so it is left to finish. Cancelling a superseded preflight build is
+left to the CI system, which can stop its running jobs - Tia could only stop the runners that have
+not claimed yet. The 1-hour grace keeps a sealed preflight run readable for a late surplus runner
+(which then exits quietly instead of failing) and for a `dist-status` call after the build. Both
+limits are fixed, not configurable, and a run is only deleted by a later plan, so with no further
+builds its rows stay longer.
+
+A run "seals" when every group reached `COMPLETED`, whatever its test results, so a preflight
+build whose tests failed gets the 1-hour grace too. A build that never completes - a crashed runner,
+a cancelled job, a group no runner claimed - is unsealed and kept for the 24 hours.
+
+The plan step's WARN names only unsealed runs it is about to delete: superseded runs with the
+"superseded before completing" message (see "A run stuck in OPEN" above), and abandoned preflight
+runs with *"is being reaped as abandoned - it was planned Nh ago and never sealed"* and the same
+group detail. A concurrent run that is being kept is neither read nor named. The deletes are
+scoped by run id - every distributed table's primary key leads with `run_id`, and the trigger
+table has its own `run_id` index - so a plan costs one small read of `tia_distributed_run` and a
+few index lookups, however many runs the schema holds.
 
 ## Local-change checking without mapping updates
 
