@@ -180,6 +180,7 @@ erDiagram
         BLOB drain_result
         VARCHAR selection_mode
         VARCHAR run_source
+        BOOLEAN updates_mapping
     }
 
     tia_distributed_run_group {
@@ -327,7 +328,10 @@ rather than needing their own cleanup.)
   ignored every tracked suite, and to know whether to re-seed. Nothing else in the row separates the two, which is why the planner's answer is stored
   rather than re-derived. `run_source` is the source the plan step resolved (declared or detected
   on the CI agent), which the sealer stamps on the build's history row in place of detecting one in
-  the sealing runner's JVM; null on a run planned before the column existed.
+  the sealing runner's JVM; null on a run planned before the column existed. `updates_mapping`
+  records whether the build owns mapping updates (`tiaUpdateDBMapping`): mapping-owning runs
+  supersede each other, the others are only reaped by age - see "Concurrent distributed builds" in
+  the [Distributed test runs](distributed-test-runs.md) chapter.
 - **tia_distributed_run_group** - one row per group: its `status` (`PENDING` / `CLAIMED` /
   `COMPLETED`), the `runner_key` that claimed it, the planner's `estimated_ms` and `suites_observed`,
   the count of the group's suite rows flagged `observed` - what the full-run completeness guard
@@ -357,7 +361,8 @@ rather than needing their own cleanup.)
   than `history_id`, with no foreign key. Copied onto `tia_test_run_history_trigger` at seal time.
   See the [Run history details](run-history-details.md) chapter. Unlike the history trigger table it
   also stores `trigger_method_id`, the changed method's id, which the seal counts as a triggered run
-  of that method - see [Method run stats](method-run-stats.md).
+  of that method - see [Method run stats](method-run-stats.md). Indexed on `run_id`, since the table
+  has no key and the plan write's retention delete removes runs from it by id.
 
 The mapping read path runs this chain in reverse: a code change resolves changed files to
 `tia_source_method` ids, those to the covering `tia_source_class_method` edges, and those up to the

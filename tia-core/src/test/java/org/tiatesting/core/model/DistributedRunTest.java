@@ -21,7 +21,7 @@ class DistributedRunTest {
      */
     private static DistributedRun runWithSource(String runSource) {
         return DistributedRun.open("run-1", "main", "abc123", 2, 2, null, 300L, 5L, SelectionMode.SELECTIVE,
-                runSource);
+                runSource, true);
     }
 
     /**

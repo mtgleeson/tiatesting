@@ -8,6 +8,8 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
+import org.tiatesting.core.model.DistributedRunRetention;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.distributed.DistributedRunSealer;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.model.ClassImpactTracker;
@@ -37,11 +39,11 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Execution-coverage test for the distributed-run plan store against a real Postgres. H2 cannot
- * catch a Postgres-only DDL or type error - the binary/uuid handling and the {@code TRUNCATE}
- * versus {@code DELETE FROM} table-clearing SQL differ between dialects, and this project has
- * already been bitten once by a constraint that passed on H2 and failed on Postgres (see
- * {@link PostgresPersistTest}). Round-trips a plan, a null {@code targetRunTimeMs}, and the
- * previous-run clear-out that {@link JdbcDataStoreDistributedPlanTest} covers on H2, so the same
+ * catch a Postgres-only DDL or type error - the binary/uuid handling differs between dialects, and
+ * this project has already been bitten once by a constraint that passed on H2 and failed on
+ * Postgres (see {@link PostgresPersistTest}). Round-trips a plan, a null {@code targetRunTimeMs},
+ * and the run-scoped retention delete that {@link JdbcDataStoreDistributedPlanTest} covers on H2 -
+ * primary supersession, concurrent preflight runs kept, abandoned runs reaped - so the same
  * behaviour is proven against Postgres too.
  *
  * <p>Guarded exactly like {@link PostgresPersistTest}: skipped (not failed) when no Postgres is
@@ -121,7 +123,7 @@ class PostgresDistributedPlanTest {
     @Test
     void shouldRoundTripAPlanOnPostgres() {
         // given
-        DistributedRun run = DistributedRun.open("pg-run-1", BRANCH, "commit-1", 2, 2, 60000L, 90000L, 1234L, SelectionMode.SELECTIVE, "CI");
+        DistributedRun run = DistributedRun.open("pg-run-1", BRANCH, "commit-1", 2, 2, 60000L, 90000L, 1234L, SelectionMode.SELECTIVE, "CI", true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.BTest", "com.example.ATest"));
         suites.put(1, Arrays.asList("com.example.CTest"));
@@ -149,7 +151,7 @@ class PostgresDistributedPlanTest {
     @Test
     void shouldPreserveNullTargetRunTimeOnPostgres() {
         // given
-        DistributedRun run = DistributedRun.open("pg-run-2", BRANCH, "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null);
+        DistributedRun run = DistributedRun.open("pg-run-2", BRANCH, "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null, true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run,
@@ -176,7 +178,7 @@ class PostgresDistributedPlanTest {
         drainResult.addDrainedBatch("com.example:lib", 1L);
         drainResult.addDrainedForcedBatch("com.example:other", 7L);
         drainResult.setAppliedSeq("com.example:lib", 2L);
-        DistributedRun run = DistributedRun.open("pg-run-drain", BRANCH, "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null);
+        DistributedRun run = DistributedRun.open("pg-run-drain", BRANCH, "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null, true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
 
@@ -203,7 +205,7 @@ class PostgresDistributedPlanTest {
     @Test
     void shouldPreserveANullDrainResultOnPostgres() {
         // given
-        DistributedRun run = DistributedRun.open("pg-run-nodrain", BRANCH, "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null);
+        DistributedRun run = DistributedRun.open("pg-run-nodrain", BRANCH, "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null, true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run,
@@ -230,12 +232,12 @@ class PostgresDistributedPlanTest {
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open("pg-run-3", BRANCH, "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null),
+                DistributedRun.open("pg-run-3", BRANCH, "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null, true),
                 Arrays.asList(DistributedRunGroup.pending("pg-run-3", 0, 10L)), suites, null));
 
         // when
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open("pg-run-4", BRANCH, "commit-2", 1, 1, null, 10L, 8L, SelectionMode.SELECTIVE, null),
+                DistributedRun.open("pg-run-4", BRANCH, "commit-2", 1, 1, null, 10L, 8L, SelectionMode.SELECTIVE, null, true),
                 Arrays.asList(DistributedRunGroup.pending("pg-run-4", 0, 10L)), suites, null));
 
         // then
@@ -270,7 +272,7 @@ class PostgresDistributedPlanTest {
 
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open("pg-run-empty", BRANCH, "commit-2", 0, 1, null, 0L, 1234L,
-                        SelectionMode.SELECTIVE, "CI"),
+                        SelectionMode.SELECTIVE, "CI", true),
                 Collections.emptyList(), Collections.emptyMap(), null));
 
         // when
@@ -287,5 +289,65 @@ class PostgresDistributedPlanTest {
         assertEquals(9, catalogue.get(101).getLineNumberEnd());
         assertEquals(4L, catalogue.get(101).getExecutedRunCount());
         assertEquals(2L, catalogue.get(101).getTriggeredRunCount());
+    }
+
+    /**
+     * Build a one-group plan with the given mapping ownership and creation time, so a retention
+     * test controls exactly what the rule sees.
+     *
+     * @param runId the run id
+     * @param updatesMapping whether the build owns mapping updates
+     * @param createdAtMs the plan's creation time, also the retention rule's "now"
+     * @return the plan
+     */
+    private static DistributedRunPlan planFor(String runId, boolean updatesMapping, long createdAtMs) {
+        return new DistributedRunPlan(
+                DistributedRun.open(runId, BRANCH, "commit-1", 1, 1, null, 10L, createdAtMs,
+                        SelectionMode.SELECTIVE, null, updatesMapping),
+                Arrays.asList(DistributedRunGroup.pending(runId, 0, 10L)),
+                Collections.singletonMap(0, Arrays.asList("com.example.ATest")), null);
+    }
+
+    /**
+     * Verify on Postgres that concurrent preflight runs and the primary run all survive each
+     * other's plans, while a second primary plan still supersedes the first - the run-scoped
+     * {@code DELETE ... WHERE run_id IN (...)} that replaced the wholesale {@code TRUNCATE}.
+     */
+    @Test
+    void shouldKeepConcurrentPreflightRunsAndSupersedeOnlyThePrimaryOnPostgres() {
+        // given
+        postgresStore.persistDistributedRunPlan(planFor("pg-pre-a", false, 1000L));
+        postgresStore.persistDistributedRunPlan(planFor("pg-pre-b", false, 2000L));
+        postgresStore.persistDistributedRunPlan(planFor("pg-prim-1", true, 3000L));
+
+        // when
+        postgresStore.persistDistributedRunPlan(planFor("pg-prim-2", true, 4000L));
+
+        // then
+        assertNull(postgresStore.readDistributedRun("pg-prim-1"));
+        assertEquals("pg-pre-a", postgresStore.readDistributedRun("pg-pre-a").getRunId());
+        assertEquals(Collections.singletonList("com.example.ATest"),
+                postgresStore.readDistributedRunGroupSuites("pg-pre-b", 0));
+        assertEquals(3, postgresStore.readAllDistributedRuns().size());
+    }
+
+    /**
+     * Verify on Postgres that an unsealed preflight run past the abandoned age is reaped by a
+     * later plan, rows in every run-scoped table included.
+     */
+    @Test
+    void shouldReapAnAbandonedPreflightRunOnPostgres() {
+        // given
+        postgresStore.persistDistributedRunPlan(planFor("pg-pre-old", false, 1000L));
+        postgresStore.persistDistributedRunSelectionDetails("pg-pre-old", TestRunSelectionDetails.empty());
+
+        // when
+        postgresStore.persistDistributedRunPlan(planFor("pg-pre-new", false,
+                1001L + DistributedRunRetention.ABANDONED_AGE_MS));
+
+        // then
+        assertNull(postgresStore.readDistributedRun("pg-pre-old"));
+        assertTrue(postgresStore.readDistributedRunGroups("pg-pre-old").isEmpty());
+        assertEquals(1, postgresStore.readAllDistributedRuns().size());
     }
 }

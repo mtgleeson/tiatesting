@@ -147,11 +147,12 @@ public final class DistributedRunSealer {
      * rather than accepted as parameters. The read is treated as an assertion of an invariant rather
      * than a recovery path: {@link
      * DataStore#electSealer} only returns {@code true} after matching and updating that exact row
-     * under this run id, so the row existed a moment earlier, and nothing but a new plan write
-     * clears it - which cannot happen for this run id until this run reaches its terminal state,
-     * which has not happened yet. A {@code null} read here is therefore a broken invariant, not a
-     * race a caller can sensibly recover from, so it is reported as such rather than silently
-     * substituting a fallback value.
+     * under this run id, so the row existed a moment earlier, and only a later plan write deletes
+     * it - a superseding mapping-owning build or a replan of this id; an unsealed run that does
+     * not own the mapping is kept for a day (see {@link
+     * org.tiatesting.core.model.DistributedRunRetention}). A {@code null} read here therefore means
+     * such a plan landed in the moment since the election, which a caller cannot sensibly recover
+     * from, so it is reported as a failure rather than silently substituting a fallback value.
      *
      * <p>When the history row is written, the selection breakdown the plan staged for this run id
      * is read here too, via {@link DataStore#readDistributedRunSelectionDetails}, and handed to
@@ -171,10 +172,10 @@ public final class DistributedRunSealer {
         if (run == null) {
             throw new IllegalStateException("Distributed run '" + context.getRunId() + "': the run "
                     + "row is gone immediately after runner '" + context.getRunnerKey() + "' won the "
-                    + "election to seal it. This cannot happen by design: electSealer only returns "
-                    + "true after matching and updating that exact row, so it existed a moment "
-                    + "earlier, and nothing clears a run's row before that run reaches its terminal "
-                    + "state.");
+                    + "election to seal it. electSealer only returns true after matching and "
+                    + "updating that exact row, so a later plan deleted it in between - a "
+                    + "superseding build that owns the mapping, or a replan of this run id - and "
+                    + "this build is not sealed.");
         }
         String commitValue = run.getCommitValue();
         String branch = run.getBranch();

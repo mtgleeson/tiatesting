@@ -211,6 +211,54 @@ class SchemaManagerTest {
     }
 
     @Test
+    void existingDbMissingTheUpdatesMappingColumnGetsItAddedOnce(@TempDir Path dir) throws Exception {
+        // given an existing DB whose distributed-run table predates the column and holds one run
+        H2ConnectionProvider provider = new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.toString()));
+        try (Connection connection = provider.get()) {
+            new SchemaManager(new H2Dialect(), opening(provider, new AtomicInteger()), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN
+                        + " DROP COLUMN " + TiaSchema.COL_UPDATES_MAPPING);
+                statement.execute("DROP INDEX " + TiaSchema.IDX_DISTRIBUTED_RUN_TRIGGER_RUN_ID);
+                statement.execute("INSERT INTO " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN
+                        + " (run_id, branch, commit_value, status, group_count, estimated_total_ms, created_at)"
+                        + " VALUES ('old-run', 'main', 'c1', 'OPEN', 1, 0, 1)");
+            }
+
+            // when two fresh managers (two later JVMs) ensure the schema in turn
+            AtomicInteger openedByFirst = new AtomicInteger();
+            boolean existed = new SchemaManager(new H2Dialect(), opening(provider, openedByFirst), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            AtomicInteger openedBySecond = new AtomicInteger();
+            new SchemaManager(new H2Dialect(), opening(provider, openedBySecond), provider.jdbcUrl())
+                    .ensureSchema(connection);
+
+            // then the first adds the column and index on a connection of its own, the existing row
+            // reads back as a mapping-owning run, and the second finds them already there
+            assertTrue(existed);
+            assertEquals(1, openedByFirst.get());
+            assertEquals(0, openedBySecond.get());
+            try (Statement statement = connection.createStatement();
+                 ResultSet resultSet = statement.executeQuery("SELECT " + TiaSchema.COL_UPDATES_MAPPING
+                         + " FROM " + TiaSchema.TABLE_TIA_DISTRIBUTED_RUN)) {
+                assertTrue(resultSet.next());
+                assertTrue(resultSet.getBoolean(1));
+            }
+            try (ResultSet indexes = connection.getMetaData().getIndexInfo(null, connection.getSchema(),
+                    TiaSchema.TABLE_TIA_DISTRIBUTED_RUN_TRIGGER.toUpperCase(), false, false)) {
+                boolean found = false;
+                while (indexes.next()) {
+                    found |= TiaSchema.IDX_DISTRIBUTED_RUN_TRIGGER_RUN_ID.equalsIgnoreCase(indexes.getString("INDEX_NAME"));
+                }
+                assertTrue(found, "the trigger run_id index should exist after the migration");
+            }
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
     void existingDbWithTheGroupCounterColumnsGetsThemDroppedOnce(@TempDir Path dir) throws Exception {
         // given an existing DB whose group table still stores the figures on its row
         H2ConnectionProvider provider = new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.toString()));

@@ -21,6 +21,7 @@ public final class DistributedRun {
     private final Long sealedAtMs;
     private final SelectionMode selectionMode;
     private final String runSource;
+    private final boolean updatesMapping;
 
     /**
      * Full constructor, used by the read path so a persisted row round-trips exactly.
@@ -46,12 +47,14 @@ public final class DistributedRun {
      * @param runSource the run source the plan step resolved for the build ({@code CI}, {@code
      *                  LOCAL} or a declared label), or null for a run planned before the source
      *                  was recorded - the sealer then falls back to its own environment
+     * @param updatesMapping whether the build owns mapping-DB updates ({@code tiaUpdateDBMapping}),
+     *                       which decides the run's retention - see {@link DistributedRunRetention}
      */
     public DistributedRun(String runId, String branch, String commitValue,
                           DistributedRunStatus status, int groupCount, int groupsAvailable,
                           Long targetRunTimeMs, long estimatedTotalMs, long createdAtMs,
                           String sealedBy, Long sealedAtMs, SelectionMode selectionMode,
-                          String runSource) {
+                          String runSource, boolean updatesMapping) {
         this.runId = runId;
         this.branch = branch;
         this.commitValue = commitValue;
@@ -65,6 +68,7 @@ public final class DistributedRun {
         this.sealedAtMs = sealedAtMs;
         this.selectionMode = selectionMode == null ? SelectionMode.SELECTIVE : selectionMode;
         this.runSource = runSource;
+        this.updatesMapping = updatesMapping;
     }
 
     /**
@@ -88,15 +92,17 @@ public final class DistributedRun {
      * @param runSource the run source the plan step resolved for the build ({@code CI}, {@code
      *                  LOCAL} or a declared label), or null for a run planned before the source
      *                  was recorded - the sealer then falls back to its own environment
+     * @param updatesMapping whether the build owns mapping-DB updates ({@code tiaUpdateDBMapping}),
+     *                       which decides the run's retention - see {@link DistributedRunRetention}
      * @return an OPEN run with no seal recorded
      */
     public static DistributedRun open(String runId, String branch, String commitValue,
                                       int groupCount, int groupsAvailable, Long targetRunTimeMs,
                                       long estimatedTotalMs, long createdAtMs, SelectionMode selectionMode,
-                                      String runSource) {
+                                      String runSource, boolean updatesMapping) {
         return new DistributedRun(runId, branch, commitValue, DistributedRunStatus.OPEN,
                 groupCount, groupsAvailable, targetRunTimeMs, estimatedTotalMs, createdAtMs, null,
-                null, selectionMode, runSource);
+                null, selectionMode, runSource, updatesMapping);
     }
 
     /** @return the CI-supplied run identifier */
@@ -171,6 +177,16 @@ public final class DistributedRun {
     public String getRunSource() { return runSource; }
 
     /**
+     * Whether the build owns mapping-DB updates. A plan from a mapping-owning build supersedes
+     * every earlier mapping-owning run in the schema; a run that does not own the mapping is never
+     * superseded and is only reaped by age - see {@link DistributedRunRetention} and the
+     * "Concurrent distributed builds" chapter in {@code WIKI.md}.
+     *
+     * @return true when the build owns mapping updates
+     */
+    public boolean isUpdatesMapping() { return updatesMapping; }
+
+    /**
      * Value equality across every field, so a persisted row can be asserted equal to the object
      * it was written from.
      *
@@ -185,6 +201,7 @@ public final class DistributedRun {
         return groupCount == that.groupCount
                 && groupsAvailable == that.groupsAvailable
                 && estimatedTotalMs == that.estimatedTotalMs
+                && updatesMapping == that.updatesMapping
                 && createdAtMs == that.createdAtMs
                 && selectionMode == that.selectionMode
                 && Objects.equals(runId, that.runId)
@@ -206,7 +223,7 @@ public final class DistributedRun {
     public int hashCode() {
         return Objects.hash(runId, branch, commitValue, status, groupCount, groupsAvailable,
                 targetRunTimeMs, estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs, selectionMode,
-                runSource);
+                runSource, updatesMapping);
     }
 
     /**
@@ -219,6 +236,6 @@ public final class DistributedRun {
         return "DistributedRun{runId=" + runId + ", branch=" + branch + ", commit=" + commitValue
                 + ", status=" + status + ", groupCount=" + groupCount
                 + ", groupsAvailable=" + groupsAvailable + ", selectionMode=" + selectionMode
-                + ", runSource=" + runSource + "}";
+                + ", runSource=" + runSource + ", updatesMapping=" + updatesMapping + "}";
     }
 }

@@ -780,7 +780,7 @@ class TestRunnerServiceDistributedPersistTest {
             }
         }
         DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
-                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null);
+                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -801,7 +801,7 @@ class TestRunnerServiceDistributedPersistTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null);
+        DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 

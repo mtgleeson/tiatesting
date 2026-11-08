@@ -109,7 +109,7 @@ class JdbcDataStoreCompletionTest {
             suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
         }
         DistributedRun run = DistributedRun.open(runId, "main", "commit-1", groupCount, groupCount, null,
-                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null);
+                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -130,7 +130,7 @@ class JdbcDataStoreCompletionTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -164,7 +164,7 @@ class JdbcDataStoreCompletionTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, mode, null);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, mode, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -180,7 +180,7 @@ class JdbcDataStoreCompletionTest {
         groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, new ArrayList<String>());
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, SelectionMode.SEED, null);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, SelectionMode.SEED, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 

@@ -221,7 +221,7 @@ class TiaDistCompleteTaskTest {
             suitesByGroup.put(groupNumber, Collections.<String>emptyList());
         }
         DistributedRun run = DistributedRun.open(runId, BRANCH, PLAN_COMMIT, groupCount, groupCount, null,
-                1000L * groupCount, 5000L, SelectionMode.SELECTIVE, null);
+                1000L * groupCount, 5000L, SelectionMode.SELECTIVE, null, true);
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }
@@ -333,7 +333,7 @@ class TiaDistCompleteTaskTest {
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
         suitesByGroup.put(0, suites);
         DistributedRun run = DistributedRun.open(runId, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L,
-                SelectionMode.SELECTIVE, null);
+                SelectionMode.SELECTIVE, null, true);
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run,
                     Collections.singletonList(DistributedRunGroup.pending(runId, 0, 1000L)), suitesByGroup, null));

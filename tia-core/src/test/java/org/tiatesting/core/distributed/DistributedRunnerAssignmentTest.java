@@ -111,7 +111,7 @@ class DistributedRunnerAssignmentTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), groups.size(), null,
-                1000L * groups.size(), 5000L, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, null);
+                1000L * groups.size(), 5000L, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
     }
 
@@ -256,7 +256,7 @@ class DistributedRunnerAssignmentTest {
 
     /**
      * Verify a runner whose run id has no run row fails rather than producing an assignment. The
-     * plan write clears the previous run's rows, so this is a straggler from a superseded build;
+     * plan write deletes the runs it supersedes, so this is a straggler from a superseded build;
      * an empty ignore list would have it run every tracked suite and report a green build for a
      * plan that no longer exists.
      */

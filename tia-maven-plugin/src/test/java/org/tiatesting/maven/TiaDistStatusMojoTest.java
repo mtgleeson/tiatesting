@@ -171,7 +171,7 @@ class TiaDistStatusMojoTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", groups.size(), groups.size(), null, 2000L,
-                System.currentTimeMillis(), SelectionMode.SELECTIVE, null);
+                System.currentTimeMillis(), SelectionMode.SELECTIVE, null, true);
         try (DataStore dataStore = openStore()) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }

@@ -308,7 +308,7 @@ class DistributedRunStatusReportTest {
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("build-1", 0, 0L));
         DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, 1, null, 0L,
-                NOW_MS - 120_000L, SelectionMode.SELECTIVE, null);
+                NOW_MS - 120_000L, SelectionMode.SELECTIVE, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
                 singleGroup(Collections.<String>emptyList()), null));
 
@@ -333,7 +333,7 @@ class DistributedRunStatusReportTest {
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("build-1", 0, 0L));
         DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, 1, null, 0L,
-                NOW_MS - 120_000L, SelectionMode.SEED, null);
+                NOW_MS - 120_000L, SelectionMode.SEED, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
                 singleGroup(Collections.<String>emptyList()), null));
 
@@ -500,9 +500,8 @@ class DistributedRunStatusReportTest {
     }
 
     /**
-     * Verify that with no run id given the most recently planned run is reported. Each plan write
-     * normally clears the previous run, so this is the case a developer hits every time they run the
-     * command without arguments.
+     * Verify that with no run id given the most recently planned run is reported. This is the case
+     * a developer hits every time they run the command without arguments.
      */
     @Test
     void shouldReportTheMostRecentlyPlannedRunWhenNoRunIdIsGiven() {
@@ -594,7 +593,7 @@ class DistributedRunStatusReportTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), groups.size(), 5000L,
-                1000L * groups.size(), NOW_MS - 120_000L, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, null);
+                1000L * groups.size(), NOW_MS - 120_000L, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
     }
 
@@ -709,5 +708,28 @@ class DistributedRunStatusReportTest {
         new DistributedRunPlanner(dataStore, DistributedRunConfig.validated(runId, 2, null, null, null, null))
                 .plan(nothingSelected, "main", commitValue, true, true, createdAtMs,
                         () -> Collections.<String>emptySet());
+    }
+
+    /**
+     * Verify the header says whether the run updates the mapping, so a reader can tell the primary
+     * build's run from a preflight one now that both share the plan tables.
+     */
+    @Test
+    void format_headerSaysWhetherTheRunUpdatesTheMapping() {
+        // given a primary run and a preflight run planned side by side
+        persistPlan("primary-1", "commit-abc", twoGroups(), false);
+        DistributedRun preflight = DistributedRun.open("pre-a", "main", "commit-abc", 1, 1, null, 1000L,
+                NOW_MS - 60_000L, SelectionMode.SELECTIVE, null, false);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(preflight,
+                Collections.singletonList(DistributedRunGroup.pending("pre-a", 0, 1000L)),
+                Collections.singletonMap(0, Collections.singletonList("com.example.ATest")), null));
+
+        // when
+        String primaryReport = DistributedRunStatusReport.format(dataStore, "primary-1", false, NOW_MS, "\n");
+        String preflightReport = DistributedRunStatusReport.format(dataStore, "pre-a", false, NOW_MS, "\n");
+
+        // then
+        assertTrue(primaryReport.contains("  Mapping:    updated by this build"), primaryReport);
+        assertTrue(preflightReport.contains("  Mapping:    not updated by this build"), preflightReport);
     }
 }
