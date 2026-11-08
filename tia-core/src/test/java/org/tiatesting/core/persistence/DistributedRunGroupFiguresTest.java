@@ -46,7 +46,7 @@ class DistributedRunGroupFiguresTest {
                 H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("main", null));
         store.getTiaData();
         DistributedRun run = DistributedRun.open("run-1", "main", "c1", 1, 1, null, 1000L, 1234L,
-                SelectionMode.SELECTIVE, null);
+                SelectionMode.SELECTIVE, null, true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("A", "B", "C"));
         store.persistDistributedRunPlan(new DistributedRunPlan(run,

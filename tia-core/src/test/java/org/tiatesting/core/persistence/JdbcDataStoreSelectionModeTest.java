@@ -97,7 +97,7 @@ class JdbcDataStoreSelectionModeTest {
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Collections.singletonList("com.example.ATest"));
         DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L,
-                mode, null);
+                mode, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 }

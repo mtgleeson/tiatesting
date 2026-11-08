@@ -51,7 +51,7 @@ class DistributedRunRepositoryTest {
                     new DistributedRunRepository(db.dialect, db.connections, db.schemaManager,
                     new TestRunContributionRepository(db.dialect, db.connections, db.schemaManager));
             DistributedRun run = DistributedRun.open("run-1", "main", "commit-1", 0, 1, null,
-                    0L, 1234L, SelectionMode.SELECTIVE, null);
+                    0L, 1234L, SelectionMode.SELECTIVE, null, true);
             repository.persistDistributedRunPlan(new DistributedRunPlan(run,
                     Collections.emptyList(), Collections.emptyMap(), null));
 
@@ -74,7 +74,7 @@ class DistributedRunRepositoryTest {
      */
     static DistributedRunPlan onePlan(String runId) {
         DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null,
-                1000L, 1234L, SelectionMode.SELECTIVE, null);
+                1000L, 1234L, SelectionMode.SELECTIVE, null, true);
         return new DistributedRunPlan(run,
                 Collections.singletonList(DistributedRunGroup.pending(runId, 0, 1000L)),
                 Collections.singletonMap(0, Collections.singletonList("com.example.SuiteTest")), null);

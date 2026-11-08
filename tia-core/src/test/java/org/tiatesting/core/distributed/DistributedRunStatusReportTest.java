@@ -308,7 +308,7 @@ class DistributedRunStatusReportTest {
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("build-1", 0, 0L));
         DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, 1, null, 0L,
-                NOW_MS - 120_000L, SelectionMode.SELECTIVE, null);
+                NOW_MS - 120_000L, SelectionMode.SELECTIVE, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
                 singleGroup(Collections.<String>emptyList()), null));
 
@@ -333,7 +333,7 @@ class DistributedRunStatusReportTest {
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("build-1", 0, 0L));
         DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, 1, null, 0L,
-                NOW_MS - 120_000L, SelectionMode.SEED, null);
+                NOW_MS - 120_000L, SelectionMode.SEED, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
                 singleGroup(Collections.<String>emptyList()), null));
 
@@ -594,7 +594,7 @@ class DistributedRunStatusReportTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), groups.size(), 5000L,
-                1000L * groups.size(), NOW_MS - 120_000L, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, null);
+                1000L * groups.size(), NOW_MS - 120_000L, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
     }
 

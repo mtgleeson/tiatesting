@@ -155,7 +155,7 @@ class JdbcDataStoreDistributedPlanTest {
      * @return a valid plan, unsaved
      */
     private static DistributedRunPlan samplePlan(String runId, LibraryImpactDrainResult drainResult) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 2, 60000L, 90000L, 1234L, SelectionMode.SELECTIVE, null);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 2, 60000L, 90000L, 1234L, SelectionMode.SELECTIVE, null, true);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending(runId, 0, 50000L),
                 DistributedRunGroup.pending(runId, 1, 40000L));
@@ -163,6 +163,28 @@ class JdbcDataStoreDistributedPlanTest {
         suites.put(0, Arrays.asList("com.example.BTest", "com.example.ATest"));
         suites.put(1, Arrays.asList("com.example.CTest"));
         return new DistributedRunPlan(run, groups, suites, drainResult);
+    }
+
+    /**
+     * Verify that a run planned by a build that does not own mapping updates reads back as such,
+     * since the next plan's retention decision depends on it.
+     */
+    @Test
+    void shouldRoundTripARunThatDoesNotUpdateTheMapping() {
+        // given
+        DistributedRun run = DistributedRun.open("run-preflight", "main", "commit-1", 1, 1, null,
+                1000L, 1234L, SelectionMode.SELECTIVE, null, false);
+        DistributedRunPlan plan = new DistributedRunPlan(run,
+                Collections.singletonList(DistributedRunGroup.pending("run-preflight", 0, 1000L)),
+                Collections.singletonMap(0, Collections.singletonList("com.example.ATest")), null);
+
+        // when
+        dataStore.persistDistributedRunPlan(plan);
+        DistributedRun read = dataStore.readDistributedRun("run-preflight");
+
+        // then
+        assertFalse(read.isUpdatesMapping());
+        assertEquals(run, read);
     }
 
     /**
@@ -358,7 +380,7 @@ class JdbcDataStoreDistributedPlanTest {
      * @return a valid seed-run plan, unsaved
      */
     private static DistributedRunPlan seedRunPlan(String runId) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 0L, 7L, SelectionMode.SEED, null);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 0L, 7L, SelectionMode.SEED, null, true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Collections.<String>emptyList());
         return new DistributedRunPlan(run,
@@ -373,7 +395,7 @@ class JdbcDataStoreDistributedPlanTest {
     void shouldRoundTripTheGroupsAvailable() {
         // given
         DistributedRun run = DistributedRun.open("run-avail", "main", "commit-1", 1, 6, 60000L,
-                10L, 7L, SelectionMode.SELECTIVE, null);
+                10L, 7L, SelectionMode.SELECTIVE, null, true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         DistributedRunPlan plan = new DistributedRunPlan(run,
@@ -397,7 +419,7 @@ class JdbcDataStoreDistributedPlanTest {
      */
     private static DistributedRunPlan planWithRunSource(String runId, String runSource) {
         DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 10L, 7L,
-                SelectionMode.SELECTIVE, runSource);
+                SelectionMode.SELECTIVE, runSource, true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         return new DistributedRunPlan(run,
@@ -508,7 +530,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldPreserveANullTargetRunTimeForStaticGroupsMode() {
         // given
-        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null);
+        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null, true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         DistributedRunPlan plan = new DistributedRunPlan(run,
@@ -627,7 +649,7 @@ class JdbcDataStoreDistributedPlanTest {
         for (int i = 0; i < 60; i++) {
             oversizedName.append("com.example.VeryLongSuiteName");
         }
-        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null);
+        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null, true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList(oversizedName.toString()));
         DistributedRunPlan badPlan = new DistributedRunPlan(run,

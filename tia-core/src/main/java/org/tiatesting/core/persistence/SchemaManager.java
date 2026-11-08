@@ -52,8 +52,9 @@ class SchemaManager {
      * An existing DB also gets the TEMPORARY group-suite flag column check - see {@link
      * #hasGroupSuiteFlagColumns(Connection)} - the TEMPORARY test-support counter column check -
      * see {@link #hasTestSupportCounterColumns(Connection)} - and the TEMPORARY test run tables
-     * check - see {@link #addTestRunTables()} - and the TEMPORARY group counter column drop - see
-     * {@link #dropGroupCounterColumns()}.
+     * check - see {@link #addTestRunTables()} - the TEMPORARY group counter column drop - see
+     * {@link #dropGroupCounterColumns()} - and the TEMPORARY updates-mapping column add - see {@link
+     * #addUpdatesMappingColumn()}.
      *
      * @param connection the connection to check on
      * @return {@code true} if the Tia DB already existed before this call (or an earlier call
@@ -80,6 +81,9 @@ class SchemaManager {
         }
         if (dbExisted && hasColumn(connection, TABLE_TIA_DISTRIBUTED_RUN_GROUP, COL_ACTUAL_DURATION_MS)) {
             dropGroupCounterColumns();
+        }
+        if (dbExisted && lacksColumn(connection, TABLE_TIA_DISTRIBUTED_RUN, COL_UPDATES_MAPPING)) {
+            addUpdatesMappingColumn();
         }
 
         schemaEnsured = true;
@@ -150,7 +154,8 @@ class SchemaManager {
      * TEMPORARY: report whether a table exists in the connection's schema without a column. Names
      * are compared ignoring case, since H2 folds unquoted identifiers to upper case and Postgres to
      * lower case; the table name is compared exactly because metadata patterns treat its underscores
-     * as wildcards. Remove with {@link #hasTestSupportCounterColumns(Connection)}.
+     * as wildcards. Remove with {@link #hasTestSupportCounterColumns(Connection)} and {@link
+     * #addUpdatesMappingColumn()}, whichever goes last.
      *
      * @param connection the caller's connection, with the per-branch schema selected
      * @param table the table name
@@ -231,6 +236,32 @@ class SchemaManager {
                 statement.execute("ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " DROP COLUMN IF EXISTS "
                         + column);
             }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * TEMPORARY one-off migration: add the {@code updates_mapping} column to a {@code
+     * tia_distributed_run} table created before it existed, and the {@code run_id} index on {@code
+     * tia_distributed_run_trigger} that the run-scoped retention delete relies on. Existing rows
+     * default to TRUE - a mapping-owning run - so the next primary plan deletes them exactly as the
+     * old wholesale clear did. Remove this method and its call in {@link #ensureSchema} once the
+     * shared database has been migrated - Tia otherwise has no migrations (see the class javadoc).
+     *
+     * <p>Runs on a fresh connection, like {@link #createTiaDB()}, so the DDL (which H2 commits
+     * implicitly) never touches a caller's transaction. {@code IF NOT EXISTS} makes two runners
+     * migrating the same schema at once harmless.
+     *
+     * @throws TiaPersistenceException if a statement fails
+     */
+    private void addUpdatesMappingColumn() {
+        log.info("Adding the {} column to {} at {}", COL_UPDATES_MAPPING, TABLE_TIA_DISTRIBUTED_RUN, jdbcUrl);
+        try (Connection connection = connections.get();
+             Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " ADD COLUMN IF NOT EXISTS "
+                    + COL_UPDATES_MAPPING + " BOOLEAN DEFAULT TRUE NOT NULL");
+            statement.execute(buildCreateDistributedRunTriggerRunIdIndexSql());
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }
@@ -406,6 +437,7 @@ class SchemaManager {
             statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
             statement.addBatch(buildCreateDistributedRunSelectionTableSql());
             statement.addBatch(buildCreateDistributedRunTriggerTableSql());
+            statement.addBatch(buildCreateDistributedRunTriggerRunIdIndexSql());
             statement.executeBatch();
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -715,7 +747,11 @@ class SchemaManager {
                 + COL_DRAIN_RESULT + " " + dialect.binaryColumnType() + ", "
                 + COL_SELECTION_MODE + " VARCHAR(16) DEFAULT 'SELECTIVE', "
                 + COL_GROUPS_AVAILABLE + " INT, "
-                + COL_RUN_SOURCE + " VARCHAR(32))";
+                + COL_RUN_SOURCE + " VARCHAR(32), "
+                // Whether the run owns mapping updates (tiaUpdateDBMapping). Mapping-owning runs
+                // supersede each other; the rest are only reaped by age - see the "Concurrent
+                // distributed builds" chapter in WIKI.md.
+                + COL_UPDATES_MAPPING + " BOOLEAN DEFAULT TRUE NOT NULL)";
     }
 
     /**
@@ -828,7 +864,7 @@ class SchemaManager {
      * trigger staged for a distributed run, mirroring {@code tia_test_run_history_trigger}'s shape
      * but keyed by run id rather than history id, and with no foreign key - the run-id-keyed
      * tables are cleared explicitly by {@link DistributedRunRepository#persistDistributedRunSelectionDetails} and by
-     * {@link DistributedRunRepository#persistDistributedRunPlan}'s {@code tablesToClear}, not by a cascade.
+     * {@link DistributedRunRepository#persistDistributedRunPlan}'s run-scoped retention delete, not by a cascade.
      *
      * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the selection-trigger table
      */
@@ -839,5 +875,17 @@ class SchemaManager {
                 + COL_TRIGGER_NAME + " VARCHAR(1024) NOT NULL, "
                 + COL_TRIGGER_METHOD_ID + " INT, "
                 + COL_TEST_COUNT + " INT NOT NULL)";
+    }
+
+    /**
+     * Build the DDL for the index on {@code tia_distributed_run_trigger.run_id}. The table has no
+     * key, so without it the plan write's run-scoped delete and the selection-details restage
+     * would each scan every trigger row of every run in the schema.
+     *
+     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the trigger run id index
+     */
+    private static String buildCreateDistributedRunTriggerRunIdIndexSql() {
+        return "CREATE INDEX IF NOT EXISTS " + IDX_DISTRIBUTED_RUN_TRIGGER_RUN_ID + " ON "
+                + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " (" + COL_RUN_ID + ")";
     }
 }

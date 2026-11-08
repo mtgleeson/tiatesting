@@ -147,7 +147,7 @@ public final class DistributedRunPlanner {
         warnIfTargetMissed(result, config.getTargetRunTimeMs(), config.getMaxGroups());
 
         DistributedRunPlan runPlan = projectPlan(result, branch, commitValue, createdAtMs,
-                selection.getLibraryImpactDrainResult(), selectionMode);
+                selection.getLibraryImpactDrainResult(), selectionMode, updateDBMapping);
         int selectedSuiteCount = countSuites(runPlan);
         // The conservation check compares the persisted plan against the selection's testsToRun.
         // A full run's suites come from the disk scan, not the selection - a seed's testsToRun is
@@ -694,6 +694,8 @@ public final class DistributedRunPlanner {
      * @param selectionMode the selection's mode, recorded on the run row because the seal cannot
      *                      tell a full run's plan from a nothing-impacted one by its shape - see
      *                      {@code DistributedRunSealer.ignoredSuiteCount}
+     * @param updateDBMapping whether the build owns mapping-DB updates, recorded on the run row so
+     *                        the next plan's retention can tell a primary build from a preflight one
      * @return the validated plan, ready to persist, with the groups available recorded on its run
      *         row - see {@link #groupsAvailable} - and the build's run source: the declared {@code
      *         tiaRunSource} when set, else the one detected from this plan step's environment. The
@@ -702,12 +704,12 @@ public final class DistributedRunPlanner {
      */
     private DistributedRunPlan projectPlan(GroupingResult result, String branch, String commitValue,
                                             long createdAtMs, LibraryImpactDrainResult drainResult,
-                                            SelectionMode selectionMode) {
+                                            SelectionMode selectionMode, boolean updateDBMapping) {
         Long targetRunTimeMs = config.isStaticGroups() ? null : config.getTargetRunTimeMs();
         DistributedRun run = DistributedRun.open(config.getRunId(), branch, commitValue,
                 result.getGroupCount(), groupsAvailable(result.getGroupCount()), targetRunTimeMs,
                 result.getTotalEstimatedMs(), createdAtMs, selectionMode,
-                RunEnvironment.runSource(config.getRunSource()));
+                RunEnvironment.runSource(config.getRunSource()), updateDBMapping);
 
         List<DistributedRunGroup> groups = new ArrayList<>(result.getGroupCount());
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();

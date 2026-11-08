@@ -172,7 +172,7 @@ class AgentMojoDistributedTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, branch, commitValue, groups.size(), groups.size(), null,
-                1000L * groups.size(), 5000L, SelectionMode.SELECTIVE, null);
+                1000L * groups.size(), 5000L, SelectionMode.SELECTIVE, null, true);
         try (DataStore dataStore = openStore(branch)) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }

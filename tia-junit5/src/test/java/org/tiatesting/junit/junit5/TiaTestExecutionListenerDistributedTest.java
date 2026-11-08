@@ -152,7 +152,7 @@ class TiaTestExecutionListenerDistributedTest {
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
         suitesByGroup.put(0, Collections.singletonList(SUITE));
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L, SelectionMode.SELECTIVE, null),
+                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L, SelectionMode.SELECTIVE, null, true),
                 groups, suitesByGroup, null));
     }
 

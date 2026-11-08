@@ -70,7 +70,7 @@ class DistributedRunRepository extends JdbcRepository {
                 + COL_GROUP_COUNT + ", " + COL_TARGET_RUN_TIME_MS + ", " + COL_ESTIMATED_TOTAL_MS + ", "
                 + COL_CREATED_AT + ", " + COL_SEALED_BY + ", " + COL_SEALED_AT + ", " + COL_DRAIN_RESULT
                 + ", " + COL_SELECTION_MODE + ", " + COL_GROUPS_AVAILABLE + ", " + COL_RUN_SOURCE
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + ", " + COL_UPDATES_MAPPING + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
                 + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
@@ -115,6 +115,7 @@ class DistributedRunRepository extends JdbcRepository {
                     statement.setString(12, run.getSelectionMode().name());
                     statement.setInt(13, run.getGroupsAvailable());
                     setNullableString(statement, 14, run.getRunSource());
+                    statement.setBoolean(15, run.isUpdatesMapping());
                     statement.executeUpdate();
                 }
                 // The run's parent row for its runner JVMs' contributions, in the same transaction
@@ -194,7 +195,8 @@ class DistributedRunRepository extends JdbcRepository {
                 resultSet.getString(COL_SEALED_BY),
                 getNullableLong(resultSet, COL_SEALED_AT),
                 SelectionMode.fromStoredName(resultSet.getString(COL_SELECTION_MODE)),
-                resultSet.getString(COL_RUN_SOURCE));
+                resultSet.getString(COL_RUN_SOURCE),
+                resultSet.getBoolean(COL_UPDATES_MAPPING));
     }
 
     /**

@@ -621,7 +621,7 @@ class DistributedRunnerPersistTest {
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(runId, "main", "plan-commit", 1, 1, null, 1000L, 1234L, mode, null),
+                DistributedRun.open(runId, "main", "plan-commit", 1, 1, null, 1000L, 1234L, mode, null, true),
                 Collections.singletonList(DistributedRunGroup.pending(runId, 0, 1000L)), suites, null));
     }
 
@@ -671,7 +671,7 @@ class DistributedRunnerPersistTest {
         suites.put(0, suiteNames);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", "plan-commit", 1, 1, null, 1000L, 1234L,
-                        SelectionMode.SELECTIVE, null),
+                        SelectionMode.SELECTIVE, null, true),
                 Collections.singletonList(DistributedRunGroup.pending(runId, 0, 1000L)), suites, null));
     }
 
@@ -708,7 +708,7 @@ class DistributedRunnerPersistTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", "plan-commit", groupCount, groupCount, null,
-                        1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null), groups, suites, null));
+                        1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null, true), groups, suites, null));
     }
 
     /**
@@ -727,6 +727,6 @@ class DistributedRunnerPersistTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", "plan-commit", groupCount, groupCount, null,
-                        1000L * groupCount, 1234L, SelectionMode.SEED, null), groups, suites, null));
+                        1000L * groupCount, 1234L, SelectionMode.SEED, null, true), groups, suites, null));
     }
 }

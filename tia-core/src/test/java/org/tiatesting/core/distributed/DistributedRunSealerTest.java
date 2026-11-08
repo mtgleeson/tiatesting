@@ -698,7 +698,7 @@ class DistributedRunSealerTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
-                        1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null), groups, suites, drainResult));
+                        1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null, true), groups, suites, drainResult));
     }
 
     /**
@@ -710,7 +710,7 @@ class DistributedRunSealerTest {
     private void persistEmptyPlan(final String runId) {
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, 0, 1, null, 0L, 1234L,
-                        SelectionMode.SELECTIVE, null),
+                        SelectionMode.SELECTIVE, null, true),
                 Collections.emptyList(), Collections.emptyMap(), null));
     }
 
@@ -730,7 +730,7 @@ class DistributedRunSealerTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
-                        1000L * groupCount, 1234L, mode, null), groups, suites, null));
+                        1000L * groupCount, 1234L, mode, null, true), groups, suites, null));
     }
 
     /**
@@ -769,7 +769,7 @@ class DistributedRunSealerTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, suitePerGroup.length, suitePerGroup.length, null,
-                        1000L * suitePerGroup.length, 1234L, SelectionMode.SELECTIVE, null), groups, suites, null));
+                        1000L * suitePerGroup.length, 1234L, SelectionMode.SELECTIVE, null, true), groups, suites, null));
     }
 
     /**
@@ -786,7 +786,7 @@ class DistributedRunSealerTest {
         groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
         suites.put(0, Arrays.asList("com.example.Suite0Test"));
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(runId, branch, PLAN_COMMIT, 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null),
+                DistributedRun.open(runId, branch, PLAN_COMMIT, 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null, true),
                 groups, suites, null));
     }
 

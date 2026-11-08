@@ -159,7 +159,7 @@ class PostgresCompletionTest {
             suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
         }
         DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", groupCount, groupCount, null,
-                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null);
+                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null, true);
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -180,7 +180,7 @@ class PostgresCompletionTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null);
+        DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null, true);
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 

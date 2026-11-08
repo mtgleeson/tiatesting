@@ -2,6 +2,7 @@ package org.tiatesting.core.distributed;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
@@ -1390,6 +1391,28 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * Verify the plan records whether the build owns mapping updates on its run row, for both
+     * values, since that flag decides which later plans may delete the run.
+     */
+    @Test
+    @Disabled("enabled in stage 2: the wholesale clear deletes run-primary")
+    void plan_recordsWhetherTheBuildUpdatesTheMapping() {
+        // given
+        DistributedRunPlanner primary = new DistributedRunPlanner(dataStore,
+                DistributedRunConfig.validated("run-primary", 2, null, null, null, null));
+        DistributedRunPlanner preflight = new DistributedRunPlanner(dataStore,
+                DistributedRunConfig.validated("run-preflight", 2, null, null, null, null));
+
+        // when
+        primary.plan(threeSuiteSelection(), "main", "commit-1", true, true, 1000L, noSeedSuites());
+        preflight.plan(threeSuiteSelection(), "main", "commit-1", false, true, 2000L, noSeedSuites());
+
+        // then
+        assertTrue(dataStore.readDistributedRun("run-primary").isUpdatesMapping());
+        assertFalse(dataStore.readDistributedRun("run-preflight").isUpdatesMapping());
+    }
+
+    /**
      * Verifies the ordering {@link DistributedRunPlanner#plan} depends on: {@link
      * DataStore#readAllDistributedRuns()} must be called before {@link
      * DataStore#persistDistributedRunPlan} in the same {@code plan()} call, because the persist
@@ -1456,7 +1479,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_sealedRun_returnsNull() {
         // given - a SEALED run whose groups happen to still be PENDING (irrelevant once sealed)
         DistributedRun sealedRun = new DistributedRun("run-sealed", "main", "commit-1",
-                DistributedRunStatus.SEALED, 1, 1, null, 1000L, 1L, "runner-1", 2L, SelectionMode.SELECTIVE, null);
+                DistributedRunStatus.SEALED, 1, 1, null, 1000L, 1L, "runner-1", 2L, SelectionMode.SELECTIVE, null, true);
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("run-sealed", 0, 1000L));
 
@@ -1479,7 +1502,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_allGroupsCompletedButRunNotSealed_returnsEmptyNonNullList() {
         // given - every group COMPLETED, but the run itself never reached SEALED
         DistributedRun unsealedRun = new DistributedRun("run-unsealed", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
+                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null, true);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-unsealed", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 900L, 5, 0, 5, 0L));
@@ -1504,7 +1527,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_openRunWithIncompleteGroup_returnsPopulatedList() {
         // given - one COMPLETED group, one still PENDING
         DistributedRun openRun = new DistributedRun("run-incomplete", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
+                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null, true);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-incomplete", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 900L, 5, 0, 5, 0L));
@@ -1529,7 +1552,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_claimedGroupOfANonFullRun_namesItsUnobservedSuites() {
         // given - an open selective run whose group 0 observed 1 of 3 suites
         DistributedRun openRun = new DistributedRun("run-claimed", "main", "commit-1",
-                DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SELECTIVE, null);
+                DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SELECTIVE, null, true);
         List<DistributedRunGroup> groups = Collections.singletonList(new DistributedRunGroup("run-claimed", 0,
                 DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 900L, 1, 0, 1, 0L));
         Map<Integer, List<String>> unobserved = Collections.singletonMap(0,
@@ -1553,7 +1576,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_pendingGroup_staysUnnamed() {
         // given - an open selective run with one PENDING group; the caller reads nothing for it
         DistributedRun openRun = new DistributedRun("run-pending", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
+                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null, true);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-pending", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 900L, 5, 0, 5, 0L));
@@ -1575,7 +1598,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_claimedGroupOfAFullRun_staysUnnamed() {
         // given - an open seed run; the caller reads nothing for a full run
         DistributedRun seedRun = new DistributedRun("run-seed", "main", "commit-1",
-                DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SEED, null);
+                DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SEED, null, true);
         List<DistributedRunGroup> groups = Collections.singletonList(new DistributedRunGroup("run-seed", 0,
                 DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 900L, 1, 0, 1, 0L));
 
@@ -1595,7 +1618,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_moreThanTwentyUnobserved_namesTwentyAndCountsTheRest() {
         // given - 25 unobserved suites, zero-padded so name order is numeric
         DistributedRun openRun = new DistributedRun("run-many", "main", "commit-1",
-                DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SELECTIVE, null);
+                DistributedRunStatus.OPEN, 1, 1, null, 1000L, 1L, null, null, SelectionMode.SELECTIVE, null, true);
         List<DistributedRunGroup> groups = Collections.singletonList(new DistributedRunGroup("run-many", 0,
                 DistributedRunGroupStatus.CLAIMED, "runner-1", 1L, null, 1000L, 900L, 900L, 0, 0, 0, 0L));
         List<String> names = new ArrayList<>();

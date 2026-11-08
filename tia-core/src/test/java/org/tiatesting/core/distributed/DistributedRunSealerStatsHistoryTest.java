@@ -1137,7 +1137,7 @@ class DistributedRunSealerStatsHistoryTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupsAvailable, null,
-                        1000L * groupCount, PLANNED_AT_MS, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, runSource), groups, suites,
+                        1000L * groupCount, PLANNED_AT_MS, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, runSource, true), groups, suites,
                 null));
     }
 

@@ -292,7 +292,7 @@ class DistributedRunCompleterTest {
             }
         }
         DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
-                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null);
+                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 

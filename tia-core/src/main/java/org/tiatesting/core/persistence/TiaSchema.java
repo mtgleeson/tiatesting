@@ -70,6 +70,7 @@ final class TiaSchema {
     static final String COL_WALL_CLOCK_SAVINGS_PERCENT = "wall_clock_savings_percent";
     static final String COL_WALL_CLOCK_MS = "wall_clock_ms";
     static final String COL_RUN_SOURCE = "run_source";
+    static final String COL_UPDATES_MAPPING = "updates_mapping";
     static final String COL_HOST_NAME = "host_name";
     static final String COL_NUM_MODIFIED_TEST_FILES = "num_modified_test_files";
     static final String COL_NUM_NEW_TEST_FILES = "num_new_test_files";
@@ -130,6 +131,7 @@ final class TiaSchema {
     static final String COL_LAST_END_MS = "last_end_ms";
     static final String IDX_TEST_RUN_JVM_GROUP = "idx_test_run_jvm_group";
     static final String IDX_DISTRIBUTED_RUN_GROUP_STATUS = "idx_distributed_run_group_status";
+    static final String IDX_DISTRIBUTED_RUN_TRIGGER_RUN_ID = "idx_distributed_run_trigger_run_id";
     static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
 
     private TiaSchema() {
