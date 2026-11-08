@@ -215,8 +215,8 @@ public final class DistributedRunCoordinator {
      * Read the run this coordinator is configured for, treating its absence as a hard failure
      * rather than an empty result. Shared by {@link #claim} and {@link #deriveTestsToIgnore} so
      * neither can be the one that quietly tolerates a missing run: a runner whose plan has been
-     * cleared by a superseding build must fail, in both operations, rather than run nothing and
-     * report success.
+     * deleted by a later plan - a superseding build, or a reap of a sealed or abandoned run - must
+     * fail, in both operations, rather than run nothing and report success.
      *
      * <p>Package-visible rather than private so {@link DistributedRunnerAssignment} can read the
      * run once and reuse it, instead of the assignment paying a second round trip for the run row
@@ -229,9 +229,10 @@ public final class DistributedRunCoordinator {
         DistributedRun run = dataStore.readDistributedRun(config.getRunId());
         if (run == null) {
             throw new IllegalStateException("No distributed run is planned under tiaRunId '"
-                    + config.getRunId() + "'. Either this build was superseded by a later one, "
-                    + "whose plan cleared these rows, or the plan step (Maven dist-plan, Gradle "
-                    + "tia-dist-plan) was never run for this id. "
+                    + config.getRunId() + "'. Either a later plan deleted it - this build was "
+                    + "superseded by a later one, or its run was reaped after it sealed or was "
+                    + "abandoned - or the plan step (Maven dist-plan, Gradle tia-dist-plan) was "
+                    + "never run for this id. "
                     + "This runner cannot know which tests it was meant to run, so it fails rather "
                     + "than reporting a passing build that ran nothing.");
         }
