@@ -20,11 +20,13 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -132,6 +134,48 @@ class JdbcDataStoreUnsealedSuiteTest {
         // then
         assertTrue(dataStore.getTestSuitesTracked().get("SuiteG").isUnsealed(),
                 "a persist carrying no coverage must not clear a flag set by an earlier unsealed run");
+    }
+
+    /**
+     * A write marked as the run's capture rewrites the suite's mapping even when the capture is
+     * empty: the old edges are deleted and the suite is flagged as observed.
+     */
+    @Test
+    void aCapturedEmptyWriteClearsTheEdgesAndFlagsTheSuite() {
+        // given - SuiteM has an edge from a sealed run
+        dataStore.persistTestSuites(suites(withCoverage("SuiteM")));
+        dataStore.clearUnsealedTestSuites();
+        TestSuiteTracker captured = withoutCoverage("SuiteM");
+        captured.setCoverageCaptured(true);
+
+        // when - SuiteM ran again and covered nothing
+        dataStore.persistTestSuites(suites(captured));
+
+        // then
+        assertTrue(dataStore.readTestSuiteCoverage(Collections.singleton("SuiteM"))
+                        .getOrDefault("SuiteM", Collections.<ClassImpactTracker>emptyList()).isEmpty(),
+                "an empty capture must delete the suite's old edges");
+        assertTrue(dataStore.getTestSuitesTracked().get("SuiteM").isUnsealed());
+    }
+
+    /**
+     * An unmarked empty write - a developer-disabled flag change for a suite that didn't run -
+     * leaves the suite's edges and flag alone.
+     */
+    @Test
+    void anUnmarkedEmptyWriteLeavesTheEdgesAndFlag() {
+        // given - SuiteN has an edge from a sealed run
+        dataStore.persistTestSuites(suites(withCoverage("SuiteN")));
+        dataStore.clearUnsealedTestSuites();
+        TestSuiteTracker flagOnly = withoutCoverage("SuiteN");
+        flagOnly.setDeveloperDisabled(true);
+
+        // when
+        dataStore.persistTestSuites(suites(flagOnly));
+
+        // then
+        assertEquals(1, dataStore.readTestSuiteCoverage(Collections.singleton("SuiteN")).get("SuiteN").size());
+        assertFalse(dataStore.getTestSuitesTracked().get("SuiteN").isUnsealed());
     }
 
     @Test

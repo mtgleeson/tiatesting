@@ -94,9 +94,10 @@ fails before sealing, a failure inside the seal rolls the whole thing back, and 
 never see an empty mapping. See [Persist flow and crash safety](persist-flow-and-crash-safety.md).
 
 It is keyed on the `unsealed` flag. Every suite a run executes has its edges rewritten and its
-`unsealed` flag set by `persistTestSuiteClasses` before the seal, so at seal time the flagged suites
-are exactly the ones this run rewrote - on a single host and across every runner of a distributed
-build. In order, the clear-out:
+`unsealed` flag set by `persistTestSuiteClasses` before the seal, including a suite that executed
+but covered no tracked code - its edges are cleared, and it keeps its row and stats. So at seal
+time the flagged suites are exactly the ones this run rewrote - on a single host and across every
+runner of a distributed build. In order, the clear-out:
 
 1. Deletes the classes and edges of every suite not flagged unsealed.
 2. Deletes those suites' rows, **except** developer-disabled ones, which keep their row, flag and

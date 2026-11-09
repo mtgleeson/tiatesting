@@ -767,9 +767,13 @@ public class TestRunnerService {
      * is a value to replace rather than add to: the coverage edges are this run's capture, and the
      * developer-disabled flag is what this run observed.
      *
-     * <p>A suite that only had its flag changed contributes no run, so its stats are left at zero
-     * and its edge list empty - the store leaves both its stored stats and its stored coverage
-     * exactly as they are, and writes only the flag.
+     * <p>An executed suite's write carries its whole capture and is marked
+     * {@link TestSuiteTracker#setCoverageCaptured coverage captured}, so the store replaces the
+     * suite's stored coverage with it even when the capture is empty - a suite that ran and covered
+     * no tracked code no longer keeps the edges of an earlier run. A suite that only had its flag
+     * changed contributes no run and is not marked, so its stats are left at zero and its edge list
+     * empty - the store leaves both its stored stats and its stored coverage exactly as they are,
+     * and writes only the flag.
      *
      * <p>A name with no entry in the tracked map is dropped rather than carried through as a null -
      * a suite that executed can still have been deleted moments earlier by
@@ -802,6 +806,7 @@ public class TestRunnerService {
             TestSuiteTracker ranThisRun = runTestSuiteTrackers.get(suiteName);
             if (ranThisRun != null) {
                 write.setTestStats(ranThisRun.getTestStats());
+                write.setCoverageCaptured(true);
             }
 
             toPersist.put(suiteName, write);

@@ -184,8 +184,8 @@ class MappingWriter extends JdbcRepository {
     }
 
     /**
-     * Upsert the given suites' rows and, where they carry coverage, their edges, over its own
-     * connection. Implements {@link DataStore#persistTestSuites}.
+     * Upsert the given suites' rows and, for suites this run executed or that carry classes, their
+     * edges, over its own connection. Implements {@link DataStore#persistTestSuites}.
      *
      * @param testSuites the suites to write, keyed by name
      */
@@ -307,17 +307,17 @@ class MappingWriter extends JdbcRepository {
 
     /**
      * Upsert the given suites' name/stats rows and, for mapping-update runs, their
-     * suite-to-source-class/method edges. Every suite in {@code testSuites} gets a row write
-     * regardless of whether it ran this time - the caller passes the whole merged suite map -
-     * but the edges are only written for suites with non-empty
-     * {@link TestSuiteTracker#getClassesImpacted()}, i.e. suites that actually have coverage this
-     * run. For those suites, {@link #persistTestSuiteClasses} also flags the suite as
+     * suite-to-source-class/method edges. Every suite in {@code testSuites} gets a row write, but
+     * the edges are written only for suites this run executed
+     * ({@link TestSuiteTracker#isCoverageCaptured()}), even when the capture is empty, and for any
+     * write that carries classes. An unmarked empty write - a developer-disabled flag change for a
+     * suite that didn't run - leaves the stored edges alone. For the rewritten suites, {@link #persistTestSuiteClasses} also flags the suite as
      * {@code unsealed} in the same per-suite transaction as its edge rewrite, so a crash mid-persist
      * can never leave a suite with rewritten edges and no flag - see the "Persist flow and crash
      * safety" chapter in {@code WIKI.md}.
      *
      * <p>{@code unsealed} is deliberately kept out of this method's own upsert column list: that
-     * upsert touches every suite in {@code testSuites}, including ones with no coverage this run,
+     * upsert touches every suite in {@code testSuites}, including ones whose edges are left alone,
      * so if the flag were part of that write it would need read-modify-write logic to avoid
      * clobbering a value set by a concurrent writer. The flag write only ever sets the column to
      * {@code true}; only the seal ({@link #clearUnsealedTestSuites(Connection)}) may clear it.
@@ -366,9 +366,11 @@ class MappingWriter extends JdbcRepository {
 
                 suitePs.executeUpdate();
 
-                // only update the source classes mapping for the test suite when mapping data
-                // exists for this test run.
-                if (!testSuite.getClassesImpacted().isEmpty()){
+                // Rewrite the suite's classes and edges, and flag it observed, when this write
+                // carries the run's capture - even an empty one, which clears coverage the suite
+                // no longer has - or carries classes. An unmarked empty write (a developer-disabled
+                // flag change) leaves the stored coverage alone.
+                if (testSuite.isCoverageCaptured() || !testSuite.getClassesImpacted().isEmpty()){
                     ResultSet rs = suitePs.getGeneratedKeys();
                     rs.next();
                     persistTestSuiteClasses(connection, rs.getLong(COL_ID),
@@ -402,9 +404,8 @@ class MappingWriter extends JdbcRepository {
 
     /**
      * Count the {@code tia_source_class} rows a persist will insert: one per impacted class of
-     * every suite that has coverage this run. Suites with no coverage are skipped because their
-     * existing rows are left untouched, exactly matching the condition guarding
-     * {@code persistTestSuiteClasses}.
+     * every suite being written. Suites with no classes need no ids: an empty capture only deletes
+     * rows, and an unmarked empty write leaves them untouched.
      *
      * @param testSuites the suites being persisted
      * @return the number of source-class ids the persist needs to reserve
@@ -568,7 +569,8 @@ class MappingWriter extends JdbcRepository {
      * then leaves every already-processed suite flagged, never edges-rewritten-but-unflagged,
      * which is the one direction test selection cannot detect. See the "Persist flow and crash
      * safety" chapter in {@code WIKI.md}. Kept inside a per-suite transaction so a failure leaves
-     * the suite's previous mapping (and flag) intact.
+     * the suite's previous mapping (and flag) intact. An empty class list - a suite that executed
+     * but covered no tracked code - deletes the suite's classes and edges and still flags it.
      *
      * @param connection the H2 connection
      * @param testSuiteId the id of the suite these classes belong to; also used to flag it as unsealed
@@ -582,10 +584,6 @@ class MappingWriter extends JdbcRepository {
                                          List<ClassImpactTracker> sourceClasses,
                                          PreparedStatement classChunkPs, PreparedStatement edgeChunkPs,
                                          long[] nextId) throws SQLException {
-        if (sourceClasses.isEmpty()){
-            return;
-        }
-
         // Materialise this suite's class rows and edge rows, then insert them with chunked multi-row
         // statements. Per-suite, so the buffers are bounded by the suite's size.
         List<Object[]> classRows = new ArrayList<>(sourceClasses.size());
