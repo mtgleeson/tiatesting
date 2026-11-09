@@ -37,6 +37,15 @@ public class TestSuiteTracker {
      */
     private boolean unsealed;
 
+    /**
+     * Whether this tracker is a write carrying the suite's complete coverage capture from the
+     * current run, so the store must replace the suite's stored coverage with it even when it is
+     * empty. False for trackers read from the store and for writes that only change the suite's
+     * developer-disabled flag. Not persisted. See the "Persist flow and crash safety" chapter in
+     * {@code WIKI.md}.
+     */
+    private boolean coverageCaptured;
+
     public TestSuiteTracker(){}
 
     public TestSuiteTracker(String name) {
@@ -117,6 +126,23 @@ public class TestSuiteTracker {
      */
     public void setUnsealed(boolean unsealed) {
         this.unsealed = unsealed;
+    }
+
+    /**
+     * @return whether this write carries the suite's complete coverage capture from the current run
+     */
+    public boolean isCoverageCaptured() {
+        return coverageCaptured;
+    }
+
+    /**
+     * Mark this write as carrying the suite's complete coverage capture from the current run, so
+     * the store replaces the suite's stored coverage with it even when it is empty.
+     *
+     * @param coverageCaptured whether the class list is this run's whole capture for the suite
+     */
+    public void setCoverageCaptured(boolean coverageCaptured) {
+        this.coverageCaptured = coverageCaptured;
     }
 
     @Override

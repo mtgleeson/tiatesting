@@ -180,14 +180,13 @@ against the stored commit until a seal has vouched for them.
 **This narrows the window; it does not close it.** Two documented ways the flag can be cleared
 without the suite's coverage actually having been recaptured against the sealed commit:
 
-- `persistTestSuiteClasses` only runs for suites with non-empty `classesImpacted` - i.e. suites that
-  actually executed and produced coverage this run. A suite that was force-selected (by this same
-  flag, by the failed-suite set, or by a library forced-selection) but then filtered back out never
-  reaches `persistTestSuiteClasses`, so its edges are not rewritten. But `clearUnsealedTestSuites`
-  in the seal is unconditional, so if that run reaches its seal the flag is cleared anyway, leaving
-  the suite with the crashed run's mapping rows, no flag, and a stored commit that claims they are
-  current. A suite that runs and legitimately returns empty coverage has the identical effect: no
-  edge rewrite, but the seal still clears whatever flag was already set.
+- `persistTestSuiteClasses` runs for every suite that executed this run - including one whose
+  capture is empty, whose edges it clears - and for no other. A suite that was force-selected (by
+  this same flag, by the failed-suite set, or by a library forced-selection) but then filtered back
+  out never reaches `persistTestSuiteClasses`, so its edges are not rewritten. But
+  `clearUnsealedTestSuites` in the seal is unconditional, so if that run reaches its seal the flag
+  is cleared anyway, leaving the suite with the crashed run's mapping rows, no flag, and a stored
+  commit that claims they are current.
 
   The filters that actually cause this are the ones Tia cannot see:
 
