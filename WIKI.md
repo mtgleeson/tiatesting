@@ -80,6 +80,8 @@ wiki can also be read front to back.
   local mode diffs (Git `HEAD`, Perforce `#have`), why a workspace behind or ahead of the stored
   mapping commit can mis-match edits to methods, and how Tia treats every tracked method in an
   affected file as impacted.
+- [Perforce depot paths](wiki/perforce-depot-paths.md) - stored-case vs client-view-case depot paths
+  on case-insensitive servers, and changed files `p4 where` doesn't map.
 - [Constructor and static initializer line ranges](wiki/initializer-line-ranges.md) - why a field
   declared after other methods stretches a constructor's line range over them, and the exact line
   ranges Tia records and matches instead.
