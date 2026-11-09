@@ -782,8 +782,9 @@ public class P4DiffAnalyzer {
         sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(),
                 Integer.toString(range.getFrom()), Integer.toString(range.getTo()), sourceAndTestFilesSpecs,
                 range.isReversed());
+        boolean caseSensitive = p4Context.getP4Connection().getServer().isCaseSensitive();
         log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet().stream().map( key ->
-                convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
+                convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs, caseSensitive)).collect(Collectors.toList()));
 
         // Content is loaded by the caller (loadContentForDiffContexts) so it can be deferred to a
         // chosen subset; this method returns the diff list only.
@@ -869,8 +870,9 @@ public class P4DiffAnalyzer {
         List<IExtendedFileSpec> changedLocalFiles = getSourceFilesImpactedFromLocalChanges(p4Context.getP4Connection(),
                 sourceFileDiffContexts, sourceAndTestFilesSpecs);
 
+        boolean caseSensitive = p4Context.getP4Connection().getServer().isCaseSensitive();
         log.info("Source files found with local changes: {}", sourceFileDiffContexts.keySet().stream().map( key ->
-                convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
+                convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs, caseSensitive)).collect(Collectors.toList()));
 
         // Capture each changed file's local workspace path on its diff context so the deferred
         // content load can read the working-copy "new" content without needing the live
@@ -928,6 +930,11 @@ public class P4DiffAnalyzer {
      * {@code p4 where} call, and collapsed per file by {@code buildDiffContext}, so a file
      * changed in several changelists ends up with a single context describing the overall change.
      *
+     * <p>Depot paths from the changes (stored case) are matched against those from {@code p4 where}
+     * (the client view's case) by the server's case rule. A changed file {@code p4 where} doesn't
+     * map can't be located in the workspace, so it is skipped and named in one WARN. See the
+     * "Perforce depot paths" chapter in {@code WIKI.md}.
+     *
      * @param p4Connection the Perforce connection being used for the analysis.
      * @param fileSpecs the file changes, one entry per (file, changelist) for a submitted range
      * @param sourceFileDiffContexts the map the contexts are added to, keyed by depot path
@@ -943,7 +950,8 @@ public class P4DiffAnalyzer {
                                                                         Map<String, SourceFileDiffContext> sourceFileDiffContexts,
                                                                         List<IFileSpec> sourceAndTestFilesSpecs,
                                                                         boolean reversed){
-        List<T> sourceCodeFiles = filterValidSourceOrTestFiles(fileSpecs, sourceAndTestFilesSpecs);
+        boolean caseSensitive = p4Connection.getServer().isCaseSensitive();
+        List<T> sourceCodeFiles = filterValidSourceOrTestFiles(fileSpecs, sourceAndTestFilesSpecs, caseSensitive);
 
         // Deduplicate depot paths for the `where` call. With allRevs=true on the upstream
         // range query, a file changed in multiple CLs returns one IFileSpec entry per (file, CL)
@@ -961,23 +969,34 @@ public class P4DiffAnalyzer {
         try {
             // use P4 where command to find out the local paths for the changed files (local or submitted)
             List<IFileSpec> whereFileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(uniqueDepotPaths));
+            // Overlapping-view lines come back with no depot path next to the winning mapping; drop
+            // them before keying. Key by the server's case rule: where answers in the client view's
+            // case, which on a case-insensitive server can differ from the stored case p4 files uses.
             // (existing, replacement) -> existing : where-results for the same depot path are
             // equivalent regardless of CL; pick the first to avoid throwing if p4 ever returns
             // duplicates on its own.
             localFileSpecs = whereFileSpecs.stream()
-                    .collect(Collectors.toMap(IFileSpec::getDepotPathString, Function.identity(), (existing, replacement) -> existing));
+                    .filter(whereFileSpec -> whereFileSpec.getDepotPathString() != null)
+                    .collect(Collectors.toMap(whereFileSpec -> depotPathKey(whereFileSpec.getDepotPathString(), caseSensitive),
+                            Function.identity(), (existing, replacement) -> existing));
         } catch (ConnectionException | AccessException e) {
             throw new VCSAnalyzerException(e);
         }
 
         sortFileChanges(sourceCodeFiles, reversed);
+        Set<String> unmappedDepotPaths = new LinkedHashSet<>();
         for (T fileSpec: sourceCodeFiles){
             String depotPath = fileSpec.getDepotPathString();
+            IFileSpec whereFileSpec = localFileSpecs.get(depotPathKey(depotPath, caseSensitive));
+            if (whereFileSpec == null || whereFileSpec.getLocalPathString() == null) {
+                unmappedDepotPaths.add(depotPath);
+                continue;
+            }
+            String localPath = whereFileSpec.getLocalPathString();
             ChangeType changeType = convertP4ChangeType(fileSpec.getAction());
             if (reversed) {
                 changeType = invert(changeType);
             }
-            String localPath = localFileSpecs.get(depotPath).getLocalPathString();
 
             if (changeType == ChangeType.ADD){
                 // the file doesn't exist on the "before" side, so it only has a new path
@@ -986,6 +1005,11 @@ public class P4DiffAnalyzer {
                 // file has been modified or deleted
                 addDiffContext(localPath, null, changeType, sourceFileDiffContexts, depotPath);
             }
+        }
+
+        if (!unmappedDepotPaths.isEmpty()) {
+            log.warn("Skipping {} changed file(s) that p4 where doesn't map in the client view, so tests for "
+                    + "their changes won't be selected: {}", unmappedDepotPaths.size(), unmappedDepotPaths);
         }
 
         return sourceCodeFiles;
@@ -999,10 +1023,12 @@ public class P4DiffAnalyzer {
      *
      * @param allFileSpecs the file changes returned by Perforce
      * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
+     * @param caseSensitive whether the server treats paths differing only in case as different files
      * @param <T> the file spec type
      * @return the entries that are source or test files in a tracked directory
      */
-    private <T extends IFileSpec> List<T> filterValidSourceOrTestFiles(List<T> allFileSpecs, List<IFileSpec> sourceAndTestFilesSpecs){
+    private <T extends IFileSpec> List<T> filterValidSourceOrTestFiles(List<T> allFileSpecs, List<IFileSpec> sourceAndTestFilesSpecs,
+                                                                       boolean caseSensitive){
         List<T> validSourceOrTestFiles = new ArrayList<>();
 
         for (T fileSpec: allFileSpecs) {
@@ -1013,7 +1039,7 @@ public class P4DiffAnalyzer {
                 continue;
             }
 
-            if (isFileSourceCode(depotPath) && isFileInSourceOrTestDir(depotPath, sourceAndTestFilesSpecs)){
+            if (isFileSourceCode(depotPath) && isFileInSourceOrTestDir(depotPath, sourceAndTestFilesSpecs, caseSensitive)){
                 validSourceOrTestFiles.add(fileSpec);
             }
         }
@@ -1039,16 +1065,54 @@ public class P4DiffAnalyzer {
     }
 
     /**
+     * Find a depot directory inside a depot path by the server's case rule. Depot paths reach Tia
+     * from two places that can spell them differently on a case-insensitive server: {@code p4 files}
+     * and {@code fstat} report the case the file was stored in, while {@code p4 where} reports the
+     * client view's case for the mapped prefix. See the "Perforce depot paths" chapter in
+     * {@code WIKI.md}.
+     *
+     * @param path the depot path to search
+     * @param dirDepotPath the depot directory to find
+     * @param caseSensitive whether the server treats paths differing only in case as different files
+     * @return the index of {@code dirDepotPath} in {@code path}, or -1 if it isn't there
+     */
+    static int indexOfDepotPath(final String path, final String dirDepotPath, final boolean caseSensitive) {
+        if (caseSensitive) {
+            return path.indexOf(dirDepotPath);
+        }
+        for (int i = 0; i + dirDepotPath.length() <= path.length(); i++) {
+            if (path.regionMatches(true, i, dirDepotPath, 0, dirDepotPath.length())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Key a depot path for a map lookup by the server's case rule, so a path from {@code p4 where}
+     * and the same path from {@code p4 files} share a key on a case-insensitive server.
+     *
+     * @param depotPath the depot path
+     * @param caseSensitive whether the server treats paths differing only in case as different files
+     * @return {@code depotPath} unchanged on a case-sensitive server, else in lower case
+     */
+    static String depotPathKey(final String depotPath, final boolean caseSensitive) {
+        return caseSensitive ? depotPath : depotPath.toLowerCase(Locale.ROOT);
+    }
+
+    /**
      * Check if the file exists in one of the source code or test file directories. If not, we don't want to proces
-     * the file. The file might below to another application outside the project being analyzed.
+     * the file. The file might below to another application outside the project being analyzed. The directories'
+     * depot paths come from {@code p4 where} (client view case), so they're matched by the server's case rule.
      *
      * @param depotPath the depot path of the file
      * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
+     * @param caseSensitive whether the server treats paths differing only in case as different files
      * @return does the file exist in one of the source code or test directories being analysed
      */
-    private boolean isFileInSourceOrTestDir(String depotPath, List<IFileSpec> sourceAndTestFilesSpecs){
+    private boolean isFileInSourceOrTestDir(String depotPath, List<IFileSpec> sourceAndTestFilesSpecs, boolean caseSensitive){
         for (IFileSpec sourceAndTestFilesSpec: sourceAndTestFilesSpecs){
-            if (depotPath.contains(sourceAndTestFilesSpec.getDepotPathString())){
+            if (indexOfDepotPath(depotPath, sourceAndTestFilesSpec.getDepotPathString(), caseSensitive) >= 0){
                 return true;
             }
         }
@@ -1063,18 +1127,22 @@ public class P4DiffAnalyzer {
      * to
      * src/main/java/com/example/Car.java
      *
-     * @param depotPath
+     * @param depotPath the depot path of the file, or null
      * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
-     * @return
+     * @param caseSensitive whether the server treats paths differing only in case as different files
+     * @return the path below the first matching source or test directory, or {@code depotPath} unchanged when none matches
      */
-    private String convertDepotPathToTiaPath(String depotPath, List<IFileSpec> sourceAndTestFilesSpecs){
+    private String convertDepotPathToTiaPath(String depotPath, List<IFileSpec> sourceAndTestFilesSpecs,
+                                             boolean caseSensitive){
         String tiaMappingPath = depotPath;
 
         if (tiaMappingPath != null){
             for (IFileSpec sourceAndTestFilesSpec : sourceAndTestFilesSpecs){
-                if (tiaMappingPath.contains(sourceAndTestFilesSpec.getDepotPathString())){
+                String dir = sourceAndTestFilesSpec.getDepotPathString();
+                int index = indexOfDepotPath(tiaMappingPath, dir, caseSensitive);
+                if (index >= 0){
                     // use +1 to remove the leading '/'
-                    tiaMappingPath = tiaMappingPath.substring(sourceAndTestFilesSpec.getDepotPathString().length() + 1);
+                    tiaMappingPath = tiaMappingPath.substring(index + dir.length() + 1);
                     break;
                 }
             }
