@@ -1085,7 +1085,9 @@ public class P4DiffAnalyzer {
 
     /**
      * Build the diff context for one file change, collapsed with any earlier change to the same
-     * file in the walk, and record it in the map.
+     * file in the walk, and record it in the map. When the collapse drops the file - it was added
+     * and then deleted, so it exists at neither end of the walk - the earlier entry is removed
+     * rather than left in place as an add.
      *
      * @param diffOldPath the local path on the "before" side, or null when the file doesn't exist there
      * @param diffNewPath the local path on the "after" side, or null for a modify or delete
@@ -1098,12 +1100,15 @@ public class P4DiffAnalyzer {
         SourceFileDiffContext diffContext = buildDiffContext(diffOldPath, diffNewPath, changeType,
                 sourceFileDiffContexts, pathForTracking);
 
-        if (diffContext != null){
-            // The depot path is the handle the content readers fetch by; record it so content can
-            // be loaded in a later step keyed off the context alone.
-            diffContext.setVcsFetchKey(pathForTracking);
-            sourceFileDiffContexts.put(pathForTracking, diffContext);
+        if (diffContext == null){
+            sourceFileDiffContexts.remove(pathForTracking);
+            return;
         }
+
+        // The depot path is the handle the content readers fetch by; record it so content can
+        // be loaded in a later step keyed off the context alone.
+        diffContext.setVcsFetchKey(pathForTracking);
+        sourceFileDiffContexts.put(pathForTracking, diffContext);
     }
 
     /**
@@ -1122,16 +1127,17 @@ public class P4DiffAnalyzer {
      * Override mapping:
      * 1st commit -> 2nd commit = overridden action
      * add -> edit = add
-     * add -> delete = delete (treat the file like it never existed in the CL range)
+     * add -> delete = no diff context (the file exists at neither end; the caller removes it)
      * edit -> edit = edit
      * edit -> delete = delete
      * delete -> add = edit
      *
-     * @param diffOldPath
-     * @param diffNewPath
-     * @param currentChangeType
-     * @param sourceFileDiffContexts
-     * @param pathForTracking
+     * @param diffOldPath the local path on the "before" side, or null when the file doesn't exist there
+     * @param diffNewPath the local path on the "after" side, or null for a modify or delete
+     * @param currentChangeType the change being added to the walk
+     * @param sourceFileDiffContexts the map of diff contexts keyed by depot path, holding the file's
+     *                               previous context if it changed earlier in the walk
+     * @param pathForTracking the depot path of the file
      * @return the SourceFileDiffContext for the file change, or null if the file change should not be processed by Tia for selection.
      */
     private SourceFileDiffContext buildDiffContext(String diffOldPath, String diffNewPath, ChangeType currentChangeType,

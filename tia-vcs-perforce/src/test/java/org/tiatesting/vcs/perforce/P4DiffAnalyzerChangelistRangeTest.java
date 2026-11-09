@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -339,6 +340,103 @@ class P4DiffAnalyzerChangelistRangeTest {
         // and - Baz and Qux exist at both ends
         assertEquals(ChangeType.MODIFY, contexts.get(bazDepot).getChangeType());
         assertEquals(ChangeType.MODIFY, contexts.get(quxDepot).getChangeType());
+    }
+
+    /**
+     * A file added and then deleted within the range exists at neither end, so it has no diff
+     * context - it must not be reported as added.
+     */
+    @Test
+    void addedThenDeletedInRange_hasNoDiffContext() throws P4JavaException {
+        // given - Foo added at 101 and deleted at 103; Bar edited at 102
+        IFileSpec fooAdd = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.ADD, 101);
+        IFileSpec barEdit = spec(BAR_DEPOT, "/ws/Bar.java", FileAction.EDIT, 102);
+        IFileSpec fooDelete = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.DELETE, 103);
+        when(server.getDepotFiles(any(), eq(true))).thenReturn(Arrays.asList(fooAdd, barEdit, fooDelete));
+        List<IFileSpec> whereResults = Arrays.asList(
+                spec(FOO_DEPOT, "/ws/Foo.java", null, 0), spec(BAR_DEPOT, "/ws/Bar.java", null, 0));
+        when(client.where(any())).thenReturn(whereResults);
+
+        // when
+        Map<String, SourceFileDiffContext> contexts =
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "101", "103",
+                        sourceAndTestFilesSpecs, false);
+
+        // then
+        assertFalse(contexts.containsKey(FOO_DEPOT), "a file that exists at neither end has no diff");
+        assertEquals(ChangeType.MODIFY, contexts.get(BAR_DEPOT).getChangeType());
+    }
+
+    /**
+     * A file added, deleted and added again within the range is absent at the start and present
+     * at the end, so it is an add - the dropped first add must not block the second.
+     */
+    @Test
+    void addedDeletedAndReAddedInRange_isAnAdd() throws P4JavaException {
+        // given
+        IFileSpec fooAdd = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.ADD, 101);
+        IFileSpec fooDelete = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.DELETE, 102);
+        IFileSpec fooReAdd = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.ADD, 103);
+        when(server.getDepotFiles(any(), eq(true))).thenReturn(Arrays.asList(fooAdd, fooDelete, fooReAdd));
+        List<IFileSpec> whereResults = Collections.singletonList(spec(FOO_DEPOT, "/ws/Foo.java", null, 0));
+        when(client.where(any())).thenReturn(whereResults);
+
+        // when
+        Map<String, SourceFileDiffContext> contexts =
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "101", "103",
+                        sourceAndTestFilesSpecs, false);
+
+        // then
+        assertEquals(ChangeType.ADD, contexts.get(FOO_DEPOT).getChangeType());
+        assertNull(contexts.get(FOO_DEPOT).getOldFilePath());
+        assertEquals("/ws/Foo.java", contexts.get(FOO_DEPOT).getNewFilePath());
+    }
+
+    /**
+     * With the head behind the stored changelist, a file added and deleted between them exists at
+     * neither end either: walked newest first and inverted it is again an add then a delete, and
+     * has no diff context.
+     */
+    @Test
+    void reversedRange_addedThenDeleted_hasNoDiffContext() throws P4JavaException {
+        // given - head 100, stored 103; Foo added at 101 and deleted at 103
+        IFileSpec fooAdd = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.ADD, 101);
+        IFileSpec fooDelete = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.DELETE, 103);
+        when(server.getDepotFiles(any(), eq(true))).thenReturn(Arrays.asList(fooAdd, fooDelete));
+        List<IFileSpec> whereResults = Collections.singletonList(spec(FOO_DEPOT, "/ws/Foo.java", null, 0));
+        when(client.where(any())).thenReturn(whereResults);
+
+        // when
+        Map<String, SourceFileDiffContext> contexts =
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "101", "103",
+                        sourceAndTestFilesSpecs, true);
+
+        // then
+        assertTrue(contexts.isEmpty());
+    }
+
+    /**
+     * A file that existed at the start, was deleted, re-added and deleted again is a delete - the
+     * removal only applies when the file didn't exist at the start.
+     */
+    @Test
+    void existingFileDeletedReAddedAndDeletedAgain_isADelete() throws P4JavaException {
+        // given
+        IFileSpec fooDelete = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.DELETE, 101);
+        IFileSpec fooReAdd = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.ADD, 102);
+        IFileSpec fooDeleteAgain = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.DELETE, 103);
+        when(server.getDepotFiles(any(), eq(true))).thenReturn(Arrays.asList(fooDelete, fooReAdd, fooDeleteAgain));
+        List<IFileSpec> whereResults = Collections.singletonList(spec(FOO_DEPOT, "/ws/Foo.java", null, 0));
+        when(client.where(any())).thenReturn(whereResults);
+
+        // when
+        Map<String, SourceFileDiffContext> contexts =
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "101", "103",
+                        sourceAndTestFilesSpecs, false);
+
+        // then
+        assertEquals(ChangeType.DELETE, contexts.get(FOO_DEPOT).getChangeType());
+        assertEquals("/ws/Foo.java", contexts.get(FOO_DEPOT).getOldFilePath());
     }
 
     /**
