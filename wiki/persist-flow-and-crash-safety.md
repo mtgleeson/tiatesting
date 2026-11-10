@@ -74,6 +74,29 @@ suite" section of the [test-run history chapter](test-run-history.md) for the fu
 skipped and why, and for the line that separates an empty run from the nothing-impacted run that
 legitimately executes no suite.
 
+### A run whose coverage collection failed performs none of these steps either
+
+A mapping run reads each suite's coverage from the JaCoCo agent over its TCP server: once before
+the first suite, to discard what was recorded before it, and once as each suite finishes. If any of
+those reads fails - the agent cannot be reached, or closes the connection mid-dump - the run cannot
+say what its suites covered, so the test JVM writes **nothing**: none of steps 1-4, not even the
+contribution and history row an empty run still writes. Persisting anyway would replace the failed
+suite's stored coverage with an empty capture (or delete its row as a suite the runner no longer
+discovers) and then seal the commit over it, so later builds would skip the suite for changes it
+does cover.
+
+The failure is recorded on a per-JVM `CoverageCollectionStatus` (`tia-core`), shared by every test
+plan of the JVM so a Surefire re-run in the same JVM does not persist either. It is logged at
+`ERROR` when it happens and again when the persist is skipped, the tests carry on, and the build's
+outcome is not changed by it. No further coverage is collected in that JVM. As with an empty run,
+the DB is left as a pre-seal crash leaves it - stored commit at the prior value - and the next
+mapping run selects from that baseline again.
+
+The guard is per test JVM. It does not reach back to a test plan of the same JVM that already
+persisted before the failure, nor across to a Gradle test-retry round, which is a fresh JVM of the
+same run that collects its own coverage and still persists. Parallel test JVMs are not a case to
+cover here: a mapping run does not support them.
+
 ### Per-call atomicity inside the JDBC datastore
 
 Each individual persist call is internally atomic:

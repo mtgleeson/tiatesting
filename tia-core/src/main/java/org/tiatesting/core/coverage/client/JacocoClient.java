@@ -65,16 +65,21 @@ public class JacocoClient {
     public JacocoClient(){
     }
 
-    public void initialize(){
+    /**
+     * Prepare the client for a mapping run: index the bytecode of the tracked classes, then dump
+     * and discard whatever coverage the agent recorded before the first test suite, so the first
+     * suite is not credited with it. A failure of that first dump is reported to the caller rather
+     * than swallowed: an agent that cannot be reached here cannot be reached for the suites either.
+     *
+     * @throws IOException if the agent cannot be reached, or closes the connection before the dump
+     *                     completes
+     */
+    public void initialize() throws IOException {
         loadClasses();
         log.debug("classes size: " + this.classBytesByVmName.size());
 
-        try {
-            // collect & dump any existing coverage metrics
-            collectCoverage();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        // collect & dump any existing coverage metrics
+        collectCoverage();
     }
 
     /**

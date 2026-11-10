@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.spockframework.runtime.AbstractRunListener;
 import org.spockframework.runtime.model.ErrorInfo;
 import org.spockframework.runtime.model.SpecInfo;
+import org.tiatesting.core.coverage.client.CoverageCollectionStatus;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
@@ -70,6 +71,11 @@ public class TiaSpockRunListener extends AbstractRunListener {
     created once per JVM, so the listener holds them.
      */
     private final TestJvmContribution jvmContribution = new TestJvmContribution();
+    /*
+    Whether a coverage collection has failed in this JVM. Once it has, no more coverage is collected
+    and finishAllTests persists nothing. See CoverageCollectionStatus.
+     */
+    private final CoverageCollectionStatus coverageCollectionStatus = new CoverageCollectionStatus();
     private boolean stopStepRan;
 
     /**
@@ -111,8 +117,46 @@ public class TiaSpockRunListener extends AbstractRunListener {
                                final TestRunSelectionDetails selectionDetails,
                                final DistributedRunnerContext distributedRunnerContext,
                                final TestRunIdentity testRunIdentity){
+        this(branch, headCommit, dataStore, selectedTests, ignoredTestSuiteCount, updateDBMapping,
+                updateDBTestRunHistory, libraryImpactDrainResult, selectionDetails, distributedRunnerContext,
+                testRunIdentity, new JacocoClient());
+    }
+
+    /**
+     * Build the listener with a given coverage client - see the public constructor, whose
+     * parameters these otherwise are. Package-private so a test can supply coverage dumps, or a
+     * failing collection, without a JaCoCo agent.
+     *
+     * <p>On a mapping run the client is initialised here. A failure to reach the agent is recorded
+     * on the JVM's {@link CoverageCollectionStatus} rather than thrown, and the run then persists
+     * nothing.
+     *
+     * @param branch                  the branch this run is against
+     * @param headCommit              the commit this run is against
+     * @param dataStore               persistence backend
+     * @param selectedTests           tests Tia selected to run
+     * @param ignoredTestSuiteCount   number of test suites Tia chose to ignore for this run
+     * @param updateDBMapping         persist the test-suite to method mapping and the run stats
+     * @param updateDBTestRunHistory  log a row to {@code tia_test_run_history}
+     * @param libraryImpactDrainResult drain result from selection (may be {@code null})
+     * @param selectionDetails         the per-run selection breakdown
+     * @param distributedRunnerContext the distributed runner's context, or {@code null} for an
+     *                                 ordinary single-host build
+     * @param testRunIdentity          the run this JVM belongs to
+     * @param coverageClient           the client coverage is collected through
+     */
+    TiaSpockRunListener(final String branch, final String headCommit,
+                        final DataStore dataStore, Set<String> selectedTests,
+                        final int ignoredTestSuiteCount,
+                        final boolean updateDBMapping,
+                        final boolean updateDBTestRunHistory,
+                        final LibraryImpactDrainResult libraryImpactDrainResult,
+                        final TestRunSelectionDetails selectionDetails,
+                        final DistributedRunnerContext distributedRunnerContext,
+                        final TestRunIdentity testRunIdentity,
+                        final JacocoClient coverageClient){
         this.testRunnerService = new TestRunnerService(dataStore);
-        this.coverageClient = new JacocoClient();
+        this.coverageClient = coverageClient;
         this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.testSuitesProcessed = ConcurrentHashMap.newKeySet();
@@ -132,7 +176,11 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.branch = branch;
 
         if (updateDBMapping){
-            this.coverageClient.initialize();
+            try {
+                this.coverageClient.initialize();
+            } catch (IOException e) {
+                coverageCollectionStatus.recordFailure("at startup, before the first spec", e);
+            }
         }
     }
 
@@ -186,7 +234,9 @@ public class TiaSpockRunListener extends AbstractRunListener {
      * Spock's engine never invokes {@code IRunListener.specSkipped} (verified against the compiled
      * spock-core jar; see {@link TiaSpockSkipExecutionListener} for where the skip observation comes
      * from instead). Collects its coverage and records it as observed by this JVM, mirroring the
-     * JUnit5 listener's {@code executionFinished}/{@code testSuiteFinished}.
+     * JUnit5 listener's {@code executionFinished}/{@code testSuiteFinished}. A coverage collection
+     * that fails is recorded on the JVM's {@link CoverageCollectionStatus} instead of being thrown,
+     * and no further collection is attempted.
      *
      * @param spec the spec that finished
      */
@@ -204,15 +254,16 @@ public class TiaSpockRunListener extends AbstractRunListener {
             testSuiteTracker.getTestStats().setAvgRunTime(calcTestSuiteRuntime(testSuiteTracker));
         }
 
-        if (updateDBMapping) {
+        if (updateDBMapping && !coverageCollectionStatus.hasFailed()) {
             log.debug("Collecting coverage and adding the mapping for the test suite: " + specName);
             try {
                 CoverageResult coverageResult = this.coverageClient.collectCoverage();
                 testSuiteTracker.setClassesImpacted(coverageResult.getClassesInvoked());
                 testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
             } catch (IOException e) {
-                log.error("Error while collecting coverage", e);
-                throw new RuntimeException(e);
+                // Recorded rather than thrown: the spec's bookkeeping carries on, and
+                // finishAllTests then persists nothing for the run.
+                coverageCollectionStatus.recordFailure("for the test suite " + specName, e);
             }
         }
 
@@ -227,6 +278,10 @@ public class TiaSpockRunListener extends AbstractRunListener {
      * persists only its own share, completes its group and seals the build only if it turns out to
      * be the last runner to finish.
      *
+     * <p>Nothing is persisted when this is a mapping run and a coverage collection has failed in
+     * this JVM: such a run cannot say what its specs covered, so it writes no mapping, failed set,
+     * commit advance or history. See {@link CoverageCollectionStatus}.
+     *
      * @param runnerTestSuites every suite the runner discovered, executed or skipped, used to spot
      *                         suites that have been deleted since the last run
      * @param testRunStartTime UTC epoch millis when the test run started, used as both the history
@@ -238,6 +293,12 @@ public class TiaSpockRunListener extends AbstractRunListener {
         }
 
         stopStepRan = true; // this method is called twice for some reason - avoid processing it twice.
+        if (updateDBMapping && coverageCollectionStatus.hasFailed()){
+            // The run cannot say what its specs covered, so it writes nothing at all.
+            testRunnerService.skipPersistAfterCoverageFailure(coverageCollectionStatus);
+            return;
+        }
+
         log.info("Test run finished. Persisting the DB.");
         TestStats testStats = updateDBMapping ? updateStatsForTestRun(testRunStartTime) : null;
         // Merge in the specs this JVM's JUnit Platform listener saw skipped - see the field comment

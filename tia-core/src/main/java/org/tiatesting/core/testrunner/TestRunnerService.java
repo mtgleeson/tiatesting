@@ -2,6 +2,7 @@ package org.tiatesting.core.testrunner;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.coverage.client.CoverageCollectionStatus;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.distributed.DistributedRunnerPersist;
 import org.tiatesting.core.model.ClassImpactTracker;
@@ -102,6 +103,22 @@ public class TestRunnerService {
         } finally {
             dataStore.close();
         }
+    }
+
+    /**
+     * Finish a test plan of a mapping run whose coverage collection failed, without persisting
+     * anything: no suite mapping, failed set, seal, contribution or history row. The run cannot say
+     * what its suites covered, so the stored mapping is left at its current commit for the next
+     * mapping run to select from. The skip is logged at ERROR, and the datastore is closed exactly
+     * as {@link #persistTestRunData} closes it, so an embedded H2 file this JVM opened earlier is
+     * still shut down cleanly.
+     *
+     * @param coverageCollectionStatus the JVM's coverage collection status, carrying the failure
+     */
+    public void skipPersistAfterCoverageFailure(final CoverageCollectionStatus coverageCollectionStatus){
+        log.error("Test run finished. Not persisting the DB: coverage collection failed {}. The stored "
+                + "mapping and commit are left as they were.", coverageCollectionStatus.getFailure());
+        dataStore.close();
     }
 
     /**

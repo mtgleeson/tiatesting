@@ -3,6 +3,7 @@ package org.tiatesting.core.testrunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.coverage.client.CoverageCollectionStatus;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -22,6 +23,7 @@ import java.util.HashSet;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -103,6 +105,24 @@ class TestRunnerServiceClosesDataStoreTest {
         // then
         assertEquals("second-commit", dataStore.getTiaData().getCommitValue());
         assertEquals(2, dataStore.readTestRunHistory().size());
+    }
+
+    @Test
+    void skippingThePersistAfterACoverageFailureWritesNothingAndClosesTheFile() throws IOException {
+        // given - a mapping run whose coverage collection failed
+        JdbcDataStore dataStore = newDataStore();
+        TestRunnerService service = new TestRunnerService(dataStore);
+        CoverageCollectionStatus status = new CoverageCollectionStatus();
+        status.recordFailure("for the test suite com.example.SomeTest", new IOException("Connection refused"));
+
+        // when
+        service.skipPersistAfterCoverageFailure(status);
+
+        // then
+        assertTrue(fileHeader().contains("clean:1"), fileHeader());
+        assertNull(dataStore.getTiaData().getCommitValue());
+        assertTrue(dataStore.getTestSuitesTracked().isEmpty());
+        assertTrue(dataStore.readTestRunHistory().isEmpty());
     }
 
     /**
