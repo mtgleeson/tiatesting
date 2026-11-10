@@ -14,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -144,5 +145,25 @@ class PostgresSchemaMigrationTest {
                 }
             }
         }
+    }
+
+    @Test
+    void existingPostgresSchemaMissingTheCoverageFailureColumnGetsItAdded() throws Exception {
+        // given a schema created by one store, then stripped back to the pre-column run table
+        DataStore creator = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
+                null, BRANCH, null);
+        creator.getTiaData();
+        creator.close();
+        executeInBranchSchema(
+                "ALTER TABLE " + TiaSchema.TABLE_TIA_TEST_RUN + " DROP COLUMN " + TiaSchema.COL_COVERAGE_FAILURE);
+
+        // when a later store makes first contact and records a failure
+        postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
+                null, BRANCH, null);
+        postgresStore.getTiaData();
+        postgresStore.markTestRunCoverageFailed("run-1", 1000L, "at startup: java.io.IOException: refused");
+
+        // then the column is back and holds it
+        assertEquals("at startup: java.io.IOException: refused", postgresStore.readTestRunCoverageFailure("run-1"));
     }
 }

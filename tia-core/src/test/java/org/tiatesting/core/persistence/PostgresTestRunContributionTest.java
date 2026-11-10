@@ -29,6 +29,7 @@ import java.util.concurrent.Future;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -186,5 +187,23 @@ class PostgresTestRunContributionTest {
 
         // then
         assertEquals(forks, postgresStore.readTestRunHistory().get(0).getNumSuitesRan());
+    }
+
+    @Test
+    void aRecordedCoverageFailureIsReadBackAndTheFirstIsKeptOnPostgres() {
+        // given a run no JVM has persisted for yet, and another run with a contribution
+        postgresStore.persistTestRunContribution("run-2", 1000L,
+                Collections.singletonList(new TestRunContribution("run-2", "jvm-a", false, null, 1,
+                        Collections.<String>emptySet(), Collections.<String>emptySet(), 100L, 0L, 1000L, 1100L)),
+                null);
+
+        // when two JVMs of the run record a failure in turn
+        postgresStore.markTestRunCoverageFailed("run-1", 1000L, "at startup: java.io.IOException: refused");
+        postgresStore.markTestRunCoverageFailed("run-1", 1000L, "second");
+
+        // then the first is kept, and a run with none recorded - or with no row - reads as none
+        assertEquals("at startup: java.io.IOException: refused", postgresStore.readTestRunCoverageFailure("run-1"));
+        assertNull(postgresStore.readTestRunCoverageFailure("run-2"));
+        assertNull(postgresStore.readTestRunCoverageFailure("run-3"));
     }
 }
