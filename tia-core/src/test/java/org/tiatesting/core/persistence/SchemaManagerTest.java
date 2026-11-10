@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -383,5 +384,42 @@ class SchemaManagerTest {
                 throw new TiaPersistenceException(e);
             }
         };
+    }
+
+    @Test
+    void existingDbMissingTheCoverageFailureColumnGetsItAddedOnce(@TempDir Path dir) throws Exception {
+        // given an existing DB whose run table predates the column and holds one run
+        H2ConnectionProvider provider = new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.toString()));
+        try (Connection connection = provider.get()) {
+            new SchemaManager(new H2Dialect(), opening(provider, new AtomicInteger()), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_TEST_RUN
+                        + " DROP COLUMN " + TiaSchema.COL_COVERAGE_FAILURE);
+                statement.execute("INSERT INTO " + TiaSchema.TABLE_TIA_TEST_RUN + " (id, start_ms) VALUES ('old-run', 1)");
+            }
+
+            // when two fresh managers (two later JVMs) ensure the schema in turn
+            AtomicInteger openedByFirst = new AtomicInteger();
+            boolean existed = new SchemaManager(new H2Dialect(), opening(provider, openedByFirst), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            AtomicInteger openedBySecond = new AtomicInteger();
+            new SchemaManager(new H2Dialect(), opening(provider, openedBySecond), provider.jdbcUrl())
+                    .ensureSchema(connection);
+
+            // then the first adds the column on a connection of its own, the existing run reads
+            // back with no coverage failure, and the second finds it already there
+            assertTrue(existed);
+            assertEquals(1, openedByFirst.get());
+            assertEquals(0, openedBySecond.get());
+            try (Statement statement = connection.createStatement();
+                 ResultSet resultSet = statement.executeQuery("SELECT " + TiaSchema.COL_COVERAGE_FAILURE
+                         + " FROM " + TiaSchema.TABLE_TIA_TEST_RUN)) {
+                assertTrue(resultSet.next());
+                assertNull(resultSet.getString(1));
+            }
+        } finally {
+            provider.close();
+        }
     }
 }

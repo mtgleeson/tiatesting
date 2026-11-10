@@ -494,6 +494,24 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * {@inheritDoc}
+     * <p>Delegates to {@link TestRunContributionRepository#markCoverageFailed}.
+     */
+    @Override
+    public void markTestRunCoverageFailed(final String runId, final long runStartMs, final String failure) {
+        testRunContributionRepository.markCoverageFailed(runId, runStartMs, failure);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link TestRunContributionRepository#readCoverageFailure}.
+     */
+    @Override
+    public String readTestRunCoverageFailure(final String runId) {
+        return testRunContributionRepository.readCoverageFailure(runId);
+    }
+
+    /**
+     * {@inheritDoc}
      * <p>Delegates to {@link TestRunHistoryRepository#readTestRunHistory}.
      */
     @Override

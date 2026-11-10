@@ -9,6 +9,7 @@ import org.junit.platform.launcher.TestIdentifier;
 import org.junit.platform.launcher.TestPlan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.coverage.client.CoverageCollectionStatus;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.distributed.DistributedForkProperties;
@@ -60,6 +61,11 @@ public class TiaTestExecutionListener implements TestExecutionListener {
 
     private final TestRunnerService testRunnerService;
     private final JacocoClient coverageClient;
+    /*
+     * Whether a coverage collection has failed in this JVM, shared across its test plans. Once it has, no more
+     * coverage is collected and no test plan of the JVM persists anything. See CoverageCollectionStatus.
+     */
+    private final CoverageCollectionStatus coverageCollectionStatus;
     private final String headCommit;
     private final String branch;
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
@@ -206,7 +212,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      *
      * @param sharedTestRunData the per-JVM state carried across Surefire retries
      * @param coverageClient the client coverage is collected through; initialised here when mapping
-     *                       is on
+     *                       is on. A failure to reach the agent is recorded on the shared
+     *                       {@link CoverageCollectionStatus} rather than thrown
      * @param clock the time source, in epoch milliseconds
      */
     TiaTestExecutionListener(final SharedTestRunData sharedTestRunData, final JacocoClient coverageClient,
@@ -218,12 +225,17 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         this.updateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
         this.enabled = isEnabled();
         this.coverageClient = coverageClient;
+        this.sharedTestRunData = sharedTestRunData;
+        this.coverageCollectionStatus = sharedTestRunData.getCoverageCollectionStatus();
 
-        if (enabled && updateDBMapping){
-            this.coverageClient.initialize();
+        if (enabled && updateDBMapping && !coverageCollectionStatus.hasFailed()){
+            try {
+                this.coverageClient.initialize();
+            } catch (IOException e) {
+                coverageCollectionStatus.recordFailure("at startup, before the first test suite", e);
+            }
         }
 
-        this.sharedTestRunData = sharedTestRunData;
         this.testSuiteTrackers = sharedTestRunData.getTestSuiteTrackers();
         this.testSuitesFailed = sharedTestRunData.getTestSuitesFailed();
         this.runnerTestSuites = sharedTestRunData.getRunnerTestSuites();
@@ -628,15 +640,23 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     /**
      * Dump the coverage collected since the last dump and add it to a suite's mapping.
      *
+     * <p>A dump that fails is recorded on the JVM's {@link CoverageCollectionStatus} instead of
+     * being thrown: the suite's bookkeeping carries on, no further dump is attempted in this JVM,
+     * and {@link #testPlanExecutionFinished} then persists nothing for the run.
+     *
      * @param testSuiteTracker the suite the coverage is credited to
      */
     private void collectCoverageInto(final TestSuiteTracker testSuiteTracker) {
         testRanSinceLastDump = false;
+        if (coverageCollectionStatus.hasFailed()) {
+            return;
+        }
         CoverageResult coverageResult;
         try {
             coverageResult = this.coverageClient.collectCoverage();
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            coverageCollectionStatus.recordFailure("for the test suite " + testSuiteTracker.getName(), e);
+            return;
         }
         List<ClassImpactTracker> classImpactTrackers = coverageResult.getClassesInvoked();
         addClassTrackersToTestSuiteTracker(testSuiteTracker, classImpactTrackers);
@@ -647,12 +667,24 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * This is executed only once for all tests in the session/run/test plan.
      * For re-runs, this will be run again with the new TestExecutionListener instance.
      *
+     * <p>Persists the plan's result, unless this is a mapping run and a coverage collection has
+     * failed in this JVM: such a run cannot say what its suites covered, so it persists nothing -
+     * no mapping, failed set, commit advance or history - and only records the failure on the run's
+     * row, so no other JVM of the run persists either. See {@link CoverageCollectionStatus}.
+     *
      * @param testPlan The test plan being executed.
      */
     @Override
     public void testPlanExecutionFinished(TestPlan testPlan) {
         if (!enabled || (!updateDBMapping && !updateDBTestRunHistory)){
             // not enabled, or not updating the DB in any way
+            return;
+        }
+
+        if (updateDBMapping && coverageCollectionStatus.hasFailed()){
+            // The run cannot say what its suites covered, so it persists none of its results.
+            testRunnerService.skipPersistAfterCoverageFailure(coverageCollectionStatus, testRunIdentity,
+                    distributedRunnerContext);
             return;
         }
 

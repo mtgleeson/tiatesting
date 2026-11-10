@@ -3,6 +3,7 @@ package org.tiatesting.core.testrunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.coverage.client.CoverageCollectionStatus;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -22,6 +23,7 @@ import java.util.HashSet;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -103,6 +105,62 @@ class TestRunnerServiceClosesDataStoreTest {
         // then
         assertEquals("second-commit", dataStore.getTiaData().getCommitValue());
         assertEquals(2, dataStore.readTestRunHistory().size());
+    }
+
+    @Test
+    void skippingThePersistAfterACoverageFailureWritesOnlyTheFailureAndClosesTheFile() throws IOException {
+        // given - a mapping run whose coverage collection failed
+        JdbcDataStore dataStore = newDataStore();
+        TestRunnerService service = new TestRunnerService(dataStore);
+        CoverageCollectionStatus status = new CoverageCollectionStatus();
+        status.recordFailure("for the test suite com.example.SomeTest", new IOException("Connection refused"));
+
+        // when
+        service.skipPersistAfterCoverageFailure(status, new TestRunIdentity("run-1", 1_000L), null);
+
+        // then
+        assertTrue(fileHeader().contains("clean:1"), fileHeader());
+        assertEquals("for the test suite com.example.SomeTest: java.io.IOException: Connection refused",
+                dataStore.readTestRunCoverageFailure("run-1"));
+        assertNull(dataStore.getTiaData().getCommitValue());
+        assertTrue(dataStore.getTestSuitesTracked().isEmpty());
+        assertTrue(dataStore.readTestRunHistory().isEmpty());
+    }
+
+    @Test
+    void aLaterJvmOfARunWhoseCoverageFailedPersistsNothing() {
+        // given - a first JVM of the run recorded a coverage failure and wrote nothing else
+        JdbcDataStore dataStore = newDataStore();
+        TestRunnerService service = new TestRunnerService(dataStore);
+        TestRunResult retryRound = makeResult();
+        CoverageCollectionStatus status = new CoverageCollectionStatus();
+        status.recordFailure("for the test suite com.example.OtherTest", new IOException("Connection refused"));
+        service.skipPersistAfterCoverageFailure(status, retryRound.getRunIdentity(), null);
+
+        // when - a test-retry round, a fresh JVM of the same run, persists what it re-ran
+        service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
+                retryRound, null);
+
+        // then
+        assertNull(dataStore.getTiaData().getCommitValue());
+        assertTrue(dataStore.getTestSuitesTracked().isEmpty());
+        assertTrue(dataStore.readTestRunHistory().isEmpty());
+        assertTrue(dataStore.readTestRunContributions(retryRound.getRunIdentity().getRunId()).isEmpty());
+    }
+
+    @Test
+    void aRunWithNoCoverageFailureRecordedPersists() {
+        // given - a coverage failure recorded on some other run
+        JdbcDataStore dataStore = newDataStore();
+        TestRunnerService service = new TestRunnerService(dataStore);
+        dataStore.markTestRunCoverageFailed("another-run", 1_000L, "at startup: java.io.IOException: refused");
+
+        // when
+        service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
+                makeResult(), null);
+
+        // then
+        assertEquals("new-commit", dataStore.getTiaData().getCommitValue());
     }
 
     /**

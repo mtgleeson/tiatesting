@@ -1,5 +1,6 @@
 package org.tiatesting.junit.junit5;
 
+import org.tiatesting.core.coverage.client.CoverageCollectionStatus;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.testrunner.TestJvmContribution;
@@ -73,6 +74,13 @@ public class SharedTestRunData {
      */
     private final TestJvmContribution jvmContribution = new TestJvmContribution();
 
+    /*
+     * Whether a coverage collection has failed in this JVM. Lives here so a failure in one test plan also stops a
+     * later plan of the JVM - a Surefire re-run with a new listener - from persisting a run whose coverage is
+     * incomplete. See CoverageCollectionStatus.
+     */
+    private final CoverageCollectionStatus coverageCollectionStatus = new CoverageCollectionStatus();
+
     /**
      * Create empty shared state for a new test JVM, before its first test plan.
      */
@@ -110,6 +118,13 @@ public class SharedTestRunData {
      */
     public Set<String> getTestSuitesFailed() {
         return testSuitesFailed;
+    }
+
+    /**
+     * @return this JVM's coverage collection status, shared by every test plan the JVM makes
+     */
+    public CoverageCollectionStatus getCoverageCollectionStatus() {
+        return coverageCollectionStatus;
     }
 
     /**

@@ -558,6 +558,14 @@ class TestSelectorUpdateDBMappingGateTest {
         public Set<String> readTestRunFailedSuites(String runId, Integer groupNumber, String excludingJvmId) {
             return delegate.readTestRunFailedSuites(runId, groupNumber, excludingJvmId);
         }
+        @Override
+        public void markTestRunCoverageFailed(String runId, long runStartMs, String failure) {
+            delegate.markTestRunCoverageFailed(runId, runStartMs, failure);
+        }
+        @Override
+        public String readTestRunCoverageFailure(String runId) {
+            return delegate.readTestRunCoverageFailure(runId);
+        }
 
         @Override
         public void persistTestRunTriggers(String historyId, List<TestRunTrigger> triggers) {

@@ -53,8 +53,9 @@ class SchemaManager {
      * #hasGroupSuiteFlagColumns(Connection)} - the TEMPORARY test-support counter column check -
      * see {@link #hasTestSupportCounterColumns(Connection)} - and the TEMPORARY test run tables
      * check - see {@link #addTestRunTables()} - the TEMPORARY group counter column drop - see
-     * {@link #dropGroupCounterColumns()} - and the TEMPORARY updates-mapping column add - see {@link
-     * #addUpdatesMappingColumn()}.
+     * {@link #dropGroupCounterColumns()} - the TEMPORARY updates-mapping column add - see {@link
+     * #addUpdatesMappingColumn()} - and the TEMPORARY coverage-failure column add - see {@link
+     * #addCoverageFailureColumn()}.
      *
      * @param connection the connection to check on
      * @return {@code true} if the Tia DB already existed before this call (or an earlier call
@@ -84,6 +85,9 @@ class SchemaManager {
         }
         if (dbExisted && lacksColumn(connection, TABLE_TIA_DISTRIBUTED_RUN, COL_UPDATES_MAPPING)) {
             addUpdatesMappingColumn();
+        }
+        if (dbExisted && lacksColumn(connection, TABLE_TIA_TEST_RUN, COL_COVERAGE_FAILURE)) {
+            addCoverageFailureColumn();
         }
 
         schemaEnsured = true;
@@ -154,8 +158,8 @@ class SchemaManager {
      * TEMPORARY: report whether a table exists in the connection's schema without a column. Names
      * are compared ignoring case, since H2 folds unquoted identifiers to upper case and Postgres to
      * lower case; the table name is compared exactly because metadata patterns treat its underscores
-     * as wildcards. Remove with {@link #hasTestSupportCounterColumns(Connection)} and {@link
-     * #addUpdatesMappingColumn()}, whichever goes last.
+     * as wildcards. Remove with {@link #hasTestSupportCounterColumns(Connection)}, {@link
+     * #addUpdatesMappingColumn()} and {@link #addCoverageFailureColumn()}, whichever goes last.
      *
      * @param connection the caller's connection, with the per-branch schema selected
      * @param table the table name
@@ -667,7 +671,35 @@ class SchemaManager {
     private static String buildCreateTestRunTableSql() {
         return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_RUN + " ("
                 + COL_ID + " VARCHAR(255) NOT NULL PRIMARY KEY, "
-                + COL_START_MS + " BIGINT NOT NULL)";
+                + COL_START_MS + " BIGINT NOT NULL, "
+                // Set by a mapping JVM whose coverage collection failed, so no other JVM of the run
+                // persists and the run is never sealed - see the "Persist flow and crash safety"
+                // chapter in WIKI.md. Null on every other run.
+                + COL_COVERAGE_FAILURE + " VARCHAR(" + COVERAGE_FAILURE_MAX_LENGTH + "))";
+    }
+
+    /**
+     * TEMPORARY one-off migration: add the {@code coverage_failure} column to a {@code tia_test_run}
+     * table created before it existed. Nullable with no default, so existing runs read back as
+     * having had no coverage failure. Remove this method and its call in {@link #ensureSchema} once
+     * the shared database has been migrated - Tia otherwise has no migrations (see the class
+     * javadoc).
+     *
+     * <p>Runs on a fresh connection, like {@link #createTiaDB()}, so the DDL (which H2 commits
+     * implicitly) never touches a caller's transaction. {@code IF NOT EXISTS} makes two JVMs
+     * migrating the same schema at once harmless.
+     *
+     * @throws TiaPersistenceException if the statement fails
+     */
+    private void addCoverageFailureColumn() {
+        log.info("Adding the {} column to {} at {}", COL_COVERAGE_FAILURE, TABLE_TIA_TEST_RUN, jdbcUrl);
+        try (Connection connection = connections.get();
+             Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE " + TABLE_TIA_TEST_RUN + " ADD COLUMN IF NOT EXISTS "
+                    + COL_COVERAGE_FAILURE + " VARCHAR(" + COVERAGE_FAILURE_MAX_LENGTH + ")");
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
     }
 
     /**

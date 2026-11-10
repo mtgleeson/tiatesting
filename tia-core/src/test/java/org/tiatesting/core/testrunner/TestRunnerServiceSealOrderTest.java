@@ -525,6 +525,14 @@ class TestRunnerServiceSealOrderTest {
             return delegate.readTestRunFailedSuites(runId, groupNumber, excludingJvmId);
         }
         @Override
+        public void markTestRunCoverageFailed(String runId, long runStartMs, String failure) {
+            delegate.markTestRunCoverageFailed(runId, runStartMs, failure);
+        }
+        @Override
+        public String readTestRunCoverageFailure(String runId) {
+            return delegate.readTestRunCoverageFailure(runId);
+        }
+        @Override
         public List<TestRunHistoryEntry> readTestRunHistory() { return delegate.readTestRunHistory(); }
         @Override
         public void persistTestRunTriggers(String historyId, List<TestRunTrigger> triggers) {

@@ -1,5 +1,7 @@
 package org.tiatesting.core.distributed;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
@@ -29,6 +31,8 @@ import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
  */
 public final class DistributedRunCompleter {
 
+    private static final Logger log = LoggerFactory.getLogger(DistributedRunCompleter.class);
+
     private DistributedRunCompleter() {
     }
 
@@ -37,6 +41,11 @@ public final class DistributedRunCompleter {
      * to seal the build - in the order the run's correctness depends on: the group must flip to
      * {@code COMPLETED}, releasing the barrier the sealer's catalogue rebuild waits on, before this
      * runner may stand for election.
+     *
+     * <p>On a mapping build the run's row is read first: when a test JVM of the run recorded a
+     * coverage collection failure there ({@link DataStore#markTestRunCoverageFailed}), the group is
+     * not completed, whatever its runners reported, so the run can never seal. This is logged at
+     * ERROR with the recorded failure and returns {@code false} like any other rejected completion.
      *
      * <p>A rejected completion - {@link DistributedRunnerPersist#completeGroup} returning null
      * because the claim was superseded, the group was already completed, or the completeness guard
@@ -56,7 +65,8 @@ public final class DistributedRunCompleter {
      * @param nowMs UTC epoch millis to record as the completion time and, if elected, the seal time
      * @return {@code true} if this call was the one that flipped the group to {@code COMPLETED};
      *         {@code false} if the completion was rejected as a normal no-op (superseded, already
-     *         completed, or the completeness guard was not satisfied) - lets a caller whose own
+     *         completed, the completeness guard was not satisfied, or the run's coverage collection
+     *         failed) - lets a caller whose own
      *         resource cleanup fails after this method has already returned successfully tell "the
      *         group completed on this call" apart from "there was never anything to complete",
      *         rather than reporting a failure that happens after this method returns as if it were
@@ -71,6 +81,17 @@ public final class DistributedRunCompleter {
                                           final TestSuiteRunnabilityClassifier classifier,
                                           final boolean updateDBMapping,
                                           final boolean updateDBTestRunHistory, final long nowMs) {
+        if (updateDBMapping) {
+            String coverageFailure = dataStore.readTestRunCoverageFailure(context.getRunId());
+            if (coverageFailure != null) {
+                log.error("Distributed run '{}': runner '{}' will not complete group {} - coverage "
+                                + "collection failed in a test JVM of the run ({}). This build will not "
+                                + "be sealed, and the stored commit value stays where it is.",
+                        context.getRunId(), context.getRunnerKey(), context.getGroupNumber(), coverageFailure);
+                return false;
+            }
+        }
+
         DistributedRunnerPersist runnerPersist = new DistributedRunnerPersist(dataStore, context);
         DistributedRunGroup completed = runnerPersist.completeGroup(nowMs, classifier);
 
