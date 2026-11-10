@@ -97,6 +97,10 @@ persisted before the failure, nor across to a Gradle test-retry round, which is 
 same run that collects its own coverage and still persists. Parallel test JVMs are not a case to
 cover here: a mapping run does not support them.
 
+A distributed runner follows the same rule, and its group then cannot complete, so the build is
+never sealed. See "A runner whose coverage collection failed persists nothing" in the
+[distributed test runs chapter](distributed-test-runs.md).
+
 ### Per-call atomicity inside the JDBC datastore
 
 Each individual persist call is internally atomic:

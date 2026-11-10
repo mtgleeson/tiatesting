@@ -521,6 +521,33 @@ trackers. Staging them early is safe because a method id hashes the class, metho
 only - it carries no line numbers - so a tracker staged by the first group to finish is still valid
 against the catalogue the sealer writes at the end.
 
+### A runner whose coverage collection failed persists nothing
+
+A mapping runner that fails to read coverage from its JaCoCo agent - at startup or for any one
+suite - writes none of the above: no mapping rows, no failed-set contribution, no staged method
+trackers and no progress report. It logs the failure at `ERROR` and the tests carry on. See "A run
+whose coverage collection failed performs none of these steps either" in the
+[persist flow chapter](persist-flow-and-crash-safety.md) for the single-host form of the same rule.
+
+Nothing more is needed to keep the build from sealing. The runner's group holds no observed suite,
+so the completion step that follows is refused by the completeness guard - on an ordinary run
+because `observed >= assigned` is not met, and on a seed run because even the loosened
+`observed >= LEAST(1, assigned)` is not. The group stays `CLAIMED`, no sealer is elected, and the
+stored commit does not move. What the other runners of the build wrote stays as unsealed mapping
+rows, which is the state a build with a dead runner already leaves.
+
+You meet this as "A run stuck in OPEN" below. The completion step's own message only says the group
+is missing its suites, because that step runs in the build tool and cannot see why the test JVM
+reported nothing; the reason is the `ERROR` line in that runner's test output.
+
+**Caveat: a Gradle test-retry round on a seed run.** The failure is remembered per test JVM. A
+test-retry round is a fresh JVM, so if the first JVM's collection failed, suites also failed, and
+the retry round's own collection works, the retry round reports the suites it re-ran. On an
+ordinary run that is still short of `observed >= assigned` and the group stays open. On a seed run
+it satisfies the loosened guard, and the run can seal as all-tests-run with only the retried
+suites mapped - the same exposure as the partially-run seed group described under "Seed-run
+completion" above.
+
 ### Suite retries and several JVMs per group
 
 `DistributedRunnerPersist.reportGroupProgress` is called on **every** persist, and a persist happens

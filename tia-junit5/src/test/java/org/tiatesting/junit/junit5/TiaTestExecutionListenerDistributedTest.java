@@ -24,6 +24,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,6 +34,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -147,13 +150,61 @@ class TiaTestExecutionListenerDistributedTest {
      * a test can assert on the seal without standing up a second runner.
      */
     private void persistSingleGroupPlan() {
+        persistSingleGroupPlan(SelectionMode.SELECTIVE);
+    }
+
+    /**
+     * Persist a single-group run plan of a given selection mode. A seed plan is a full run, whose
+     * completeness guard is the loosened one.
+     *
+     * @param selectionMode how the plan's selection was decided
+     */
+    private void persistSingleGroupPlan(final SelectionMode selectionMode) {
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(DistributedRunGroup.pending(RUN_ID, 0, 1000L));
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
         suitesByGroup.put(0, Collections.singletonList(SUITE));
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L, SelectionMode.SELECTIVE, null, true),
+                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L, selectionMode, null, true),
                 groups, suitesByGroup, null));
+    }
+
+    /**
+     * Run a mapping fork's lifecycle for a runner whose coverage collection failed, then drive the
+     * completion the build tool makes once the fork has exited. The failure is recorded on the
+     * shared state up front, standing in for a dump that failed while the suite ran, so no JaCoCo
+     * agent is needed; {@code SUITE} is pre-seeded as observed for the reason {@link
+     * #runTheListener()} gives.
+     *
+     * @return whether the completion flipped the group to {@code COMPLETED}
+     */
+    private boolean runTheListenerWithFailedCoverageAndComplete() {
+        System.setProperty(ForkSystemProperties.PROP_UPDATE_DB_MAPPING, "true");
+        SharedTestRunData sharedTestRunData = new SharedTestRunData();
+        sharedTestRunData.getSuitesObserved().add(SUITE);
+        sharedTestRunData.getCoverageCollectionStatus().recordFailure("for the test suite " + SUITE,
+                new IOException("Socket closed unexpectedly."));
+        TiaTestExecutionListener listener = new TiaTestExecutionListener(sharedTestRunData);
+        listener.testPlanExecutionStarted(null);
+        listener.testPlanExecutionFinished(null);
+
+        return DistributedRunCompleter.completeAndSeal(dataStore,
+                DistributedForkProperties.contextFromSystemProperties(),
+                TestSuiteRunnabilityClassifier.disabled(), true, true, System.currentTimeMillis());
+    }
+
+    /**
+     * Assert the runner's group is still claimed, the run is unsealed and nothing the run would
+     * have written is in the store: the stored commit, the tracked suites and the history.
+     */
+    private void assertTheRunIsLeftUnsealedWithNothingWritten() {
+        assertEquals(DistributedRunGroupStatus.CLAIMED,
+                dataStore.readDistributedRunGroups(RUN_ID).get(0).getStatus(),
+                "a group whose runner collected no coverage must stay open");
+        assertEquals(DistributedRunStatus.OPEN, dataStore.readDistributedRun(RUN_ID).getStatus());
+        assertEquals("prior-commit", dataStore.getTiaData().getCommitValue());
+        assertTrue(dataStore.getTestSuitesTracked().isEmpty());
+        assertTrue(dataStore.readTestRunHistory().isEmpty());
     }
 
     /**
@@ -285,6 +336,42 @@ class TiaTestExecutionListenerDistributedTest {
                 "a non-distributed run must not complete anybody's group");
         assertEquals(DistributedRunStatus.OPEN, dataStore.readDistributedRun(RUN_ID).getStatus(),
                 "a non-distributed run must not seal anybody's run");
+    }
+
+    /**
+     * Verify a distributed runner whose coverage collection failed reports nothing for its group,
+     * so the completion the build tool makes afterwards is refused and the build is never sealed.
+     */
+    @Test
+    void shouldLeaveTheGroupOpenAndTheRunUnsealedWhenCoverageCollectionFailed() {
+        // given
+        persistSingleGroupPlan();
+        givenAClaimedDistributedFork("runner-a");
+
+        // when
+        boolean completed = runTheListenerWithFailedCoverageAndComplete();
+
+        // then
+        assertFalse(completed);
+        assertTheRunIsLeftUnsealedWithNothingWritten();
+    }
+
+    /**
+     * Verify the same on a seed run, whose loosened completeness guard asks only that the group
+     * observed something: a runner that reported nothing still cannot complete it.
+     */
+    @Test
+    void shouldLeaveASeedRunsGroupOpenWhenCoverageCollectionFailed() {
+        // given
+        persistSingleGroupPlan(SelectionMode.SEED);
+        givenAClaimedDistributedFork("runner-a");
+
+        // when
+        boolean completed = runTheListenerWithFailedCoverageAndComplete();
+
+        // then
+        assertFalse(completed);
+        assertTheRunIsLeftUnsealedWithNothingWritten();
     }
 
 }

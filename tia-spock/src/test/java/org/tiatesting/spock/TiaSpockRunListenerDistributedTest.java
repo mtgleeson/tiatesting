@@ -9,6 +9,8 @@ import org.junit.platform.engine.UniqueId;
 import org.junit.platform.engine.support.descriptor.AbstractTestDescriptor;
 import org.junit.platform.engine.support.descriptor.ClassSource;
 import org.junit.platform.launcher.TestIdentifier;
+import org.spockframework.runtime.model.SpecInfo;
+import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.distributed.DistributedRunCompleter;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
@@ -30,6 +32,7 @@ import org.tiatesting.core.testrunner.TestRunIdentity;
 import org.tiatesting.core.testrunner.TestSuiteRunnabilityClassifier;
 
 import java.io.File;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -40,6 +43,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -274,5 +278,44 @@ class TiaSpockRunListenerDistributedTest {
                 "a non-distributed run must not complete anybody's group");
         assertEquals(DistributedRunStatus.OPEN, dataStore.readDistributedRun(RUN_ID).getStatus(),
                 "a non-distributed run must not seal anybody's run");
+    }
+
+    /**
+     * Verify a distributed runner whose coverage collection failed reports nothing for its group,
+     * so the completion the Gradle task makes afterwards is refused and the build is never sealed.
+     */
+    @Test
+    void shouldLeaveTheGroupOpenAndTheRunUnsealedWhenCoverageCollectionFailed() {
+        // given - a mapping runner whose JaCoCo agent cannot be reached
+        persistSingleGroupPlan(RUN_ID);
+        DistributedRunnerContext context = claimAsTheDaemonDoes("runner-a");
+        JacocoClient unreachable = new JacocoClient() {
+            @Override
+            public void initialize() throws IOException {
+                throw new IOException("Connection refused");
+            }
+        };
+        TiaSpockRunListener listener = new TiaSpockRunListener(BRANCH, PLAN_COMMIT, dataStore,
+                Collections.singleton("com.example.ATest"), 0, true, true, null,
+                TestRunSelectionDetails.empty(), context, new TestRunIdentity("spock-run", 1_000L), unreachable);
+        SpecInfo spec = new SpecInfo();
+        spec.setPackage("com.example");
+        spec.setName("ATest");
+
+        // when - the spec runs, and then the Gradle task makes its explicit completion
+        listener.beforeSpec(spec);
+        listener.afterSpec(spec);
+        listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
+        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true, true, System.currentTimeMillis());
+
+        // then
+        assertFalse(completed);
+        assertEquals(DistributedRunGroupStatus.CLAIMED,
+                dataStore.readDistributedRunGroups(RUN_ID).get(0).getStatus(),
+                "a group whose runner collected no coverage must stay open");
+        assertEquals(DistributedRunStatus.OPEN, dataStore.readDistributedRun(RUN_ID).getStatus());
+        assertTrue(dataStore.getTestSuitesTracked().isEmpty());
+        assertTrue(dataStore.readTestRunHistory().isEmpty());
     }
 }
