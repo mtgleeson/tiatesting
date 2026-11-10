@@ -22,6 +22,7 @@ import java.util.concurrent.Future;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -163,6 +164,71 @@ class TestRunContributionRepositoryTest {
 
             // then the last writer saw every fork
             assertEquals(forks, history.readTestRunHistory().get(0).getNumSuitesRan());
+        }
+    }
+
+    @Test
+    void aRunHasNoCoverageFailureUntilOneIsRecorded(@TempDir Path dir) {
+        try (H2RepositoryFixture db = new H2RepositoryFixture(dir).withSchema()) {
+            // given a run with a contribution and a run with no row at all
+            TestRunContributionRepository repository = repository(db);
+            repository.persistContribution("run-1", 1000L,
+                    Collections.singletonList(contribution("jvm-a", false, 1)), null, historyRepository(db));
+
+            // when
+            String ofKnownRun = repository.readCoverageFailure("run-1");
+            String ofUnknownRun = repository.readCoverageFailure("run-2");
+
+            // then
+            assertNull(ofKnownRun);
+            assertNull(ofUnknownRun);
+        }
+    }
+
+    @Test
+    void aRecordedCoverageFailureCreatesTheRunRowAndIsReadBack(@TempDir Path dir) {
+        try (H2RepositoryFixture db = new H2RepositoryFixture(dir).withSchema()) {
+            // given a run no JVM has persisted for yet
+            TestRunContributionRepository repository = repository(db);
+
+            // when
+            repository.markCoverageFailed("run-1", 1000L, "at startup: java.io.IOException: refused");
+
+            // then
+            assertEquals("at startup: java.io.IOException: refused", repository.readCoverageFailure("run-1"));
+        }
+    }
+
+    @Test
+    void theFirstCoverageFailureOfARunIsKept(@TempDir Path dir) {
+        try (H2RepositoryFixture db = new H2RepositoryFixture(dir).withSchema()) {
+            // given a run with a failure already recorded
+            TestRunContributionRepository repository = repository(db);
+            repository.markCoverageFailed("run-1", 1000L, "first");
+
+            // when
+            repository.markCoverageFailed("run-1", 1000L, "second");
+
+            // then
+            assertEquals("first", repository.readCoverageFailure("run-1"));
+        }
+    }
+
+    @Test
+    void aCoverageFailureLongerThanTheColumnIsCut(@TempDir Path dir) {
+        try (H2RepositoryFixture db = new H2RepositoryFixture(dir).withSchema()) {
+            // given a description longer than the column
+            TestRunContributionRepository repository = repository(db);
+            StringBuilder longFailure = new StringBuilder();
+            for (int i = 0; i < TiaSchema.COVERAGE_FAILURE_MAX_LENGTH + 10; i++) {
+                longFailure.append('x');
+            }
+
+            // when
+            repository.markCoverageFailed("run-1", 1000L, longFailure.toString());
+
+            // then
+            assertEquals(TiaSchema.COVERAGE_FAILURE_MAX_LENGTH, repository.readCoverageFailure("run-1").length());
         }
     }
 }

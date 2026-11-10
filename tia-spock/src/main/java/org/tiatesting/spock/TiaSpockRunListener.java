@@ -280,7 +280,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
      *
      * <p>Nothing is persisted when this is a mapping run and a coverage collection has failed in
      * this JVM: such a run cannot say what its specs covered, so it writes no mapping, failed set,
-     * commit advance or history. See {@link CoverageCollectionStatus}.
+     * commit advance or history, and only records the failure on the run's row, so no other JVM of
+     * the run persists either. See {@link CoverageCollectionStatus}.
      *
      * @param runnerTestSuites every suite the runner discovered, executed or skipped, used to spot
      *                         suites that have been deleted since the last run
@@ -294,8 +295,9 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
         stopStepRan = true; // this method is called twice for some reason - avoid processing it twice.
         if (updateDBMapping && coverageCollectionStatus.hasFailed()){
-            // The run cannot say what its specs covered, so it writes nothing at all.
-            testRunnerService.skipPersistAfterCoverageFailure(coverageCollectionStatus);
+            // The run cannot say what its specs covered, so it persists none of its results.
+            testRunnerService.skipPersistAfterCoverageFailure(coverageCollectionStatus, testRunIdentity,
+                    distributedRunnerContext);
             return;
         }
 

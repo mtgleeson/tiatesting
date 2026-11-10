@@ -40,6 +40,8 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -467,5 +469,70 @@ class DistributedRunCompleterTest {
             }
             return super.electSealer(runId, runnerKey, sealedAtMs);
         }
+    }
+
+    /**
+     * Verifies the completion is refused for a run whose coverage collection failed, even when the
+     * group's runner reported every suite - the case a test-retry round on a seed run would
+     * otherwise slip through.
+     */
+    @Test
+    void aRunWhoseCoverageCollectionFailedIsNotCompletedOrSealed() {
+        // given - a group whose runner reported its suite, on a run flagged as coverage-failed
+        persistPlan(RUN_ID, 1);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
+                System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 1, 0),
+                context);
+        dataStore.markTestRunCoverageFailed(RUN_ID, 1_000L, "for the test suite X: java.io.IOException: refused");
+
+        // when
+        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context,
+                TestSuiteRunnabilityClassifier.disabled(), true, true, System.currentTimeMillis());
+
+        // then
+        assertFalse(completed);
+        assertEquals(0, Collections.frequency(dataStore.callOrder, "completeGroup"),
+                "the group must not be completed. Call order: " + dataStore.callOrder);
+        assertEquals(0, Collections.frequency(dataStore.callOrder, "electSealer"));
+    }
+
+    /**
+     * Verifies a runner JVM of a run whose coverage collection failed in another JVM - a test-retry
+     * round - persists none of its share.
+     */
+    @Test
+    void aRunnerJvmOfARunWhoseCoverageCollectionFailedPersistsNothing() {
+        // given
+        persistPlan(RUN_ID, 1);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+        dataStore.markTestRunCoverageFailed(RUN_ID, 1_000L, "for the test suite X: java.io.IOException: refused");
+
+        // when
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
+                System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 1, 0),
+                context);
+
+        // then
+        assertTrue(dataStore.getTestSuitesTracked().isEmpty());
+        assertTrue(dataStore.readStagedMethodTrackers(RUN_ID).isEmpty());
+        assertTrue(dataStore.readTestRunContributions(RUN_ID).isEmpty());
+    }
+
+    /**
+     * Verifies planning a run again under the same run id clears the coverage failure an earlier
+     * plan of it recorded.
+     */
+    @Test
+    void replanningARunClearsItsCoverageFailure() {
+        // given
+        persistPlan(RUN_ID, 1);
+        dataStore.markTestRunCoverageFailed(RUN_ID, 1_000L, "at startup: java.io.IOException: refused");
+
+        // when
+        persistPlan(RUN_ID, 1);
+
+        // then
+        assertNull(dataStore.readTestRunCoverageFailure(RUN_ID));
     }
 }

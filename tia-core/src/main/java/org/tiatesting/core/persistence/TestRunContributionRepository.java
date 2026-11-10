@@ -8,6 +8,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -228,11 +229,62 @@ class TestRunContributionRepository extends JdbcRepository {
             delete.setString(1, runId);
             delete.executeUpdate();
         }
+        // The coverage failure is restated as none, so a replanned run does not inherit the failure
+        // an earlier plan under the same run id recorded.
         try (PreparedStatement upsert = connection.prepareStatement(dialect.upsert(TABLE_TIA_TEST_RUN,
-                Arrays.asList(COL_ID, COL_START_MS), Collections.singletonList(COL_ID)))) {
+                Arrays.asList(COL_ID, COL_START_MS, COL_COVERAGE_FAILURE), Collections.singletonList(COL_ID)))) {
             upsert.setString(1, runId);
             upsert.setLong(2, startMs);
+            upsert.setNull(3, Types.VARCHAR);
             upsert.executeUpdate();
+        }
+    }
+
+    /**
+     * Implements {@link DataStore#markTestRunCoverageFailed}: make sure the run's row exists, then
+     * record the failure on it unless one is already recorded - the first failure of a run is the
+     * one kept. The description is cut to the column's length.
+     *
+     * @param runId the run whose coverage collection failed
+     * @param runStartMs the run's start time, stored if this call creates the run row
+     * @param failure what the failed collection was for and its cause
+     */
+    void markCoverageFailed(final String runId, final long runStartMs, final String failure) {
+        String stored = failure.length() > COVERAGE_FAILURE_MAX_LENGTH
+                ? failure.substring(0, COVERAGE_FAILURE_MAX_LENGTH) : failure;
+        try (Connection connection = getConnection()) {
+            schemaManager.ensureSchema(connection);
+            ensureRunExists(connection, runId, runStartMs);
+            try (PreparedStatement ps = connection.prepareStatement("UPDATE " + TABLE_TIA_TEST_RUN + " SET "
+                    + COL_COVERAGE_FAILURE + " = ? WHERE " + COL_ID + " = ? AND " + COL_COVERAGE_FAILURE
+                    + " IS NULL")) {
+                ps.setString(1, stored);
+                ps.setString(2, runId);
+                ps.executeUpdate();
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * Implements {@link DataStore#readTestRunCoverageFailure}: one primary-key read of the run's row.
+     *
+     * @param runId the run to read
+     * @return the recorded coverage failure, or null when the run has none or has no row yet
+     */
+    String readCoverageFailure(final String runId) {
+        try (Connection connection = getConnection()) {
+            schemaManager.ensureSchema(connection);
+            try (PreparedStatement ps = connection.prepareStatement("SELECT " + COL_COVERAGE_FAILURE + " FROM "
+                    + TABLE_TIA_TEST_RUN + " WHERE " + COL_ID + " = ?")) {
+                ps.setString(1, runId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next() ? rs.getString(1) : null;
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
         }
     }
 

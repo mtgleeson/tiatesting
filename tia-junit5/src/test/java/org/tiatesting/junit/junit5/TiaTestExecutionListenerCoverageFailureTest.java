@@ -33,8 +33,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies a mapping run whose coverage collection from the JaCoCo agent fails persists nothing -
- * no suite mapping, no commit advance and no history row - while the test plan itself carries on.
+ * Verifies a mapping run whose coverage collection from the JaCoCo agent fails persists none of
+ * its results - no suite mapping, no commit advance and no history row - and records the failure
+ * on the run's row, while the test plan itself carries on.
  * Coverage comes from a scripted client that can be told to fail, so no JaCoCo agent is needed,
  * and the test plan is built from hand-made descriptors.
  */
@@ -136,9 +137,11 @@ class TiaTestExecutionListenerCoverageFailureTest {
         runBothSuites(listener);
         listener.testPlanExecutionFinished(testPlan());
 
-        // then
+        // then - nothing of the run's results, only the failure on the run's row
         assertTrue(shared.getCoverageCollectionStatus().hasFailed());
         assertNothingPersisted();
+        assertEquals("for the test suite " + FIRST + ": java.io.IOException: Socket closed unexpectedly.",
+                DataStoreFactory.fromSystemProperties("main", true).readTestRunCoverageFailure("run-1"));
     }
 
     @Test

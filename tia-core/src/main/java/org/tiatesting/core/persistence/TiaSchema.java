@@ -123,6 +123,10 @@ final class TiaSchema {
     static final String TABLE_TIA_TEST_RUN = "tia_test_run";
     static final String TABLE_TIA_TEST_RUN_JVM = TABLE_TIA_TEST_RUN + "_jvm";
     static final String COL_START_MS = "start_ms";
+    /* Why a mapping run's coverage collection failed, null when it has not - see the run table DDL. */
+    static final String COL_COVERAGE_FAILURE = "coverage_failure";
+    /* The coverage_failure column's length; a longer description is cut to it. */
+    static final int COVERAGE_FAILURE_MAX_LENGTH = 1024;
     static final String COL_JVM_ID = "jvm_id";
     static final String COL_RERUN_SUITES = "rerun_suites";
     static final String COL_TEST_TIME_MS = "test_time_ms";

@@ -113,6 +113,7 @@ erDiagram
     tia_test_run {
         VARCHAR id PK
         BIGINT start_ms
+        VARCHAR coverage_failure
     }
 
     tia_test_run_jvm {
@@ -288,8 +289,12 @@ rather than needing their own cleanup.)
   [Forced runs and re-seed](forced-runs-and-reseed.md).
 - **tia_test_run** - one row per run: the `tiaTestRunId` the build tool assigned (or the distributed
   run id, written with the plan) and its start time. Its row is what concurrent persists of the run
-  lock (`SELECT ... FOR UPDATE`) while they rebuild the run's history rows. Like the history, it has
-  no retention policy; the rows are tiny.
+  lock (`SELECT ... FOR UPDATE`) while they rebuild the run's history rows. `coverage_failure` is null
+  unless a mapping JVM of the run failed to collect coverage, when it holds what failed and why; a
+  run with it set persists nothing more and is never sealed - see "A run whose coverage collection
+  failed performs none of these steps either" in
+  [Persist flow and crash safety](persist-flow-and-crash-safety.md). Like the history, it has no
+  retention policy; the rows are tiny.
 - **tia_test_run_jvm** - one row per run, test JVM and attempt kind (`rerun`): that JVM's running
   totals - suites finished, the failed suites and a rerun's retried suites by name (comma-separated),
   summed plan time, suite-attributable time, first plan start and last plan end - restated on every

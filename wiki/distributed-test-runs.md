@@ -525,28 +525,30 @@ against the catalogue the sealer writes at the end.
 
 A mapping runner that fails to read coverage from its JaCoCo agent - at startup or for any one
 suite - writes none of the above: no mapping rows, no failed-set contribution, no staged method
-trackers and no progress report. It logs the failure at `ERROR` and the tests carry on. See "A run
-whose coverage collection failed performs none of these steps either" in the
-[persist flow chapter](persist-flow-and-crash-safety.md) for the single-host form of the same rule.
+trackers and no progress report. Its one write is the failure itself, on the run's `tia_test_run`
+row (`coverage_failure`). It logs the failure at `ERROR` and the tests carry on. See "A run whose
+coverage collection failed performs none of these steps either" in the
+[persist flow chapter](persist-flow-and-crash-safety.md) for the single-host form of the same rule
+and for why the marker lives on the run row.
 
-Nothing more is needed to keep the build from sealing. The runner's group holds no observed suite,
-so the completion step that follows is refused by the completeness guard - on an ordinary run
-because `observed >= assigned` is not met, and on a seed run because even the loosened
-`observed >= LEAST(1, assigned)` is not. The group stays `CLAIMED`, no sealer is elected, and the
-stored commit does not move. What the other runners of the build wrote stays as unsealed mapping
-rows, which is the state a build with a dead runner already leaves.
+The marker is read in two places, and between them the run can never seal:
 
-You meet this as "A run stuck in OPEN" below. The completion step's own message only says the group
-is missing its suites, because that step runs in the build tool and cannot see why the test JVM
-reported nothing; the reason is the `ERROR` line in that runner's test output.
+- **Every later mapping persist of the run** writes nothing. That covers a Gradle test-retry round
+  of the failed runner - a fresh JVM that would otherwise report the suites it re-ran, which on a
+  seed run is enough to satisfy the loosened `observed >= LEAST(1, assigned)` guard - and it also
+  quietens the other runners, whose rows could no longer be sealed anyway.
+- **The completion step** (`DistributedRunCompleter.completeAndSeal`) refuses to complete any group
+  of the run and says why, quoting the recorded failure. No group of a runner that completes after
+  the failure reaches `COMPLETED`, the failed runner's own group never does, and so no sealer is
+  elected and the stored commit does not move.
 
-**Caveat: a Gradle test-retry round on a seed run.** The failure is remembered per test JVM. A
-test-retry round is a fresh JVM, so if the first JVM's collection failed, suites also failed, and
-the retry round's own collection works, the retry round reports the suites it re-ran. On an
-ordinary run that is still short of `observed >= assigned` and the group stays open. On a seed run
-it satisfies the loosened guard, and the run can seal as all-tests-run with only the retried
-suites mapped - the same exposure as the partially-run seed group described under "Seed-run
-completion" above.
+What runners wrote before the failure was recorded stays as unsealed mapping rows, which is the
+state a build with a dead runner already leaves. You meet this as "A run stuck in OPEN" below, with
+the reason in the completion step's `ERROR` line.
+
+The marker stays for the life of the run id, so re-running one runner's job does not un-fail the
+run. Planning the run again resets it: the plan write restates the run row with no coverage
+failure, exactly as it clears the run's earlier contributions.
 
 ### Suite retries and several JVMs per group
 

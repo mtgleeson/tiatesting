@@ -106,25 +106,65 @@ public class TestRunnerService {
     }
 
     /**
-     * Finish a test plan of a mapping run whose coverage collection failed, without persisting
-     * anything: no suite mapping, failed set, seal, contribution or history row. The run cannot say
-     * what its suites covered, so the stored mapping is left at its current commit for the next
-     * mapping run to select from. The skip is logged at ERROR, and the datastore is closed exactly
-     * as {@link #persistTestRunData} closes it, so an embedded H2 file this JVM opened earlier is
-     * still shut down cleanly.
+     * Finish a test plan of a mapping run whose coverage collection failed, without persisting any
+     * of the run's results: no suite mapping, failed set, seal, contribution or history row. The run
+     * cannot say what its suites covered, so the stored mapping is left at its current commit for
+     * the next mapping run to select from.
+     *
+     * <p>The one write made is the failure itself, recorded on the run's row
+     * ({@link DataStore#markTestRunCoverageFailed}). That is what stops the other JVMs of the run -
+     * a Gradle test-retry round, which is a fresh JVM that knows nothing of this one - from
+     * persisting as if they were the whole run, and what makes a distributed run's completion step
+     * refuse the run. Failing to record it is logged and swallowed: the tests ran, and this JVM
+     * still persists nothing.
+     *
+     * <p>The skip is logged at ERROR, and the datastore is closed exactly as
+     * {@link #persistTestRunData} closes it, so an embedded H2 file is still shut down cleanly.
      *
      * @param coverageCollectionStatus the JVM's coverage collection status, carrying the failure
+     * @param runIdentity the run this JVM belongs to, as the build tool published it
+     * @param distributedRunnerContext the distributed runner's context, or {@code null} for an
+     *                                 ordinary single-host run
      */
-    public void skipPersistAfterCoverageFailure(final CoverageCollectionStatus coverageCollectionStatus){
+    public void skipPersistAfterCoverageFailure(final CoverageCollectionStatus coverageCollectionStatus,
+                                                final TestRunIdentity runIdentity,
+                                                final DistributedRunnerContext distributedRunnerContext){
         log.error("Test run finished. Not persisting the DB: coverage collection failed {}. The stored "
                 + "mapping and commit are left as they were.", coverageCollectionStatus.getFailure());
-        dataStore.close();
+        String runId = runIdOf(runIdentity, distributedRunnerContext);
+        try {
+            dataStore.markTestRunCoverageFailed(runId, runIdentity.getStartMs(),
+                    coverageCollectionStatus.getFailure());
+        } catch (RuntimeException e) {
+            log.warn("Failed to record the coverage collection failure on run {}. Another test JVM of "
+                    + "the run - a test-retry round - may still persist.", runId, e);
+        } finally {
+            dataStore.close();
+        }
+    }
+
+    /**
+     * The id a JVM's run is stored under: the distributed run's id for a runner of a distributed
+     * build, otherwise the test run id the build tool published.
+     *
+     * @param runIdentity the run this JVM belongs to, as the build tool published it
+     * @param distributedRunnerContext the distributed runner's context, or {@code null} for an
+     *                                 ordinary single-host run
+     * @return the run id
+     */
+    private static String runIdOf(final TestRunIdentity runIdentity,
+                                  final DistributedRunnerContext distributedRunnerContext) {
+        return distributedRunnerContext != null ? distributedRunnerContext.getRunId() : runIdentity.getRunId();
     }
 
     /**
      * Write the data accumulated by a Tia test plan, in the order {@link #persistTestRunData}
      * describes: a distributed runner's share, an empty plan's contribution, or the suite mapping,
      * failed set, seal, contribution and history rows of an ordinary run.
+     *
+     * <p>A mapping plan first reads the run's row: when another JVM of the run recorded a coverage
+     * collection failure there, nothing is written at all - see
+     * {@link #skipPersistAfterCoverageFailure}.
      *
      * <p>Before any write, the plan's attempt is resolved from what the run's JVMs have recorded and
      * the plan is added to this JVM's running totals: the mapping persist, the seal and the
@@ -157,8 +197,20 @@ public class TestRunnerService {
 
         // Resolve which attempt this plan is from what the run's JVMs have recorded, then add the
         // plan to this JVM's running totals - both before any write. See RunAttemptResolver.
-        final String runId = distributedRunnerContext != null
-                ? distributedRunnerContext.getRunId() : unresolvedResult.getRunIdentity().getRunId();
+        final String runId = runIdOf(unresolvedResult.getRunIdentity(), distributedRunnerContext);
+
+        // A mapping JVM of this run failed to collect coverage and recorded it on the run's row.
+        // This JVM - a test-retry round - knows nothing of that one, and persisting what it ran
+        // would stand in for the whole run, so it writes nothing either.
+        if (updateDBMapping) {
+            String coverageFailure = dataStore.readTestRunCoverageFailure(runId);
+            if (coverageFailure != null) {
+                log.error("Not persisting the DB: coverage collection failed in another test JVM of "
+                        + "run {} ({}). The stored mapping and commit are left as they were.", runId,
+                        coverageFailure);
+                return;
+            }
+        }
         final TestRunResult testRunResult =
                 unresolvedResult.withRunAttempt(resolveRunAttempt(unresolvedResult, runId,
                         distributedRunnerContext != null ? distributedRunnerContext.getGroupNumber() : null));

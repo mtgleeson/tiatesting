@@ -79,26 +79,39 @@ legitimately executes no suite.
 A mapping run reads each suite's coverage from the JaCoCo agent over its TCP server: once before
 the first suite, to discard what was recorded before it, and once as each suite finishes. If any of
 those reads fails - the agent cannot be reached, or closes the connection mid-dump - the run cannot
-say what its suites covered, so the test JVM writes **nothing**: none of steps 1-4, not even the
-contribution and history row an empty run still writes. Persisting anyway would replace the failed
-suite's stored coverage with an empty capture (or delete its row as a suite the runner no longer
-discovers) and then seal the commit over it, so later builds would skip the suite for changes it
-does cover.
+say what its suites covered, so it persists **none of its results**: none of steps 1-4, not even
+the contribution and history row an empty run still writes. Persisting anyway would replace the
+failed suite's stored coverage with an empty capture (or delete its row as a suite the runner no
+longer discovers) and then seal the commit over it, so later builds would skip the suite for
+changes it does cover.
 
-The failure is recorded on a per-JVM `CoverageCollectionStatus` (`tia-core`), shared by every test
-plan of the JVM so a Surefire re-run in the same JVM does not persist either. It is logged at
-`ERROR` when it happens and again when the persist is skipped, the tests carry on, and the build's
-outcome is not changed by it. No further coverage is collected in that JVM. As with an empty run,
-the DB is left as a pre-seal crash leaves it - stored commit at the prior value - and the next
-mapping run selects from that baseline again.
+Two things carry the failure, one inside the test JVM and one across the run:
 
-The guard is per test JVM. It does not reach back to a test plan of the same JVM that already
-persisted before the failure, nor across to a Gradle test-retry round, which is a fresh JVM of the
-same run that collects its own coverage and still persists. Parallel test JVMs are not a case to
-cover here: a mapping run does not support them.
+- **In the JVM**, a `CoverageCollectionStatus` (`tia-core`) shared by every test plan, so a
+  Surefire re-run in the same JVM does not persist either and no further coverage is collected.
+- **Across the run**, the `coverage_failure` column on the run's `tia_test_run` row, written by
+  the failed JVM as its only write (`DataStore.markTestRunCoverageFailed`). Every mapping persist
+  reads that row first (`TestRunnerService.writeTestRunData`) and writes nothing when it is set.
+  This is what stops a Gradle test-retry round: it is a fresh JVM that re-runs only the failed
+  tests and knows nothing of the first one, and without the marker it would not even be recognised
+  as a retry - the first JVM recorded no failures for it to match - so it would persist its few
+  suites as the whole run and seal the commit.
 
-A distributed runner follows the same rule, and its group then cannot complete, so the build is
-never sealed. See "A runner whose coverage collection failed persists nothing" in the
+The run row is the natural home for it: it is already the one record every JVM of a run shares, it
+is keyed by the run id so a marker can never leak into another build, and it reaches JVMs on other
+machines, which a file in the build directory would not. The cost is one primary-key read per
+mapping persist; runs that do not update the mapping never read it.
+
+The failure is logged at `ERROR` when it happens and again when a persist is skipped, the tests
+carry on, and the build's outcome is not changed by it. As with an empty run, the DB is left as a
+pre-seal crash leaves it - stored commit at the prior value - and the next mapping run selects from
+that baseline again.
+
+The marker does not reach back to a test plan of the same JVM that already persisted before the
+failure. Parallel test JVMs are not a case to cover here: a mapping run does not support them.
+
+A distributed runner follows the same rule, and the run's completion step reads the same marker, so
+the build is never sealed. See "A runner whose coverage collection failed persists nothing" in the
 [distributed test runs chapter](distributed-test-runs.md).
 
 ### Per-call atomicity inside the JDBC datastore

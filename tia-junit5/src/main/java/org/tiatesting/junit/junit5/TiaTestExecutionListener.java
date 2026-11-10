@@ -669,7 +669,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      *
      * <p>Persists the plan's result, unless this is a mapping run and a coverage collection has
      * failed in this JVM: such a run cannot say what its suites covered, so it persists nothing -
-     * no mapping, failed set, commit advance or history. See {@link CoverageCollectionStatus}.
+     * no mapping, failed set, commit advance or history - and only records the failure on the run's
+     * row, so no other JVM of the run persists either. See {@link CoverageCollectionStatus}.
      *
      * @param testPlan The test plan being executed.
      */
@@ -681,8 +682,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
 
         if (updateDBMapping && coverageCollectionStatus.hasFailed()){
-            // The run cannot say what its suites covered, so it writes nothing at all.
-            testRunnerService.skipPersistAfterCoverageFailure(coverageCollectionStatus);
+            // The run cannot say what its suites covered, so it persists none of its results.
+            testRunnerService.skipPersistAfterCoverageFailure(coverageCollectionStatus, testRunIdentity,
+                    distributedRunnerContext);
             return;
         }
 

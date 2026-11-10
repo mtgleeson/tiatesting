@@ -422,6 +422,28 @@ public interface DataStore extends AutoCloseable {
     Set<String> readTestRunFailedSuites(String runId, Integer groupNumber, String excludingJvmId);
 
     /**
+     * Record on a run's row that a mapping JVM of the run failed to collect coverage from the JaCoCo
+     * agent, creating the row if the run has none yet. Every later persist of the run, in any JVM,
+     * and a distributed run's completion step read this and write nothing, so a run whose coverage
+     * is incomplete is never sealed. The first failure recorded for a run is kept. See the "Persist
+     * flow and crash safety" chapter in {@code WIKI.md}.
+     *
+     * @param runId the single-host test run id or the distributed run id
+     * @param runStartMs the run's start time, stored if this call creates the run's row
+     * @param failure what the failed collection was for and its cause
+     */
+    void markTestRunCoverageFailed(String runId, long runStartMs, String failure);
+
+    /**
+     * Read the coverage collection failure recorded for a run, if any.
+     *
+     * @param runId the single-host test run id or the distributed run id
+     * @return what the failed collection was for and its cause, or null when no JVM of the run has
+     *         recorded one
+     */
+    String readTestRunCoverageFailure(String runId);
+
+    /**
      * Read all persisted test-run history rows, ordered by {@code runTimestampMs} descending
      * so the most-recent run is first.
      *

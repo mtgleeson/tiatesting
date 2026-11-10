@@ -9,9 +9,11 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Whether a test JVM's coverage collection from the JaCoCo agent has failed. A mapping run whose
  * collection failed - at startup or for any one suite - cannot say what its suites covered, so the
- * test runner listeners persist nothing for it: no suite mapping, no failed set, no commit advance
- * and no history. The stored mapping then stays at its current commit and the next mapping run
- * selects from that baseline again.
+ * test runner listeners persist none of its results: no suite mapping, no failed set, no commit
+ * advance and no history. They record only the failure itself, on the run's row, so no other JVM of
+ * the run persists either. The stored mapping then stays at its current commit and the next mapping
+ * run selects from that baseline again. See the "Persist flow and crash safety" chapter in
+ * {@code WIKI.md}.
  *
  * <p>One instance is shared by every test plan of a test JVM, so a failure in one plan also stops
  * a later plan of the same JVM - a Surefire re-run - from persisting. Only the first failure is
@@ -35,9 +37,9 @@ public class CoverageCollectionStatus {
     public void recordFailure(final String during, final IOException cause) {
         String description = during + ": " + cause;
         if (failure.compareAndSet(null, description)) {
-            log.error("Coverage collection from the JaCoCo agent failed {}. Tia will write nothing to "
-                    + "the DB for this test JVM - no mapping, failed suites, commit or history - and "
-                    + "collects no more coverage in it.", during, cause);
+            log.error("Coverage collection from the JaCoCo agent failed {}. Tia will persist none of "
+                    + "this run's results - no mapping, failed suites, commit or history - and "
+                    + "collects no more coverage in this test JVM.", during, cause);
         }
     }
 
