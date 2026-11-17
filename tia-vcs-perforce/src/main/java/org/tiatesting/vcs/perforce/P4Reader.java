@@ -104,13 +104,16 @@ public class P4Reader implements VCSReader {
      * {@inheritDoc}
      *
      * <p>On Perforce the line is the depot location of the source directories, resolved through
-     * the client view with one {@code p4 where}.
+     * the client view with one {@code p4 where}. The workspace branch is not used: a stream or
+     * client name says which view the source was seen through, not where it lives, so two views
+     * of one library would otherwise be two lines.
      *
      * @param sourceDirs {@inheritDoc}
-     * @return {@inheritDoc}
+     * @param workspaceBranch ignored
+     * @return the depot paths as a line, or null when no directory resolves through the client view
      */
     @Override
-    public String getSourceLine(final List<String> sourceDirs) {
+    public String getSourceLine(final List<String> sourceDirs, final String workspaceBranch) {
         return p4DiffAnalyzer.resolveSourceLine(p4Context, sourceDirs);
     }
 

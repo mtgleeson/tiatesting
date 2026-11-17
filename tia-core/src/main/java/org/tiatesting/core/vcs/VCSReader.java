@@ -151,13 +151,17 @@ public interface VCSReader {
      * publish-time stamping chapter in {@code WIKI.md}.
      *
      * <p>Called once per library publish, never on the select-tests path and never by a test run.
-     * The default is the answer for a VCS with no path-based line (Git): the publish then uses
-     * the publishing workspace's branch instead.
+     * The default is the answer for a VCS where a branch is the line (Git): the branch the
+     * publishing workspace identifies as. That is the workspace identity's branch - the
+     * configured one when set - and not this reader's own branch name, which is a commit SHA on
+     * a detached HEAD and would make every CI publish a line of its own. A VCS that can name the
+     * source's real location (Perforce depot paths) overrides this and ignores the branch.
      *
      * @param sourceDirs the absolute source directories of the module being published
-     * @return the line, or null when this VCS cannot identify one
+     * @param workspaceBranch the branch the publishing workspace identifies as, or null when unknown
+     * @return the line, or null when it cannot be identified
      */
-    default String getSourceLine(List<String> sourceDirs) {
-        return null;
+    default String getSourceLine(List<String> sourceDirs, String workspaceBranch) {
+        return workspaceBranch;
     }
 }

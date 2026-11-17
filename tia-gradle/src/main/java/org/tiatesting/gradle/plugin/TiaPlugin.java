@@ -757,7 +757,7 @@ public class TiaPlugin implements Plugin<Project> {
             try (DataStore dataStore = buildDataStore(branch, suffix)) {
                 LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
                         .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion,
-                                jarFilePath, staticConfig, publishingSourceDirs);
+                                jarFilePath, staticConfig, publishingSourceDirs, branch);
                 LOGGER.info("Tia publish stamp for {} {} into schema {}: {} (seq {}, {} methods).",
                         groupArtifact, publishedVersion, schemaLabel, result.getOutcome(),
                         result.getPublishSeq(), result.getStampedMethodIds().size());

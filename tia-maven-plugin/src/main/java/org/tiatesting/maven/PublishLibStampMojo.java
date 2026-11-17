@@ -82,7 +82,8 @@ public class PublishLibStampMojo extends AbstractTiaMojo {
                 try (DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), suffix)) {
                     LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
                             .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion,
-                                    jarFilePath, staticConfig, publishingSourceDirs);
+                                    jarFilePath, staticConfig, publishingSourceDirs,
+                                    workspaceIdentity.getBranch());
                     getLog().info("Tia publish stamp for " + groupArtifact + " " + publishedVersion
                             + " into schema " + schemaLabel + ": " + result.getOutcome() + " (seq "
                             + result.getPublishSeq() + ", " + result.getStampedMethodIds().size()

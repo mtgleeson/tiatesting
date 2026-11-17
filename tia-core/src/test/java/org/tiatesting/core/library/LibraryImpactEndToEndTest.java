@@ -82,13 +82,13 @@ class LibraryImpactEndToEndTest {
         LibraryPublishStamper stamper = new LibraryPublishStamper();
         File jar1 = jarFile("build-1");
         stamper.stampPublish(dataStore, new StubVCSReader("c0"), LIB, "1.0.0-SNAPSHOT", jar1.getAbsolutePath(),
-                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList(), "test");
 
         // PUBLISH: the second publish diffs baseline c0 -> HEAD and stamps the changed method
         File jar2 = jarFile("build-2");
         LibraryPublishStamper.PublishStampResult stamp = stamper.stampPublish(dataStore,
                 new StubVCSReader("c1", libraryDiff()), LIB, "1.0.0-SNAPSHOT", jar2.getAbsolutePath(),
-                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList(), "test");
         assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.STAMPED, stamp.getOutcome());
         assertEquals(2L, stamp.getPublishSeq());
         assertEquals(Collections.singleton(METHOD_ID), stamp.getStampedMethodIds());
@@ -251,10 +251,10 @@ class LibraryImpactEndToEndTest {
         long[] editChangelists = {475L, 490L};
         stamper.stampPublish(dataStore, new ChangelistVCSReader(470L, editChangelists), LIB, "1.0",
                 jarFile("build-470").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
-                Collections.<String>emptyList());
+                Collections.<String>emptyList(), "test");
         File jar480 = jarFile("build-480");
         stamper.stampPublish(dataStore, new ChangelistVCSReader(480L, editChangelists), LIB, "1.1",
-                jar480.getAbsolutePath(), StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
+                jar480.getAbsolutePath(), StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList(), "test");
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
                         dataStore, configResolving("1.1", jar480.getAbsolutePath()),
@@ -269,7 +269,7 @@ class LibraryImpactEndToEndTest {
         LibraryPublishStamper.PublishStampResult stamp = stamper.stampPublish(dataStore,
                 new ChangelistVCSReader(510L, editChangelists), LIB, "1.2",
                 jarFile("build-510").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
-                Collections.<String>emptyList());
+                Collections.<String>emptyList(), "test");
 
         // then the method edited at 490 is stamped, because the consumer's jar does not contain it
         assertEquals(Collections.singleton(METHOD_ID), stamp.getStampedMethodIds());

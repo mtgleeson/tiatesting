@@ -72,6 +72,10 @@ public class LibraryPublishStamper {
      *   <li>{@code SEEDED} - first publish for the library (no mapping baseline yet): the ledger
      *       row is written, nothing is stamped, and the baseline is seeded to HEAD so stamping
      *       starts from the next publish. Stamping the library's entire history would be wrong.</li>
+     *   <li>{@code LEDGER_ONLY_OTHER_LINE} - the schema follows a different source line from the
+     *       one this build was published from: the ledger row is written so the build stays
+     *       recognisable, and nothing is stamped, because the consumer's jar does not come from
+     *       this line.</li>
      *   <li>{@code STAMPED} - the ledger row and the impacted-method stamp are written atomically.
      *       An empty diff still writes the ledger row (the publish happened and must be resolvable
      *       by the consumer's drain lookup) with no stamp rows.</li>
@@ -94,13 +98,17 @@ public class LibraryPublishStamper {
      *                             publishing machine. The tracked row is not modified - the consumer
      *                             still needs its own paths. Pass an empty list to fall back to the
      *                             tracked library's recorded dirs.
+     * @param publishingBranch the branch the publishing workspace identifies as (its workspace
+     *                         identity's branch), or null when unknown. It is the source line on a
+     *                         VCS where a branch is the line; a VCS with a path-based line ignores it.
      * @return the outcome, the assigned publish sequence (0 when skipped), the stamped method ids
      *         and any forced-selection batches recorded from the library's static rules.
      */
     public PublishStampResult stampPublish(DataStore dataStore, VCSReader vcsReader, String groupArtifact,
                                            String publishedVersion, String jarFilePath,
                                            final StaticTestSelectionConfig staticConfig,
-                                           final List<String> publishingSourceDirs) {
+                                           final List<String> publishingSourceDirs,
+                                           final String publishingBranch) {
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         TrackedLibrary tracked = trackedLibraries.get(groupArtifact);
         if (tracked == null) {
@@ -112,8 +120,15 @@ public class LibraryPublishStamper {
         String jarHash = jarFilePath != null
                 ? LibraryJarHasher.computeSha256Hash(new File(jarFilePath)) : null;
         String headCommit = vcsReader.getHeadCommit();
+        String sourceLine = vcsReader.getSourceLine(
+                resolveLibrarySourceDirs(tracked, publishingSourceDirs), publishingBranch);
+        if (sourceLine == null) {
+            log.warn("Could not identify the source line of library '{}' - recording this publish with no line, "
+                    + "which every consumer schema treats as its own.", groupArtifact);
+        }
         LibraryPublish publish = new LibraryPublish(groupArtifact, publishedVersion, jarHash,
                 headCommit, System.currentTimeMillis());
+        publish.setSourceLine(sourceLine);
 
         if (tracked.getMappingBaselineCommit() == null) {
             long seq = dataStore.persistLibraryPublish(publish, Collections.emptySet(),
@@ -126,7 +141,17 @@ public class LibraryPublishStamper {
                     Collections.<PendingLibraryForcedSelection>emptyList());
         }
 
-        String previousPublishCommit = resolvePreviousPublishCommit(dataStore, groupArtifact, tracked);
+        if (!SourceLines.matches(tracked.getFollowedLine(), sourceLine)) {
+            long seq = dataStore.persistLibraryPublish(publish, Collections.<Integer>emptySet(),
+                    Collections.<PendingLibraryForcedSelection>emptyList());
+            log.info("Library '{}' version '{}' was published from line '{}' but this schema follows '{}' - "
+                    + "ledger row written at seq {}, nothing stamped.", groupArtifact, publishedVersion,
+                    sourceLine, tracked.getFollowedLine(), seq);
+            return new PublishStampResult(PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE, seq,
+                    Collections.<Integer>emptySet(), Collections.<PendingLibraryForcedSelection>emptyList());
+        }
+
+        String previousPublishCommit = resolvePreviousPublishCommit(dataStore, groupArtifact, tracked, sourceLine);
         Set<Integer> impactedMethods = findImpactedMethodsSinceBaseline(dataStore, vcsReader, tracked,
                 previousPublishCommit, publishingSourceDirs);
         List<PendingLibraryForcedSelection> forcedSelections = evaluateForcedSelections(
@@ -138,22 +163,27 @@ public class LibraryPublishStamper {
     }
 
     /**
-     * Resolve the commit of the library's most recent publish - the "from" side of the dedup
-     * filter's Diff 2. That is the {@code commitValue} of the highest-sequence ledger row for the
-     * library; when the ledger is somehow empty (it always holds at least the seed row by the time
-     * this runs) it falls back to the mapping baseline, which makes the filter a no-op.
+     * Resolve the commit of the library's most recent publish on the publishing line - the "from"
+     * side of the dedup filter's Diff 2. Publishes from other lines are skipped: measuring "since
+     * the previous publish" from another line's publish would filter out this line's own earlier
+     * edits. When the line has no earlier publish it falls back to the mapping baseline, which
+     * makes the filter a no-op.
      *
      * @param dataStore the data store to read the publish ledger from.
      * @param groupArtifact the {@code groupId:artifactId} of the library being published.
      * @param tracked the tracked library, used for the baseline fallback.
-     * @return the previous publish's commit, or the mapping baseline when no publish exists yet.
+     * @param sourceLine the publishing line, or null when unknown (matches every row).
+     * @return the previous same-line publish's commit, or the mapping baseline when there is none.
      */
-    private String resolvePreviousPublishCommit(DataStore dataStore, String groupArtifact, TrackedLibrary tracked) {
+    private String resolvePreviousPublishCommit(DataStore dataStore, String groupArtifact, TrackedLibrary tracked,
+                                                String sourceLine) {
         List<LibraryPublish> ledger = dataStore.readLibraryPublishes(groupArtifact);
-        if (ledger.isEmpty()) {
-            return tracked.getMappingBaselineCommit();
+        for (int i = ledger.size() - 1; i >= 0; i--) {
+            if (SourceLines.matches(ledger.get(i).getSourceLine(), sourceLine)) {
+                return ledger.get(i).getCommitValue();
+            }
         }
-        return ledger.get(ledger.size() - 1).getCommitValue();
+        return tracked.getMappingBaselineCommit();
     }
 
     /**
@@ -405,6 +435,8 @@ public class LibraryPublishStamper {
             SKIPPED_NOT_TRACKED,
             /** First publish: ledger row written and baseline seeded, nothing stamped. */
             SEEDED,
+            /** The schema follows another source line: ledger row written, nothing stamped. */
+            LEDGER_ONLY_OTHER_LINE,
             /** Ledger row and impacted-method stamp written (stamp possibly empty). */
             STAMPED
         }
