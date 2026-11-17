@@ -139,12 +139,20 @@ keep selection cheap). Because every line stamps every consumer, a publish on th
 a stamp pending in the consumer's schema, so the old line need not publish again for the move to
 be noticed. This is why a publish is not withheld from schemas following another line.
 
-**The move is not always noticed on the first run.** A run on the old line discards the new
-line's pending stamp. If the consumer ran at least once between the new line's publish and taking
-that build - the usual order for a release (published, then adopted later) - nothing is pending
-when it moves, and the switch is noticed only at the next publish on either line. Selective runs
-in between do not select for the library change. Run `tiaSelectAllTests` once when moving a
-consumer to another line to switch it at that run.
+**A changed build file also triggers it.** A run on the old line discards the new line's pending
+stamp, so if the consumer ran between the new line's publish and adopting that build - the usual
+order for a release - nothing is pending when it moves. Moving normally means editing a build file
+(a declared version, a version property or catalogue, a BOM import), so a selective run whose
+changes since the stored commit include a `pom.xml`, a Gradle build or settings script,
+`gradle.properties` or a `*.versions.toml` identifies every tracked library's held build, as a
+forced run does, and a switch is noticed at that run. The changed paths are read once and shared
+with the static selection rules; with no static rules configured, the trigger costs one
+changed-paths query per run, plus a library resolution on the runs where a build file changed.
+
+The trigger does not cover a move with no build-file change, such as a snapshot dependency that
+resolves to another line's build because a different line published the same snapshot version
+last. Run `tiaSelectAllTests` once after such a move to switch the consumer at that run;
+otherwise the switch is noticed at the next publish on either line.
 
 Local (non-primary) runs read the followed line and apply the same rules but never write it.
 Nothing here needs the VCS on the consumer side: the line is read at publish time and travels in
