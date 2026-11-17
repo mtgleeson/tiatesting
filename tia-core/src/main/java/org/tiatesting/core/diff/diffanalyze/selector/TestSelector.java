@@ -164,7 +164,7 @@ public class TestSelector {
 
         PendingLibrarySelection librarySelection = drainPendingLibraryMethodsIfConfigured(
                 libraryConfig, testsToRun, testSuitesTracked,
-                isLibraryBuildFileTriggered(libraryConfig, changedPaths));
+                isLibraryBuildFileTriggered(libraryConfig, changedPaths, vcsReader));
 
         List<TestRunTrigger> staticRuleTriggers = applyStaticTestSelection(staticMappingConfig, changedPaths,
                 vcsReader, tiaCore.getCommitValue(), testSuitesTracked, testsToRun, checkLocalChanges, libraryConfig);
@@ -1625,24 +1625,39 @@ public class TestSelector {
      * build file changed since the stored commit. A changed build file is how a consumer moves to
      * another library build - a declared version, a version property or catalogue, a BOM import -
      * and a move to another source line leaves nothing pending in its schema once the old line's
-     * run has discarded the new line's stamp. Resolving on that run notices the switch. A run with
-     * no library impact analysis, or no changed build file, keeps the drain's no-pending fast
-     * path. The changed paths are only read when libraries are configured. See the source-lines
-     * section of the library publish-time stamping chapter in {@code WIKI.md}.
+     * run has discarded the new line's stamp. Resolving on that run notices the switch. Only the
+     * source project's own build files count - in its directory, below it, or above it up to the
+     * workspace root - so another project's build file in the same repository or client view
+     * does not trigger it. When the VCS cannot name its workspace root, or the source project
+     * lies outside it, every changed build file counts. A run with no library impact analysis, or
+     * no changed build file of the project, keeps the drain's no-pending fast path. The changed
+     * paths are only read when libraries are configured. See the source-lines section of the
+     * library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param libraryConfig the library impact analysis configuration, or null when not configured
      * @param changedPaths the files changed since the stored commit, read on first use
-     * @return true when tracked libraries are configured and a build file changed
+     * @param vcsReader the VCS reader, naming the workspace root the changed paths are relative to
+     * @return true when tracked libraries are configured and a build file of the source project changed
      */
     private boolean isLibraryBuildFileTriggered(final LibraryImpactAnalysisConfig libraryConfig,
-                                                final Supplier<Set<String>> changedPaths) {
+                                                final Supplier<Set<String>> changedPaths,
+                                                final VCSReader vcsReader) {
         if (libraryConfig == null || !libraryConfig.isEnabled()) {
             return false;
         }
-        boolean triggered = LibraryBuildFiles.anyBuildFile(changedPaths.get());
+        Set<String> paths = changedPaths.get();
+        if (!LibraryBuildFiles.anyProjectBuildFile(paths, null)) {
+            return false;
+        }
+        String projectPath = LibraryBuildFiles.projectPathInWorkspace(vcsReader.getWorkspaceRoot(),
+                libraryConfig.getSourceProjectDir());
+        boolean triggered = LibraryBuildFiles.anyProjectBuildFile(paths, projectPath);
         if (triggered) {
-            log.info("A build file changed since the stored commit - identifying the build each tracked "
-                    + "library resolves to, so a move to another source line is noticed.");
+            log.info("A build file of the source project changed since the stored commit - identifying the "
+                    + "build each tracked library resolves to, so a move to another source line is noticed.");
+        } else {
+            log.debug("Changed build files lie outside the source project {} - not identifying the tracked "
+                    + "libraries' builds.", libraryConfig.getSourceProjectDir());
         }
         return triggered;
     }

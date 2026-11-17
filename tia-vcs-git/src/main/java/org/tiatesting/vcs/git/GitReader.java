@@ -86,6 +86,20 @@ public class GitReader implements VCSReader {
         return gitDiffAnalyzer.findMappingDrift(gitContext, baseChangeNum, localDiffs);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The repository's work tree, which every changed path is relative to. A bare repository
+     * has none.
+     *
+     * @return the absolute work tree directory, or null for a bare repository
+     */
+    @Override
+    public String getWorkspaceRoot() {
+        Repository repository = gitContext.getRepository();
+        return repository.isBare() ? null : repository.getWorkTree().getAbsolutePath();
+    }
+
     @Override
     public void close() {
         log.debug("Closing the Git Repository resource");

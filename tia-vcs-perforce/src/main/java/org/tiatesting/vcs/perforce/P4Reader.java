@@ -88,6 +88,19 @@ public class P4Reader implements VCSReader {
     /**
      * {@inheritDoc}
      *
+     * <p>The client root, which {@link #getChangedFilePaths} relativizes every local path
+     * against. Read from the client spec already loaded on connect.
+     *
+     * @return the client root directory, or null when the client has none
+     */
+    @Override
+    public String getWorkspaceRoot() {
+        return p4DiffAnalyzer.getWorkspaceRoot(p4Context);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * <p>Checked per file with one batched {@code p4 files -a} query over two ranges per file:
      * {@code #>have,@<baseCl>} (revisions the stored changelist has after the synced one, behind)
      * and {@code @>baseCl,#have} (synced revisions after the stored changelist, ahead). The check

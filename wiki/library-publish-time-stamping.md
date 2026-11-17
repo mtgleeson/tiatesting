@@ -149,6 +149,14 @@ forced run does, and a switch is noticed at that run. The changed paths are read
 with the static selection rules; with no static rules configured, the trigger costs one
 changed-paths query per run, plus a library resolution on the runs where a build file changed.
 
+Only the source project's own build files count: those in the source project directory, below it
+(its modules), or in a directory above it up to the workspace root (parent POMs, root settings
+scripts and `gradle.properties`). A version catalogue in a `gradle/` directory counts for the
+build one level up, where Gradle reads it. A build file of another project in the same repository
+or client view cannot change what this project resolves, so it does not trigger a resolution.
+The workspace root is the Git work tree or the Perforce client root, read locally with no server
+call. When the source project lies outside the workspace, every changed build file counts.
+
 The trigger does not cover a move with no build-file change, such as a snapshot dependency that
 resolves to another line's build because a different line published the same snapshot version
 last. Run `tiaSelectAllTests` once after such a move to switch the consumer at that run;

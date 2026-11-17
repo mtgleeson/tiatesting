@@ -67,6 +67,7 @@ class TestSelectorLibraryPreviewTest {
 
     private static final String LIB_COORD = "com.example:lib";
     private static final String LIB_PROJECT_DIR = "/projects/lib";
+    private static final String WORKSPACE_ROOT = "/workspace";
     private static final String LIB_SRC_DIR = "/projects/lib/src/main/java";
     private static final String LIB_FILE_KEY = "com/example/Lib.java";
     private static final String LIB_DIFF_PATH = LIB_SRC_DIR + "/" + LIB_FILE_KEY;
@@ -323,19 +324,46 @@ class TestSelectorLibraryPreviewTest {
         dataStore.persistTrackedLibrary(lib);
         seedLibraryMethodMapping();
         persistReleaseOnLine("2.0.0", "lineB");
-        StubVCSReader reader = new StubVCSReader("head").withChangedPaths("app/pom.xml");
+        StubVCSReader reader = new StubVCSReader("head").withChangedPaths("app/pom.xml")
+                .withWorkspaceRoot(WORKSPACE_ROOT);
         StubMetadataReader metadataReader = new StubMetadataReader("2.0.0");
 
         // when a primary run selects with the app's build file changed
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(reader,
                 Collections.emptyList(), Collections.emptyList(), TestSuiteRunnabilityClassifier.disabled(),
-                false, config(metadataReader), null, true, SelectionMode.SELECTIVE);
+                false, config(metadataReader, WORKSPACE_ROOT + "/app"), null, true, SelectionMode.SELECTIVE);
 
         // then the library was resolved, every tracked suite is selected and the switch is reported
         assertEquals(1, metadataReader.getResolutions());
         assertTrue(result.getTestsToRun().contains(LIB_TEST));
         assertTrue(result.getLibraryImpactDrainResult().getLineSwitchedLibraries().contains(LIB_COORD));
         assertEquals("lineB", result.getLibraryImpactDrainResult().getLineToFollowByLibrary().get(LIB_COORD));
+    }
+
+    /**
+     * A build file of another project in the same workspace cannot change what the source project
+     * resolves, so it does not trigger: nothing is resolved and nothing is selected.
+     */
+    @Test
+    void anotherProjectsBuildFileResolvesNothing() {
+        // given a library following line A, a line B release, and only a sibling project's POM changed
+        TrackedLibrary lib = new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR);
+        lib.setFollowedLine("lineA");
+        dataStore.persistTrackedLibrary(lib);
+        seedLibraryMethodMapping();
+        persistReleaseOnLine("2.0.0", "lineB");
+        StubVCSReader reader = new StubVCSReader("head").withChangedPaths("other-app/pom.xml")
+                .withWorkspaceRoot(WORKSPACE_ROOT);
+        StubMetadataReader metadataReader = new StubMetadataReader("2.0.0");
+
+        // when a primary run selects for the source project under app/
+        TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(reader,
+                Collections.emptyList(), Collections.emptyList(), TestSuiteRunnabilityClassifier.disabled(),
+                false, config(metadataReader, WORKSPACE_ROOT + "/app"), null, true, SelectionMode.SELECTIVE);
+
+        // then no library was resolved and nothing was selected
+        assertEquals(0, metadataReader.getResolutions());
+        assertFalse(result.getTestsToRun().contains(LIB_TEST));
     }
 
     /**
@@ -356,7 +384,7 @@ class TestSelectorLibraryPreviewTest {
         // when a primary run selects
         TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(reader,
                 Collections.emptyList(), Collections.emptyList(), TestSuiteRunnabilityClassifier.disabled(),
-                false, config(metadataReader), null, true, SelectionMode.SELECTIVE);
+                false, config(metadataReader, "/projects/source"), null, true, SelectionMode.SELECTIVE);
 
         // then no library was resolved and nothing was selected
         assertEquals(0, metadataReader.getResolutions());
@@ -380,7 +408,7 @@ class TestSelectorLibraryPreviewTest {
         // when a run selects
         new TestSelector(dataStore, new File(".")).selectTestsToIgnore(reader,
                 Collections.emptyList(), Collections.emptyList(), TestSuiteRunnabilityClassifier.disabled(),
-                false, config(new StubMetadataReader("2.0.0")), staticConfig, true, SelectionMode.SELECTIVE);
+                false, config(new StubMetadataReader("2.0.0"), "/projects/source"), staticConfig, true, SelectionMode.SELECTIVE);
 
         // then the VCS was asked for the changed paths once
         assertEquals(1, reader.getChangedPathReads());
@@ -400,16 +428,17 @@ class TestSelectorLibraryPreviewTest {
     }
 
     /**
-     * Build a library config around the given metadata reader.
+     * Build a library config around the given metadata reader and source project directory.
      *
      * @param metadataReader the reader resolving the library on the app classpath
+     * @param sourceProjectDir the absolute source project directory
      * @return the library config
      */
-    private LibraryImpactAnalysisConfig config(StubMetadataReader metadataReader) {
+    private LibraryImpactAnalysisConfig config(StubMetadataReader metadataReader, String sourceProjectDir) {
         Map<String, String> projectDirs = new HashMap<>();
         projectDirs.put(LIB_COORD, LIB_PROJECT_DIR);
         return new LibraryImpactAnalysisConfig(
-                Collections.singletonList(LIB_COORD), projectDirs, "/projects/source", metadataReader);
+                Collections.singletonList(LIB_COORD), projectDirs, sourceProjectDir, metadataReader);
     }
 
     /**
@@ -476,6 +505,7 @@ class TestSelectorLibraryPreviewTest {
         private final List<SourceFileDiffContext> contentLoadedDiffs = new ArrayList<>();
         private final Set<String> changedPaths = new HashSet<>();
         private int changedPathReads;
+        private String workspaceRoot;
 
         StubVCSReader(String headCommit, SourceFileDiffContext... diffs) {
             this.headCommit = headCommit;
@@ -491,6 +521,27 @@ class TestSelectorLibraryPreviewTest {
         StubVCSReader withChangedPaths(String... paths) {
             changedPaths.addAll(java.util.Arrays.asList(paths));
             return this;
+        }
+
+        /**
+         * Name the workspace root the changed paths are relative to.
+         *
+         * @param root the absolute workspace root
+         * @return this reader
+         */
+        StubVCSReader withWorkspaceRoot(String root) {
+            workspaceRoot = root;
+            return this;
+        }
+
+        /**
+         * Return the workspace root set by {@link #withWorkspaceRoot}, or null when none was set.
+         *
+         * @return the workspace root, or null
+         */
+        @Override
+        public String getWorkspaceRoot() {
+            return workspaceRoot;
         }
 
         /**

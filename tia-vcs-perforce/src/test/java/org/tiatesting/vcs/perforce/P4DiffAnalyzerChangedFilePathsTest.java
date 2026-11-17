@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -63,6 +64,22 @@ class P4DiffAnalyzerChangedFilePathsTest {
 
         analyzer = new P4DiffAnalyzer();
         p4Context = new P4Context(p4Connection, "main", "103");
+    }
+
+    @Test
+    void workspaceRootIsTheClientRootThePathsAreRelativeTo() {
+        // given a client whose root is the workspace root, and one with no root
+        IClient rootless = mock(IClient.class);
+        P4Connection rootlessConnection = mock(P4Connection.class);
+        when(rootlessConnection.getClient()).thenReturn(rootless);
+
+        // when the workspace root is asked for
+        String root = analyzer.getWorkspaceRoot(p4Context);
+        String none = analyzer.getWorkspaceRoot(new P4Context(rootlessConnection, "main", "103"));
+
+        // then it is the client root, and unknown when the client has none
+        assertEquals(WORKSPACE_ROOT, root);
+        assertNull(none);
     }
 
     @Test

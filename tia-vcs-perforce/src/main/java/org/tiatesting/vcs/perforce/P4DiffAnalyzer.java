@@ -489,6 +489,18 @@ public class P4DiffAnalyzer {
     }
 
     /**
+     * Name the directory {@link #getChangedFilePaths} relativizes local paths against: the
+     * client's configured root. Read from the client spec loaded on connect, with no server call.
+     *
+     * @param p4Context object used to hold data about a Perforce server being analysed by Tia.
+     * @return the client root, or null when the client has none
+     */
+    protected String getWorkspaceRoot(final P4Context p4Context) {
+        String root = p4Context.getP4Connection().getClient().getRoot();
+        return root == null || root.trim().isEmpty() ? null : root;
+    }
+
+    /**
      * Build the forward-slash, trailing-slash-terminated workspace root prefix used to
      * relativize local file paths, from the client's configured root directory.
      *

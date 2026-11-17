@@ -164,4 +164,16 @@ public interface VCSReader {
     default String getSourceLine(List<String> sourceDirs, String workspaceBranch) {
         return workspaceBranch;
     }
+
+    /**
+     * Name the directory the paths from {@link #getChangedFilePaths} are relative to, so a caller
+     * can tell which changed files lie in a given project directory. Read from local state - no
+     * server call. A VCS that cannot name one returns null and callers then treat every changed
+     * path as in scope.
+     *
+     * @return the absolute workspace root (Git work tree, Perforce client root), or null when unknown
+     */
+    default String getWorkspaceRoot() {
+        return null;
+    }
 }
