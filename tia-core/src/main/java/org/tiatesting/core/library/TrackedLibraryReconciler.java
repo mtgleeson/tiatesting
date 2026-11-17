@@ -65,7 +65,7 @@ public class TrackedLibraryReconciler {
      * For each declared coordinate, insert a new tracked library row if it does not exist,
      * or update the existing row if the project directory or source directories have changed.
      * Config-driven updates preserve the row's ledger state ({@code mappingBaselineCommit},
-     * {@code lastAppliedSeq}, {@code followedLine}) — those fields are owned by the publish stamper and the post-run
+     * {@code lastAppliedSeq}, {@code followedLine}) - those fields are owned by the publish stamper and the post-run
      * cleanup, not by configuration.
      *
      * @param dataStore the persistence layer.
