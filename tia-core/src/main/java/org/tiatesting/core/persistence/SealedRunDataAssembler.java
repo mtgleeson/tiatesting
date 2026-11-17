@@ -263,32 +263,44 @@ public final class SealedRunDataAssembler {
 
     /**
      * Collect the tracked-library rows whose state changes as part of this seal, without writing
-     * them - the caller hands them to the data store inside the seal transaction.
+     * them - the caller hands them to the data store inside the seal transaction. Everything is
+     * taken from the drain result and the data store, so the seal needs no VCS access.
      *
-     * <p>Two sources contribute. A drained library has its {@code lastAppliedSeq} advanced to the
-     * resolved build's sequence and its {@code mappingBaselineCommit} to this run's commit. An
-     * all-tests run advances every tracked library's baseline, because every suite was just
-     * re-covered. See the mapping-baseline section of the library publish-time stamping chapter
-     * in {@code WIKI.md}.
+     * <p>A drained library has its {@code lastAppliedSeq} advanced to the resolved build's
+     * sequence. Its {@code mappingBaselineCommit} moves to the commit that build was published
+     * at - the library source its jar was built from, which is what the re-covered suites' line
+     * numbers describe. The consumer's own sealed commit is not used: it can be past library
+     * changes the held jar does not contain, and a baseline there would hide them from the next
+     * publish's diff.
      *
-     * <p>Neither source has anything to contribute on a selective run (not all-tests) with no
-     * drained batches, so that case returns an empty list before reading {@link
-     * DataStore#readTrackedLibraries()} - this keeps the common primary-build persist (a targeted
-     * mapping run, no library drain) from paying an unconditional library-table read on every
-     * call, per the performance guidance in {@code WIKI.md}.
+     * <p>An all-tests run re-covers every suite, so every tracked library whose held build the
+     * drain identified has its baseline moved the same way. A library whose held build is not
+     * known keeps its baseline (the next publish diffs a wider range, never a narrower one),
+     * except one with no baseline at all, which takes the sealed commit so that its first publish
+     * stamps rather than seeds. See the mapping-baseline section of the library publish-time
+     * stamping chapter in {@code WIKI.md}.
+     *
+     * <p>Nothing changes on a selective run (not all-tests) whose drain left no seal work, so
+     * that case returns an empty list before reading {@link DataStore#readTrackedLibraries()} -
+     * this keeps the common primary-build persist (a targeted mapping run, no library drain) from
+     * paying an unconditional library-table read on every call, per the performance guidance in
+     * {@code WIKI.md}.
      *
      * @param drainResult the drain result from test selection, or {@code null} when no drain ran
-     * @param commitValue the commit this run seals - the new mapping baseline
+     * @param commitValue the commit this run seals - the baseline of last resort for a library
+     *                    that has none and whose held build is unknown on an all-tests run
      * @param allTestsRun {@code true} when Tia ignored zero suites this run
      * @return the library rows to upsert; empty when nothing changed
      */
     private List<TrackedLibrary> collectLibrariesToPersist(final LibraryImpactDrainResult drainResult,
                                                            final String commitValue,
                                                            final boolean allTestsRun) {
-        if ((drainResult == null || !drainResult.hasDrainedBatches()) && !allTestsRun) {
+        if ((drainResult == null || !drainResult.hasSealWork()) && !allTestsRun) {
             return Collections.emptyList();
         }
 
+        Map<String, String> heldBuildCommits = drainResult != null
+                ? drainResult.getHeldBuildCommitByLibrary() : Collections.<String, String>emptyMap();
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         Map<String, TrackedLibrary> changed = new LinkedHashMap<>();
 
@@ -301,24 +313,48 @@ public final class SealedRunDataAssembler {
                     continue;
                 }
                 library.setLastAppliedSeq(entry.getValue());
-                library.setMappingBaselineCommit(commitValue);
+                String heldBuildCommit = heldBuildCommits.get(entry.getKey());
+                if (heldBuildCommit != null) {
+                    library.setMappingBaselineCommit(heldBuildCommit);
+                }
                 changed.put(entry.getKey(), library);
                 log.info("Updating tracked library '{}': last_applied_seq={}, mapping_baseline_commit='{}'.",
-                        entry.getKey(), entry.getValue(), commitValue);
+                        entry.getKey(), entry.getValue(), library.getMappingBaselineCommit());
             }
         }
 
         if (allTestsRun) {
             for (TrackedLibrary library : trackedLibraries.values()) {
-                if (!Objects.equals(library.getMappingBaselineCommit(), commitValue)) {
-                    library.setMappingBaselineCommit(commitValue);
+                String baseline = baselineAfterAllTestsRun(library,
+                        heldBuildCommits.get(library.getGroupArtifact()), commitValue);
+                if (!Objects.equals(library.getMappingBaselineCommit(), baseline)) {
+                    library.setMappingBaselineCommit(baseline);
                     changed.put(library.getGroupArtifact(), library);
-                    log.info("All-tests run - advancing mapping baseline for library '{}' to '{}'.",
-                            library.getGroupArtifact(), commitValue);
+                    log.info("All-tests run - moving mapping baseline for library '{}' to '{}'.",
+                            library.getGroupArtifact(), baseline);
                 }
             }
         }
 
         return new ArrayList<>(changed.values());
+    }
+
+    /**
+     * Decide a tracked library's mapping baseline after a run that re-covered every suite. The
+     * held build's publish commit wins when the drain identified it. Otherwise an existing
+     * baseline stays where it is, and a library with none takes the sealed commit.
+     *
+     * @param library the tracked library
+     * @param heldBuildCommit the commit the library's held build was published at, or
+     *                        {@code null} when the drain did not identify the build
+     * @param sealedCommit the commit this run seals
+     * @return the baseline the library should carry after this seal
+     */
+    private String baselineAfterAllTestsRun(final TrackedLibrary library, final String heldBuildCommit,
+                                            final String sealedCommit) {
+        if (heldBuildCommit != null) {
+            return heldBuildCommit;
+        }
+        return library.getMappingBaselineCommit() != null ? library.getMappingBaselineCommit() : sealedCommit;
     }
 }

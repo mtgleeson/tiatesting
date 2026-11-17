@@ -8,7 +8,9 @@ import java.util.*;
  * Carried from the selector to the post-test-run persistence step (serialized across the Maven
  * plugin-to-fork boundary) so that drained stamp rows can be deleted and each drained library's
  * {@code tia_library.last_applied_seq} / {@code mapping_baseline_commit} advanced after the tests
- * finish. See the drain-rule section of the library publish-time stamping chapter in {@code WIKI.md}.
+ * finish. The baseline moves to the commit the resolved build was published at, which the drain
+ * also carries here. See the drain-rule section of the library publish-time stamping chapter in
+ * {@code WIKI.md}.
  */
 public class LibraryImpactDrainResult implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -33,10 +35,18 @@ public class LibraryImpactDrainResult implements Serializable {
      */
     private final Map<String, Long> appliedSeqByLibrary;
 
+    /**
+     * For each library whose held build the drain identified in the publish ledger, the commit
+     * that build was published at - the new {@code mapping_baseline_commit} to record
+     * post-test-run. Null on a result deserialized from a row written before this field existed.
+     */
+    private final Map<String, String> heldBuildCommitByLibrary;
+
     public LibraryImpactDrainResult() {
         this.drainedBatchKeys = new ArrayList<>();
         this.drainedForcedBatchKeys = new ArrayList<>();
         this.appliedSeqByLibrary = new LinkedHashMap<>();
+        this.heldBuildCommitByLibrary = new LinkedHashMap<>();
     }
 
     /**
@@ -70,6 +80,30 @@ public class LibraryImpactDrainResult implements Serializable {
         appliedSeqByLibrary.put(groupArtifact, appliedSeq);
     }
 
+    /**
+     * Record the commit a library's held build was published at. The seal moves the library's
+     * mapping baseline there, because that is the library source the re-covered suites' line
+     * numbers describe - not the consumer's own sealed commit, which can be past library changes
+     * the held jar does not contain.
+     *
+     * @param groupArtifact the library whose held build was identified.
+     * @param commit the commit recorded on that build's publish ledger row.
+     */
+    public void setHeldBuildCommit(String groupArtifact, String commit) {
+        heldBuildCommitByLibrary.put(groupArtifact, commit);
+    }
+
+    /**
+     * The publish commit of each library's held build, for the libraries the drain identified.
+     *
+     * @return the held build's publish commit by library coordinate; empty when the drain
+     *         identified none, including on a result serialized before the field existed.
+     */
+    public Map<String, String> getHeldBuildCommitByLibrary() {
+        return heldBuildCommitByLibrary != null
+                ? heldBuildCommitByLibrary : Collections.<String, String>emptyMap();
+    }
+
     public List<DrainedBatchKey> getDrainedBatchKeys() {
         return drainedBatchKeys;
     }
@@ -88,13 +122,24 @@ public class LibraryImpactDrainResult implements Serializable {
     }
 
     /**
+     * Whether the seal has anything to apply from this drain: batches to delete, or a held build
+     * whose publish commit a library's mapping baseline may move to. A result with no seal work
+     * need not be handed to the test JVM.
+     *
+     * @return true when a batch was drained or a held build was identified.
+     */
+    public boolean hasSealWork() {
+        return hasDrainedBatches() || !getHeldBuildCommitByLibrary().isEmpty();
+    }
+
+    /**
      * Value equality across every drained batch, forced batch and applied sequence, so a drain
      * result that has been serialized - to the fork handoff file, or to the {@code drain_result}
      * column of a distributed run row - can be asserted equal to the one it was written from.
      *
      * @param o the object to compare against
      * @return true if o is a LibraryImpactDrainResult carrying identical drained batches, drained
-     *         forced batches and applied sequences
+     *         forced batches, applied sequences and held build commits
      */
     @Override
     public boolean equals(Object o) {
@@ -103,7 +148,8 @@ public class LibraryImpactDrainResult implements Serializable {
         LibraryImpactDrainResult that = (LibraryImpactDrainResult) o;
         return drainedBatchKeys.equals(that.drainedBatchKeys)
                 && drainedForcedBatchKeys.equals(that.drainedForcedBatchKeys)
-                && appliedSeqByLibrary.equals(that.appliedSeqByLibrary);
+                && appliedSeqByLibrary.equals(that.appliedSeqByLibrary)
+                && getHeldBuildCommitByLibrary().equals(that.getHeldBuildCommitByLibrary());
     }
 
     /**
@@ -113,7 +159,8 @@ public class LibraryImpactDrainResult implements Serializable {
      */
     @Override
     public int hashCode() {
-        return Objects.hash(drainedBatchKeys, drainedForcedBatchKeys, appliedSeqByLibrary);
+        return Objects.hash(drainedBatchKeys, drainedForcedBatchKeys, appliedSeqByLibrary,
+                getHeldBuildCommitByLibrary());
     }
 
     /**

@@ -71,7 +71,7 @@ class PendingLibraryForcedSelectionDrainerTest {
 
         // when
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked("com.acme.AaaTest", "com.acme.BbbIT"));
+                dataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked("com.acme.AaaTest", "com.acme.BbbIT"), false);
 
         // then all tracked suites are selected and the forced batch is marked drained
         assertEquals(new HashSet<>(Arrays.asList("com.acme.AaaTest", "com.acme.BbbIT")),
@@ -96,7 +96,7 @@ class PendingLibraryForcedSelectionDrainerTest {
 
         // when
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked("com.acme.AaaTest", "com.acme.BbbIT"));
+                dataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked("com.acme.AaaTest", "com.acme.BbbIT"), false);
 
         // then only the matching suite is selected
         assertEquals(Collections.singleton("com.acme.BbbIT"), new HashSet<>(outcome.getTestsToAdd()));
@@ -121,7 +121,7 @@ class PendingLibraryForcedSelectionDrainerTest {
 
         // when the drain runs against the older resolved jar (seq 1)
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked("com.acme.AaaTest"));
+                dataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked("com.acme.AaaTest"), false);
 
         // then nothing drains - the forced batch at seq 2 is above the resolved seq 1
         assertTrue(outcome.getTestsToAdd().isEmpty());
@@ -148,7 +148,7 @@ class PendingLibraryForcedSelectionDrainerTest {
 
         // when
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked);
+                dataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked, false);
 
         // then both the method-covering test and the forced-matching test are selected
         assertEquals(new HashSet<>(Arrays.asList("com.acme.AaaTest", "com.acme.BbbIT")),
@@ -184,7 +184,7 @@ class PendingLibraryForcedSelectionDrainerTest {
         // when the drain runs through a proxy that counts calls to lookupLibraryPublish - the
         // ledger lookup the per-library resolve step makes - against the underlying data store
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                countingDataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked);
+                countingDataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked, false);
 
         // then both the method-covering test and the forced-matching test are selected, and the
         // build-sequence resolution for this library ran exactly once despite the two batch kinds

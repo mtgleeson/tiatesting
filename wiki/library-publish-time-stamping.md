@@ -58,8 +58,8 @@ build am I actually holding?*
    already ran against newer code; check the dependency resolution.
 
 After the test run, the primary build's persist deletes the drained stamps, advances
-`last_applied_seq` to R and moves the library's `mapping_baseline_commit` to the run's sealed
-commit. `last_applied_seq` is deliberately NOT part of the drain predicate - it is a monotonic
+`last_applied_seq` to R and moves the library's `mapping_baseline_commit` to the commit build R
+was published at (the ledger row's commit, carried on the drain result). `last_applied_seq` is deliberately NOT part of the drain predicate - it is a monotonic
 high-water mark for the downgrade warning and reporting only; at worst a corrupted value produces
 a wrong warning, never a wrong drain.
 
@@ -109,7 +109,7 @@ time
  |                                                            post-run cleanup:
  |                                                               DELETE stamp seq2
  |                                                               last_applied_seq = 2
- |                                                               mapping_baseline_commit = sealed commit
+ |                                                               mapping_baseline_commit = C2 (seq2's publish commit)
  v
 ```
 
@@ -189,9 +189,46 @@ the library's covering suites last ran with coverage - so each `tia_library` row
 commit as its `mapping_baseline_commit`, and the publish task always diffs from it (not from the
 previous publish, which would compound line drift and risk underselection).
 
-The baseline advances only when line numbers actually refresh: on an all-tests run (every suite
-re-covered), and on a primary run that drained the library's stamps (the drain ran its covering
-suites with coverage). Between advances the baseline diff is cumulative - it re-reports every
+The commit that matters is the library's, not the consumer's: the covering suites ran against
+the jar the consumer holds, so the line numbers they captured are those of the source that jar
+was built from. The baseline is therefore the commit the held build was **published** at, read
+from its ledger row. The consumer's own sealed commit must not be used. It can sit past library
+changes the held jar does not contain, and a baseline there hides those changes from every later
+publish:
+
+| Changelist | Event                                                        |
+|------------|--------------------------------------------------------------|
+| 480        | library released; the consumer picks this jar up             |
+| 490        | library edited, not released                                 |
+| 500        | consumer run drains the 480 release and seals                |
+| 510        | library released, containing the 490 edit                    |
+
+With the baseline at 480 the release at 510 diffs `480..510` and stamps the 490 edit. A baseline
+of 500 would diff `500..510`, find nothing, and the consumer would upgrade to a jar containing an
+untested change.
+
+The baseline moves only when line numbers actually refresh, and only to a build the ledger knows:
+
+- **A primary run that drained the library's stamps** (the drain ran its covering suites with
+  coverage): to the resolved build's publish commit.
+- **A forced all-tests run** (`tiaSelectAllTests`, `tiaReseed`): every suite is re-covered, so the
+  drain identifies the held build of every tracked library, pending stamps or not, and each
+  baseline moves to its build's publish commit. This is the one case where the drain resolves
+  libraries with nothing pending; a normal selection still skips that work.
+- **Held build not in the ledger** (unresolvable, never published with stamping, or a downgrade):
+  the baseline stays where it is. The next publish diffs a wider range than strictly needed,
+  never a narrower one. The exception is a library with no baseline at all, which takes the
+  sealed commit on an all-tests run - the usual case being the first seed - so that its first
+  publish stamps instead of seeding.
+
+An all-tests run that was not forced (selection happened to ignore nothing) and has nothing
+pending does not resolve held builds, so its baselines stay put - again the wider, safe direction.
+
+The seal takes all of this from the drain result and the datastore. Identifying the held build
+uses the build model, the jar on disk and the ledger, at selection time; nothing in the test run
+or the seal reads the VCS, so runners without a repository are unaffected.
+
+Between advances the baseline diff is cumulative - it re-reports every
 method changed since the baseline on every publish - so a second diff filters that set down to what
 is genuinely new for each publish, as the next section explains.
 
@@ -246,9 +283,9 @@ Two properties fall out of the file-granular filter:
   run of already-green tests, never a skipped test. Method-precise dedup would require computing
   method boundaries at HEAD (a mapping run at publish time), not worth it for that residual.
 
-The first publish in each baseline window - the seed, and the first publish after a drain advances
-the baseline - has its previous publish equal to the baseline, so Diff 2 is skipped and the publish
-stamps the full precise Diff 1.
+The first publish in each baseline window - the seed, and the first publish after a consumer on
+the latest build drains and moves the baseline to that build's publish commit - has its previous
+publish equal to the baseline, so Diff 2 is skipped and the publish stamps the full precise Diff 1.
 
 ### Library-declared forced selection
 
@@ -365,7 +402,8 @@ the working tree.
   it would discard. The library-diff partition stays as a guard for configured source dirs that
   themselves cover a tracked library. The recorded `tia_library` source dirs are therefore read by
   the app run only in local-changes mode and by that partition. The app's commit cursor and the
-  mapping baseline are independent; no coordination or timing window exists.
+  mapping baseline are independent - the baseline is a library publish commit, never the app's
+  sealed commit - so no coordination or timing window exists.
 - **Reconcile owns identity only.** The reconciler inserts/updates/deletes `tia_library` rows from
   the `tiaSourceLibs` config (project dir, source dirs); the ledger state (`mapping_baseline_commit`,
   `last_applied_seq`) is owned by the publish task and the post-run cleanup and survives config

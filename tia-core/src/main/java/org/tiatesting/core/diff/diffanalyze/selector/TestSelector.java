@@ -157,7 +157,7 @@ public class TestSelector {
         Set<String> testsToRun = runResult.getTestsToRun();
 
         PendingLibrarySelection librarySelection = drainPendingLibraryMethodsIfConfigured(
-                libraryConfig, testsToRun, testSuitesTracked);
+                libraryConfig, testsToRun, testSuitesTracked, false);
 
         List<TestRunTrigger> staticRuleTriggers = applyStaticTestSelection(vcsReader, staticMappingConfig,
                 tiaCore.getCommitValue(), testSuitesTracked, testsToRun, checkLocalChanges, libraryConfig);
@@ -219,7 +219,7 @@ public class TestSelector {
         }
 
         PendingLibrarySelection librarySelection = drainPendingLibraryMethodsIfConfigured(
-                libraryConfig, testsToRun, testSuitesTracked);
+                libraryConfig, testsToRun, testSuitesTracked, true);
         RunTimeEstimate estimate = estimateRunTime(testsToRun, testSuitesTracked,
                 tiaCore.getTestStats());
 
@@ -1581,13 +1581,17 @@ public class TestSelector {
      *                          drainer so drained forced-selection batches resolve
      *                          {@code RUN_ALL} / {@code SUITE_NAMES} against this project's own
      *                          suite set rather than the library's.
+     * @param selectsAllTests true when this selection runs every tracked suite (a forced run), so
+     *                        the drain identifies every tracked library's held build and the seal
+     *                        can move each mapping baseline to it; false on a normal selection,
+     *                        which resolves only libraries with something pending
      * @return the drain result for post-run cleanup (null when draining was skipped) together
      *         with the count of suites selected from pending library changes, for the
      *         run-history selection breakdown
      */
     private PendingLibrarySelection drainPendingLibraryMethodsIfConfigured(
             LibraryImpactAnalysisConfig libraryConfig, Set<String> testsToRun,
-            Map<String, TestSuiteTracker> testSuitesTracked) {
+            Map<String, TestSuiteTracker> testSuitesTracked, boolean selectsAllTests) {
 
         if (libraryConfig == null || !libraryConfig.isEnabled()) {
             return new PendingLibrarySelection(null, 0);
@@ -1595,7 +1599,7 @@ public class TestSelector {
 
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                drainer.drainPendingMethods(dataStore, libraryConfig, testSuitesTracked);
+                drainer.drainPendingMethods(dataStore, libraryConfig, testSuitesTracked, selectsAllTests);
 
         if (!outcome.getTestsToAdd().isEmpty()) {
             LogUtil.infoSampled(log, "Selected tests to run from pending library changes", outcome.getTestsToAdd());

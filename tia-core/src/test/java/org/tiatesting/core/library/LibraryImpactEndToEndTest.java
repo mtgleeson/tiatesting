@@ -72,7 +72,7 @@ class LibraryImpactEndToEndTest {
      * The full lifecycle: seed the baseline via the first publish, stamp a change on the second
      * publish, resolve that build on the consumer, drain its covering tests, and clean up after
      * the run - the stamp is deleted, last_applied_seq advances to the resolved seq and the
-     * mapping baseline moves to the run's sealed commit.
+     * mapping baseline moves to the commit the resolved build was published at.
      */
     @Test
     void publishStampDrainCleanupLifecycle() throws Exception {
@@ -97,7 +97,7 @@ class LibraryImpactEndToEndTest {
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
                         dataStore, configResolving("1.0.0-SNAPSHOT", jar2.getAbsolutePath()),
-                        Collections.<String, TestSuiteTracker>emptyMap());
+                        Collections.<String, TestSuiteTracker>emptyMap(), false);
         assertTrue(outcome.getDrainResult().hasDrainedBatches());
         assertTrue(outcome.getTestsToAdd().contains("com.example.TestA"));
 
@@ -106,7 +106,7 @@ class LibraryImpactEndToEndTest {
         assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
         TrackedLibrary updated = dataStore.readTrackedLibraries().get(LIB);
         assertEquals(Long.valueOf(2L), updated.getLastAppliedSeq());
-        assertEquals("newcommit", updated.getMappingBaselineCommit());
+        assertEquals("c1", updated.getMappingBaselineCommit());
     }
 
     /**
@@ -128,13 +128,13 @@ class LibraryImpactEndToEndTest {
         LibraryImpactAnalysisConfig config = configResolving("1.0.0-SNAPSHOT", jar.getAbsolutePath());
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
         PendingLibraryImpactedMethodsDrainer.DrainOutcome first = drainer.drainPendingMethods(
-                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap());
+                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap(), false);
         assertTrue(first.getDrainResult().hasDrainedBatches());
         // (crash: persistTestRunData never runs - stamps and applied seq unchanged)
 
         // when the next run drains again
         PendingLibraryImpactedMethodsDrainer.DrainOutcome second = drainer.drainPendingMethods(
-                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap());
+                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // then the same batch re-drains with the same tests - self-correcting overselection
         assertTrue(second.getDrainResult().hasDrainedBatches());
@@ -191,7 +191,7 @@ class LibraryImpactEndToEndTest {
                 new PerCoordinateReader(jarByCoord));
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
-                        dataStore, config, Collections.<String, TestSuiteTracker>emptyMap());
+                        dataStore, config, Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // then both drain, and cleanup advances each library independently
         assertEquals(2, outcome.getDrainResult().getDrainedBatchKeys().size());
@@ -219,7 +219,7 @@ class LibraryImpactEndToEndTest {
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
                         dataStore, configResolving("1.0.0", jar.getAbsolutePath()),
-                        Collections.<String, TestSuiteTracker>emptyMap());
+                        Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // when the drain result crosses the plugin-to-fork boundary via serialization
         File serFile = new File(tempDir, "drain-result.ser");
@@ -232,6 +232,47 @@ class LibraryImpactEndToEndTest {
         persistWithDrainResult(deserialized, "newcommit");
         assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
         assertEquals(Long.valueOf(1L), dataStore.readTrackedLibraries().get(LIB).getLastAppliedSeq());
+    }
+
+    /**
+     * A library change committed before the consumer's sealed commit but released after it must
+     * still be stamped. The consumer's jar was published at changelist 480; the library is edited
+     * again at 490 (unreleased); the consumer seals at 500 while still holding the 480 jar. The
+     * release at 510 contains the 490 edit, which the consumer's jar does not - so the publish
+     * must stamp it. Diffing from the consumer's sealed commit (500) would miss it.
+     */
+    @Test
+    void libraryChangeCommittedBeforeTheConsumerSealsIsStampedWhenReleasedLater() throws Exception {
+        // given a library seeded at 470, edited at 475 and released at 480, with the consumer
+        // draining that release and sealing at 500 - after a further unreleased edit at 490
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR));
+        setupTestMappingWithMethods(METHOD_ID);
+        LibraryPublishStamper stamper = new LibraryPublishStamper();
+        long[] editChangelists = {475L, 490L};
+        stamper.stampPublish(dataStore, new ChangelistVCSReader(470L, editChangelists), LIB, "1.0",
+                jarFile("build-470").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
+                Collections.<String>emptyList());
+        File jar480 = jarFile("build-480");
+        stamper.stampPublish(dataStore, new ChangelistVCSReader(480L, editChangelists), LIB, "1.1",
+                jar480.getAbsolutePath(), StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList());
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
+                        dataStore, configResolving("1.1", jar480.getAbsolutePath()),
+                        Collections.<String, TestSuiteTracker>emptyMap(), false);
+        assertTrue(outcome.getDrainResult().hasDrainedBatches());
+        persistWithDrainResult(outcome.getDrainResult(), "500");
+        // The cleanup helper's run result carries no suites, which empties the mapping; put back
+        // what the real run would have re-captured for the suite covering the drained method.
+        setupTestMappingWithMethods(METHOD_ID);
+
+        // when the library is released at 510, containing the edit made at 490
+        LibraryPublishStamper.PublishStampResult stamp = stamper.stampPublish(dataStore,
+                new ChangelistVCSReader(510L, editChangelists), LIB, "1.2",
+                jarFile("build-510").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
+                Collections.<String>emptyList());
+
+        // then the method edited at 490 is stamped, because the consumer's jar does not contain it
+        assertEquals(Collections.singleton(METHOD_ID), stamp.getStampedMethodIds());
     }
 
     /**
@@ -371,6 +412,110 @@ class LibraryImpactEndToEndTest {
          * @param baseChangeNum unused.
          * @param checkLocalChanges unused.
          * @return never returns.
+         */
+        @Override
+        public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
+                                                             final boolean checkLocalChanges) {
+            throw new UnsupportedOperationException("loadFileContents is not used by this test");
+        }
+
+        /**
+         * No locally changed file differs from its mapped version.
+         *
+         * @param baseChangeNum ignored
+         * @param localDiffs ignored
+         * @return {@link MappingDrift#none()}
+         */
+        @Override
+        public MappingDrift findMappingDrift(String baseChangeNum,
+                Collection<SourceFileDiffContext> localDiffs) {
+            return MappingDrift.none();
+        }
+
+        @Override public void close() { }
+    }
+
+    /**
+     * Stub VCS reader with real range semantics over numeric changelists: a diff from a base
+     * reports the library file as modified only when one of the edit changelists falls after the
+     * base and at or before the head. Lets a test place a library edit before or after another
+     * commit and see whether a given diff range includes it.
+     */
+    private static final class ChangelistVCSReader implements VCSReader {
+        private final long head;
+        private final long[] editChangelists;
+
+        /**
+         * @param head the workspace head changelist
+         * @param editChangelists the changelists at which the library file was edited
+         */
+        ChangelistVCSReader(long head, long[] editChangelists) {
+            this.head = head;
+            this.editChangelists = editChangelists;
+        }
+
+        @Override public String getBranchName() { return "test"; }
+        @Override public String getHeadCommit() { return String.valueOf(head); }
+        @Override public boolean isHeadBehind(String commit) { return false; }
+
+        /**
+         * Report the library file as modified when an edit lies in the range (base, head].
+         *
+         * @param baseChangeNum the changelist to diff from
+         * @param sourceFilesDirs ignored
+         * @param testFilesDirs ignored
+         * @param checkLocalChanges ignored
+         * @return the library diff when the range contains an edit, otherwise an empty set
+         */
+        @Override
+        public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
+                                                       List<String> testFilesDirs, boolean checkLocalChanges) {
+            long base = Long.parseLong(baseChangeNum);
+            for (long edit : editChangelists) {
+                if (edit > base && edit <= head) {
+                    return new HashSet<>(Collections.singletonList(libraryDiff()));
+                }
+            }
+            return new HashSet<>();
+        }
+
+        /**
+         * Load content whose change falls on line 5, inside the tracked 2-8 range.
+         *
+         * @param diffsToLoad the diffs to give content to
+         * @param baseChangeNum ignored
+         * @param checkLocalChanges ignored
+         */
+        @Override
+        public void loadContentForDiffs(Collection<SourceFileDiffContext> diffsToLoad, String baseChangeNum,
+                                        boolean checkLocalChanges) {
+            String original = "l1\nl2\nl3\nl4\nl5-old\nl6\nl7\nl8\nl9\nl10\n";
+            String changed = "l1\nl2\nl3\nl4\nl5-new\nl6\nl7\nl8\nl9\nl10\n";
+            for (SourceFileDiffContext diff : diffsToLoad) {
+                diff.setSourceContentOriginal(original);
+                diff.setSourceContentNew(changed);
+            }
+        }
+
+        /**
+         * No repo-wide changed paths: forced selection is not exercised here.
+         *
+         * @param baseChangeNum ignored
+         * @param checkLocalChanges ignored
+         * @return an empty set
+         */
+        @Override
+        public Set<String> getChangedFilePaths(String baseChangeNum, boolean checkLocalChanges) {
+            return new HashSet<>();
+        }
+
+        /**
+         * Content-by-path loading is not exercised by this test.
+         *
+         * @param paths unused
+         * @param baseChangeNum unused
+         * @param checkLocalChanges unused
+         * @return never returns
          */
         @Override
         public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,

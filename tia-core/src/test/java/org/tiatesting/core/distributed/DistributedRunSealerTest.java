@@ -351,6 +351,7 @@ class DistributedRunSealerTest {
         LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
         drainResult.addDrainedBatch(LIB, 7L);
         drainResult.setAppliedSeq(LIB, 7L);
+        drainResult.setHeldBuildCommit(LIB, "lib-publish-commit");
 
         seedStoredCatalogue(trackers(101, "com/example/A.a.()V", 1, 5));
         seedSuiteEdges("com.example.ATest", "com/example/A.java", 101);
@@ -366,8 +367,8 @@ class DistributedRunSealerTest {
         TrackedLibrary library = dataStore.readTrackedLibraries().get(LIB);
         assertEquals(Long.valueOf(7L), library.getLastAppliedSeq(),
                 "the drained library's applied sequence must advance");
-        assertEquals(PLAN_COMMIT, library.getMappingBaselineCommit(),
-                "the drained library's mapping baseline must advance to the sealed commit");
+        assertEquals("lib-publish-commit", library.getMappingBaselineCommit(),
+                "the drained library's mapping baseline must move to its held build's publish commit");
     }
 
     /**

@@ -13,11 +13,11 @@ import java.util.Map;
  * The complete payload of a run's seal: everything that must become visible at the same instant
  * as the new commit value.
  *
- * <p>The method catalogue and the library mapping baselines are both statements about the commit
- * being sealed - the catalogue's line ranges are in that commit's coordinate space, and a
- * library's {@code mappingBaselineCommit} claims its methods were re-captured there. If either
- * landed without the commit value, a later diff would read them against the wrong baseline and
- * could under-select. Bundling them lets {@link DataStore#persistSealedRunData} write all of it
+ * <p>The method catalogue and the library mapping baselines are both statements about what this
+ * run captured - the catalogue's line ranges are in the sealed commit's coordinate space, and a
+ * library's {@code mappingBaselineCommit} names the library source (the held build's publish
+ * commit) its methods were re-captured from. If either landed without the commit value, a later
+ * diff would read them against the wrong baseline and could under-select. Bundling them lets {@link DataStore#persistSealedRunData} write all of it
  * in one transaction.
  *
  * <p>The bulk suite mapping rows are deliberately NOT part of this bundle - they are written
