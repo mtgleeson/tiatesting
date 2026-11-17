@@ -3,15 +3,12 @@ package org.tiatesting.maven;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
-import org.tiatesting.core.library.LibraryPublishStamper;
-import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.library.LibraryPublishFanOut;
+import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.apache.maven.plugin.MojoExecutionException;
 
 /**
@@ -63,77 +60,45 @@ public class PublishLibStampMojo extends AbstractTiaMojo {
         List<String> publishingSourceDirs = LibraryJarResolver.filterExistingSourceRoots(
                 getProject().getCompileSourceRoots(), getProject().getId(), getLog());
 
-        // The consuming schemas are declared, never derived: the consuming app is a separate build,
-        // so this module cannot see its schemas. A stamp written where no consumer reads it is
-        // never drained, and the suites the library change affects are never re-run. Undeclared
-        // means this module's own schema, which is where the stamp has always gone.
-        List<String> targetSuffixes = declaredStampSchemas();
-        List<String> stamped = new ArrayList<>();
-        Map<String, String> failed = new LinkedHashMap<>();
+        // The consuming schemas are discovered, never declared: every schema in the Tia database
+        // holding a tracked-library row for this coordinate. This module's own branch picks no
+        // schema - it is only the publish's source line on a VCS where a branch is the line.
+        String dbUser = resolveDbUser();
+        String dbPassword = resolveDbPassword();
+        List<String> schemas = DataStoreFactory.findSchemasTrackingLibrary(getTiaDBFilePath(), getTiaDBUrl(),
+                dbUser, dbPassword, getTiaDBDialect(), groupArtifact);
+        if (schemas.isEmpty()) {
+            getLog().warn("Tia publish stamp skipped: no schema in the Tia database tracks library '"
+                    + groupArtifact + "'. It becomes tracked once a consuming project lists it in "
+                    + "tiaSourceLibs and runs.");
+            return;
+        }
 
         // One identity for every schema stamped. Unlike the reporting goals this one cannot be
         // satisfied by a configured branch alone - the stamper reads the publish's own commit from
         // the VCS - but it still opens one reader for the whole goal rather than one per schema.
+        LibraryPublishFanOut.FanOutResult result;
         try (WorkspaceIdentity workspaceIdentity = workspaceIdentity()) {
-            VCSReader vcsReader = workspaceIdentity.openVCSReader();
-
-            for (String suffix : targetSuffixes) {
-                String schemaLabel = suffix == null ? "(none)" : suffix;
-                try (DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), suffix)) {
-                    LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
-                            .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion,
-                                    jarFilePath, staticConfig, publishingSourceDirs,
-                                    workspaceIdentity.getBranch());
-                    getLog().info("Tia publish stamp for " + groupArtifact + " " + publishedVersion
-                            + " into schema " + schemaLabel + ": " + result.getOutcome() + " (seq "
-                            + result.getPublishSeq() + ", " + result.getStampedMethodIds().size()
-                            + " methods).");
-                    stamped.add(schemaLabel);
-                } catch (RuntimeException e) {
-                    getLog().error("Tia publish stamp for " + groupArtifact + " " + publishedVersion
-                            + " FAILED for schema " + schemaLabel + ".", e);
-                    failed.put(schemaLabel, String.valueOf(e.getMessage()));
-                }
-            }
+            result = new LibraryPublishFanOut().stampEachSchema(schemas,
+                    schemaName -> DataStoreFactory.forSchema(getTiaDBFilePath(), getTiaDBUrl(), dbUser,
+                            dbPassword, getTiaDBDialect(), schemaName),
+                    workspaceIdentity.openVCSReader(), groupArtifact, publishedVersion, jarFilePath,
+                    staticConfig, publishingSourceDirs, workspaceIdentity.getBranch());
         }
 
-        if (!failed.isEmpty()) {
-            // Every schema is attempted rather than failing at the first, so a partial stamp leaves
-            // the smallest possible gap - the publish has already happened by now and cannot be
-            // undone. A warning would not do: what it describes is silent under-selection in the
-            // schemas that missed the stamp.
-            throw new MojoExecutionException("Tia: the publish stamp for " + groupArtifact + " "
-                    + publishedVersion + " reached " + stamped + " but FAILED for " + failed.keySet()
-                    + ". Those schemas have no record of this publish, so they will never drain the"
-                    + " methods it changed and never re-run the suites those methods affect - a"
-                    + " silent gap in their selection until the library publishes again. Re-run the"
-                    + " publish stamp once the cause is fixed. Failures: " + failed);
+        // Every schema is attempted rather than failing at the first, so a partial stamp leaves the
+        // smallest possible gap - the publish has already happened by now and cannot be undone. A
+        // warning would not do: what it describes is silent under-selection in the schemas that
+        // missed the stamp.
+        String failure = result.failureMessage(groupArtifact, publishedVersion);
+        if (failure != null) {
+            throw new MojoExecutionException(failure);
         }
-    }
-
-    /**
-     * The schemas this publish stamp is written to: the declared consuming schemas, or this
-     * module's own schema when none is declared.
-     *
-     * @return the schema suffixes to stamp, blanks discarded; never empty
-     */
-    private List<String> declaredStampSchemas() {
-        List<String> suffixes = new ArrayList<>();
-        String declared = getTiaLibraryStampSchemas();
-
-        if (declared != null && !declared.trim().isEmpty()) {
-            for (String entry : declared.split(",")) {
-                String trimmed = entry.trim();
-                if (!trimmed.isEmpty()) {
-                    suffixes.add(trimmed);
-                }
-            }
+        if (!result.anyFollowsThisLine()) {
+            getLog().warn("Tia publish stamp for " + groupArtifact + " " + publishedVersion + ": "
+                    + schemas.size() + " schema(s) track the library but none follows the source line it "
+                    + "was published from - recorded in their ledgers only, nothing stamped.");
         }
-
-        if (suffixes.isEmpty()) {
-            suffixes.add(getTiaDBSchemaSuffix());
-        }
-        return suffixes;
     }
 
     /**

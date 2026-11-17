@@ -198,7 +198,7 @@ The producer side is a goal/task on the **library** module's build, firing on ev
     <tiaEnabled>true</tiaEnabled>
     <tiaUpdateDBMapping>true</tiaUpdateDBMapping>
     <tiaProjectDir>${project.basedir}</tiaProjectDir>
-    <!-- must point at the same DB location the consuming project uses -->
+    <!-- the database the consuming projects use; the stamp needs nothing else to find them -->
     <tiaDBFilePath>${project.basedir}/../my-app</tiaDBFilePath>
   </configuration>
 </plugin>
@@ -226,15 +226,58 @@ Behaviours worth knowing:
   no source roots, the recorded dirs are used.
 - **First publish seeds.** A library with no mapping baseline gets a ledger row and its baseline
   set to HEAD, with nothing stamped - stamping the library's entire history would be wrong.
-- **Untracked coordinate skips.** The module must already be a tracked library (declared in the
-  consumer's `tiaSourceLibs` and reconciled by a primary consumer run); otherwise the task logs a
-  warning and writes nothing.
+- **Untracked coordinate skips.** The module must already be a tracked library (declared in a
+  consumer's `tiaSourceLibs` and reconciled by a primary consumer run); when no schema in the
+  database tracks it the task logs a warning, writes nothing and the publish succeeds.
 - **Ownership gating.** Only a build that owns mapping-DB writes stamps (`tiaUpdateDBMapping` /
   `updateDBMapping` true). On a developer machine against a shared DB the task is a logged no-op -
   the local flow below covers development without persisted stamps.
 - **Empty diffs still publish.** A rebuild with no source change writes a ledger row with an empty
   stamp; a consumer resolving it drains everything at or below it, all genuinely contained in the
   jar. Non-reproducible rebuild hashes are therefore benign.
+
+### Consumer discovery
+
+One library can be consumed from several branches or streams, each with its own schema, and from
+several test tasks of one project, each with its own suffixed schema. The publish reaches all of
+them without being told which exist. The only thing the publishing build shares with its consumers
+is the database connection; its own branch and schema suffix select nothing, and no schema is
+created for the publishing workspace.
+
+For a publish on source line L:
+
+1. **Discover.** List the schemas in the database named `tia_*` and keep those whose `tia_library`
+   table holds a row for the published coordinate. That row is written by the consumer's own
+   reconcile, so the set is exactly the consumers - nothing is declared, and a new consumer branch
+   or test task is reached as soon as it has run once. Discovery is read-only: a schema that only
+   shares the prefix is left untouched.
+2. **Ledger row everywhere.** Every discovered schema records the publish (sequence, version, hash,
+   commit, line L), so any build stays recognisable to any consumer.
+3. **Stamp by line.** A schema receives the method stamp and forced-selection batches only when it
+   follows L or follows no line yet; otherwise the ledger row alone
+   (`LEDGER_ONLY_OTHER_LINE`). See [Source lines](#source-lines).
+4. **Previous publish is per line, per schema.** Each schema runs its own baseline diff and its own
+   "since the previous publish on L" filter, since baselines and sequences are per schema.
+
+The two layouts this serves:
+
+| Layout | Where the library source lives | What one publish does |
+|---|---|---|
+| Shared library stream | One stream; consumers on `mainline` and `future-development` both take its jars (the release job may build through a virtual stream) | One line. Both consumer schemas record the publish and receive the stamp; each drains it when its own build picks the jar up |
+| Co-located library | Each consumer stream holds its own copy and builds its own jar | One line per stream. Every schema records the ledger row; only the schema following the publishing stream's line is stamped, once lines are established |
+
+Operational notes:
+
+- **No tracking schema.** The publish logs a warning and succeeds - see "Untracked coordinate
+  skips" above.
+- **No schema follows the line.** When every tracking schema follows another line the publish is
+  recorded in ledgers only and a warning says so; no consumer will drain it. Usually the library is
+  being published from an unexpected place.
+- **Not atomic.** Each schema is its own connection and transaction, and the artifact is already
+  published. Every schema is attempted, then the build fails naming the schemas that hold the
+  stamp and those that do not. Re-run the publish stamp once the cause is fixed.
+- **Cost.** One metadata listing plus one indexed lookup per `tia_*` schema, then one stamp per
+  consumer. It runs at publish time only; nothing is added to test selection.
 
 ### Line-number correctness: the mapping baseline
 

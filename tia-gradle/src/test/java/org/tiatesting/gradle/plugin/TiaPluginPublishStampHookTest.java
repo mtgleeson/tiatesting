@@ -12,6 +12,7 @@ import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
@@ -21,6 +22,10 @@ import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -105,90 +110,53 @@ class TiaPluginPublishStampHookTest {
     }
 
     /**
-     * A library whose consumers isolate their test tasks into suffixed schemas must have the stamp
-     * written into every one of them. The consuming app is a separate build, so this project cannot
-     * see those schemas - the list is declared, and a schema left out never drains the change and
-     * never re-runs the suites it affects.
+     * The stamp is written into every schema that tracks the library, whichever branch or suffix
+     * named it, and this project's own branch names no schema: the consumers are discovered from
+     * their tracked-library rows, so a consumer on another branch is reached with no configuration
+     * and no schema is created for the publishing workspace.
      */
     @Test
-    void theStampIsWrittenToEveryDeclaredConsumingSchema(@TempDir File projectDir, @TempDir File dbDir) {
-        // given - two consuming schemas declared, and the library tracked in each
-        Project project = ProjectBuilder.builder().withProjectDir(projectDir).withName("mylib").build();
-        project.setGroup("com.example");
-        project.setVersion("2.0.0");
-        project.getPlugins().apply(TestPlugin.class);
-        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
-        ext.setEnabled(true);
-        ext.setUpdateDBMapping(true);
-        ext.setDbFilePath(dbDir.getAbsolutePath());
-        ext.setLibraryStampSchemas("unit, integration");
-
-        seedTrackedLibrary(dbDir, projectDir, "unit");
-        seedTrackedLibrary(dbDir, projectDir, "integration");
+    void publishStampsEveryDiscoveredConsumerSchema(@TempDir File projectDir, @TempDir File dbDir) {
+        // given - consumers on two branches (one in a suffixed schema) tracking the library, and a
+        // publishing workspace on a third branch
+        Project project = libraryProject(projectDir, dbDir, TestPlugin.class, "2.0.0");
+        project.getExtensions().getByType(TiaBaseTaskExtension.class).setBranch("libraries-automation");
+        String mainline = seedTrackedLibrary(dbDir, projectDir, "mainline", null);
+        String future = seedTrackedLibrary(dbDir, projectDir, "future-development", "integration");
 
         // when
         Task publishLocal = project.task("publishToMavenLocal");
         publishLocal.getActions().forEach(action -> action.execute(publishLocal));
 
-        // then - both consuming schemas record the publish
-        assertEquals(1, publishesIn(dbDir, "unit"), "the unit schema must record the publish");
-        assertEquals(1, publishesIn(dbDir, "integration"),
-                "the integration schema must record the publish too");
+        // then - both consuming schemas record the publish, and the publishing branch got no schema
+        assertEquals(1, publishesIn(dbDir, mainline), "the mainline schema must record the publish");
+        assertEquals(1, publishesIn(dbDir, future), "the suffixed schema must record the publish too");
+        assertEquals(Arrays.asList(future, mainline), DataStoreFactory.findSchemasTrackingLibrary(
+                dbDir.getAbsolutePath(), null, null, null, null, "com.example:mylib"));
+        assertFalse(schemaExists(dbDir, BranchSchema.schemaName("libraries-automation", null)),
+                "the publishing workspace's branch must not get a schema of its own");
     }
 
     /**
-     * Whitespace around a declared entry is the natural way to write the list, and must not produce
-     * a schema named with a leading space.
+     * A library no consumer tracks yet has nowhere to be stamped. The publish must still succeed -
+     * the library becomes tracked once a consumer reconciles - and nothing is written.
      */
     @Test
-    void declaredSchemasAreTrimmed(@TempDir File projectDir, @TempDir File dbDir) {
-        // given
-        Project project = ProjectBuilder.builder().withProjectDir(projectDir).withName("mylib").build();
-        project.setGroup("com.example");
-        project.setVersion("2.0.0");
-        project.getPlugins().apply(TestPlugin.class);
-        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
-        ext.setEnabled(true);
-        ext.setUpdateDBMapping(true);
-        ext.setDbFilePath(dbDir.getAbsolutePath());
-        ext.setLibraryStampSchemas("  unit  ");
-
-        seedTrackedLibrary(dbDir, projectDir, "unit");
+    void publishWarnsWhenNoSchemaTracksTheLibrary(@TempDir File projectDir, @TempDir File dbDir) {
+        // given - a database whose only schema tracks a different library
+        Project project = libraryProject(projectDir, dbDir, TestPlugin.class, "3.0.0");
+        try (DataStore other = DataStoreFactory.fromConfig(dbDir.getAbsolutePath(), null, null, null, null,
+                "mainline", null)) {
+            other.persistTrackedLibrary(new TrackedLibrary("com.example:other", "/projects/other", null));
+        }
 
         // when
         Task publishLocal = project.task("publishToMavenLocal");
         publishLocal.getActions().forEach(action -> action.execute(publishLocal));
 
-        // then
-        assertEquals(1, publishesIn(dbDir, "unit"));
-    }
-
-    /**
-     * With no list declared the stamp goes where it always did - the schema this project itself
-     * resolves to - so a library whose consumers use the plain {@code tia_<branch>} schema needs no
-     * configuration at all.
-     */
-    @Test
-    void withNoDeclaredSchemasTheStampGoesToTheProjectsOwnSchema(@TempDir File projectDir,
-                                                                 @TempDir File dbDir) {
-        // given
-        Project project = ProjectBuilder.builder().withProjectDir(projectDir).withName("mylib").build();
-        project.setGroup("com.example");
-        project.setVersion("3.0.0");
-        project.getPlugins().apply(TestPlugin.class);
-        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
-        ext.setEnabled(true);
-        ext.setUpdateDBMapping(true);
-        ext.setDbFilePath(dbDir.getAbsolutePath());
-
-        seedTrackedLibrary(dbDir, projectDir, null);
-
-        // when
-        Task publishLocal = project.task("publishToMavenLocal");
-        publishLocal.getActions().forEach(action -> action.execute(publishLocal));
-
-        // then
-        assertEquals(1, publishesIn(dbDir, null));
+        // then - the hook completed and recorded nothing
+        assertEquals(0, publishesIn(dbDir, BranchSchema.schemaName("mainline", null)));
+        assertFalse(schemaExists(dbDir, BranchSchema.schemaName("main", null)));
     }
 
     /**
@@ -198,20 +166,11 @@ class TiaPluginPublishStampHookTest {
      * and the build then fails naming which hold the stamp and which do not.
      */
     @Test
-    void aPartialStampAttemptsEverySchemaThenFailsLoudly(@TempDir File projectDir,
-                                                         @TempDir File dbDir) {
-        // given - one consuming schema whose datastore cannot be opened
-        Project project = ProjectBuilder.builder().withProjectDir(projectDir).withName("mylib").build();
-        project.setGroup("com.example");
-        project.setVersion("4.0.0");
-        project.getPlugins().apply(FailingSchemaPlugin.class);
-        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
-        ext.setEnabled(true);
-        ext.setUpdateDBMapping(true);
-        ext.setDbFilePath(dbDir.getAbsolutePath());
-        ext.setLibraryStampSchemas("unit, broken");
-
-        seedTrackedLibrary(dbDir, projectDir, "unit");
+    void publishFailsNamingTheSchemaThatMissedTheStamp(@TempDir File projectDir, @TempDir File dbDir) {
+        // given - two discovered consumer schemas, one of whose datastores cannot be opened
+        Project project = libraryProject(projectDir, dbDir, FailingSchemaPlugin.class, "4.0.0");
+        String healthy = seedTrackedLibrary(dbDir, projectDir, "mainline", null);
+        String broken = seedTrackedLibrary(dbDir, projectDir, "broken", null);
 
         // when
         Task publishLocal = project.task("publishToMavenLocal");
@@ -219,54 +178,103 @@ class TiaPluginPublishStampHookTest {
                 () -> publishLocal.getActions().forEach(action -> action.execute(publishLocal)));
 
         // then - the healthy schema was still stamped, and the failure names both sides
-        assertEquals(1, publishesIn(dbDir, "unit"),
+        assertEquals(1, publishesIn(dbDir, healthy),
                 "every schema is attempted, so a failure must not cost the healthy ones their stamp");
-        assertTrue(thrown.getMessage().contains("unit"), thrown.getMessage());
-        assertTrue(thrown.getMessage().contains("broken"), thrown.getMessage());
+        assertEquals(0, publishesIn(dbDir, broken));
+        assertTrue(thrown.getMessage().contains(healthy), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains(broken), thrown.getMessage());
     }
 
     /**
-     * Seed a schema with the library tracked, so a publish stamp into it has something to record
-     * against.
+     * Build a library project with Tia configured as the mapping owner against an embedded database.
+     *
+     * @param projectDir the project directory
+     * @param dbDir the embedded database directory
+     * @param pluginType the plugin class to apply
+     * @param version the project version to publish
+     * @return the configured project
+     */
+    private static Project libraryProject(final File projectDir, final File dbDir,
+                                          final Class<? extends TiaPlugin> pluginType, final String version) {
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).withName("mylib").build();
+        project.setGroup("com.example");
+        project.setVersion(version);
+        project.getPlugins().apply(pluginType);
+        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
+        ext.setEnabled(true);
+        ext.setUpdateDBMapping(true);
+        ext.setDbFilePath(dbDir.getAbsolutePath());
+        return project;
+    }
+
+    /**
+     * Seed a consumer schema with the library tracked, so discovery finds it and a publish stamp
+     * into it has something to record against.
      *
      * @param dbDir the embedded database directory
      * @param projectDir the library project's directory, recorded as its source root
+     * @param branch the consumer branch the schema belongs to
      * @param schemaSuffix the schema suffix to seed, or null for the unsuffixed schema
+     * @return the seeded schema's name
      */
-    private static void seedTrackedLibrary(final File dbDir, final File projectDir,
-                                           final String schemaSuffix) {
-        try (JdbcDataStore seed = new JdbcDataStore(new H2Dialect(),
-                new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
-                BranchSchema.schemaName("main", schemaSuffix))) {
+    private static String seedTrackedLibrary(final File dbDir, final File projectDir, final String branch,
+                                             final String schemaSuffix) {
+        try (DataStore seed = DataStoreFactory.fromConfig(dbDir.getAbsolutePath(), null, null, null, null,
+                branch, schemaSuffix)) {
             seed.getTiaData();
             seed.persistTrackedLibrary(
                     new TrackedLibrary("com.example:mylib", projectDir.getAbsolutePath(), null));
         }
+        return BranchSchema.schemaName(branch, schemaSuffix);
     }
 
     /**
      * Count the publish-ledger rows recorded for the library in one schema.
      *
      * @param dbDir the embedded database directory
-     * @param schemaSuffix the schema suffix to read, or null for the unsuffixed schema
+     * @param schemaName the schema to read
      * @return the number of ledger rows
      */
-    private static int publishesIn(final File dbDir, final String schemaSuffix) {
-        try (JdbcDataStore verify = new JdbcDataStore(new H2Dialect(),
-                new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
-                BranchSchema.schemaName("main", schemaSuffix))) {
+    private static int publishesIn(final File dbDir, final String schemaName) {
+        try (DataStore verify = DataStoreFactory.forSchema(dbDir.getAbsolutePath(), null, null, null, null,
+                schemaName)) {
             return verify.readLibraryPublishes("com.example:mylib").size();
         }
     }
 
-    /** Plugin whose datastore cannot be opened for one named schema, to force a partial stamp. */
+    /**
+     * Report whether a schema exists in the embedded database.
+     *
+     * @param dbDir the embedded database directory
+     * @param schemaName the schema to look for
+     * @return true when the schema exists
+     */
+    private static boolean schemaExists(final File dbDir, final String schemaName) {
+        H2ConnectionProvider provider =
+                new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath()));
+        try (Connection connection = provider.get();
+             ResultSet schemas = connection.getMetaData().getSchemas()) {
+            while (schemas.next()) {
+                if (schemaName.equalsIgnoreCase(schemas.getString("TABLE_SCHEM"))) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (SQLException e) {
+            throw new IllegalStateException(e);
+        } finally {
+            provider.close();
+        }
+    }
+
+    /** Plugin whose datastore cannot be opened for one discovered schema, to force a partial stamp. */
     static class FailingSchemaPlugin extends TestPlugin {
         @Override
-        public DataStore buildDataStore(final String branch, final String schemaSuffix) {
-            if ("broken".equals(schemaSuffix)) {
-                throw new RuntimeException("simulated datastore failure for schema 'broken'");
+        public DataStore buildDataStoreForSchema(final String schemaName) {
+            if (schemaName.contains("broken")) {
+                throw new RuntimeException("simulated datastore failure for schema '" + schemaName + "'");
             }
-            return super.buildDataStore(branch, schemaSuffix);
+            return super.buildDataStoreForSchema(schemaName);
         }
     }
 

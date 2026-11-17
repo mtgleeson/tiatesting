@@ -124,21 +124,12 @@ fork persists to, or the plan is written where no runner looks for it.
 
 ## Library publish stamping
 
-A library published to consumers that isolate their tests into suffixed schemas must declare those
-schemas:
-
-```groovy
-tia { libraryStampSchemas = "unit, integration" }
-```
-
-Declared, never derived: the consuming app is a **separate build**, so the library's own project has
-no visibility of its schemas and cannot detect that it missed one. A stamp written where no consumer
-reads it is never drained, and the suites the library change affects are never re-run.
-
-Comma-separated rather than a list, matching every other multi-valued Tia setting and, more
-importantly, the centralised parent-pom pattern: Maven cannot drive a `List` element from a single
-property, so a `List` parameter would force projects to hard-code entries and lose their `-D`
-overrides.
+A library publish stamp needs no schema configuration. The publish discovers its consumers: every
+`tia_*` schema in the database holding a tracked-library row for the published coordinate, whether
+it is a plain `tia_<branch>` schema or a suffixed one. A consumer that isolates its test tasks into
+suffixed schemas is therefore reached in each of them as soon as each has reconciled the library,
+and the publishing project's own branch and suffix select nothing. See
+[Consumer discovery](library-publish-time-stamping.md#consumer-discovery).
 
 **Stamping several schemas is not atomic** - each is its own connection and transaction, and the
 publish has already happened by the time the stamp runs. Every schema is therefore attempted rather

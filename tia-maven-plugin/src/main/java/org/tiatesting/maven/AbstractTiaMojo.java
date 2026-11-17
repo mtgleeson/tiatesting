@@ -245,20 +245,6 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaDBSchemaSuffix;
 
     /**
-     * Comma-separated schema suffixes a library publish stamp is written to - the schemas of the
-     * projects that <em>consume</em> this library.
-     * <p>
-     * Only needed by a module publishing a tracked library to consumers that isolate their tests
-     * into suffixed schemas. Tia cannot derive the list: the consuming app is a separate build, so
-     * this module has no visibility of its schemas, and a stamp written where no consumer reads it
-     * is never drained - the suites the library change affects are never re-run.
-     * <p>
-     * Leave unset when consumers use the plain {@code tia_<branch>} schema.
-     */
-    @Parameter(property = "tiaLibraryStampSchemas")
-    String tiaLibraryStampSchemas;
-
-    /**
      * Specifies the default option for whether Tia should analyse local changes when selecting tests.
      */
     @Parameter(property = "tiaCheckLocalChanges")
@@ -827,13 +813,6 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     public String getTiaDBSchemaSuffix() {
         return tiaDBSchemaSuffix;
-    }
-
-    /**
-     * @return the consuming schemas' suffixes for a library publish stamp, comma separated, or null
-     */
-    public String getTiaLibraryStampSchemas() {
-        return tiaLibraryStampSchemas;
     }
 
     /**
