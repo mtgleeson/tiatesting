@@ -422,4 +422,49 @@ class SchemaManagerTest {
             provider.close();
         }
     }
+
+    @Test
+    void existingDbMissingTheLibraryLineColumnsGetsThemAddedOnce(@TempDir Path dir) throws Exception {
+        // given an existing DB whose library tables predate the line columns and hold one library
+        H2ConnectionProvider provider = new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.toString()));
+        try (Connection connection = provider.get()) {
+            new SchemaManager(new H2Dialect(), opening(provider, new AtomicInteger()), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_LIBRARY
+                        + " DROP COLUMN " + TiaSchema.COL_FOLLOWED_LINE);
+                statement.execute("ALTER TABLE " + TiaSchema.TABLE_TIA_LIBRARY_PUBLISH
+                        + " DROP COLUMN " + TiaSchema.COL_SOURCE_LINE);
+                statement.execute("INSERT INTO " + TiaSchema.TABLE_TIA_LIBRARY + " ("
+                        + TiaSchema.COL_GROUP_ARTIFACT + ") VALUES ('com.example:lib')");
+            }
+
+            // when two fresh managers (two later JVMs) ensure the schema in turn
+            AtomicInteger openedByFirst = new AtomicInteger();
+            boolean existed = new SchemaManager(new H2Dialect(), opening(provider, openedByFirst), provider.jdbcUrl())
+                    .ensureSchema(connection);
+            AtomicInteger openedBySecond = new AtomicInteger();
+            new SchemaManager(new H2Dialect(), opening(provider, openedBySecond), provider.jdbcUrl())
+                    .ensureSchema(connection);
+
+            // then the first adds both columns on a connection of its own, the existing library
+            // follows no line yet, and the second finds them already there
+            assertTrue(existed);
+            assertEquals(1, openedByFirst.get());
+            assertEquals(0, openedBySecond.get());
+            try (Statement statement = connection.createStatement();
+                 ResultSet resultSet = statement.executeQuery("SELECT " + TiaSchema.COL_FOLLOWED_LINE
+                         + " FROM " + TiaSchema.TABLE_TIA_LIBRARY)) {
+                assertTrue(resultSet.next());
+                assertNull(resultSet.getString(1));
+            }
+            try (Statement statement = connection.createStatement();
+                 ResultSet resultSet = statement.executeQuery("SELECT " + TiaSchema.COL_SOURCE_LINE
+                         + " FROM " + TiaSchema.TABLE_TIA_LIBRARY_PUBLISH)) {
+                assertFalse(resultSet.next());
+            }
+        } finally {
+            provider.close();
+        }
+    }
 }
