@@ -143,4 +143,21 @@ public interface VCSReader {
      * Do any clean up action when no further interactions with the VCS are needed.
      */
     void close();
+
+    /**
+     * Identify the source line the given source directories belong to: where that source lives in
+     * the VCS, independent of the workspace viewing it. Two builds of a library are on the same
+     * line when they were built from the same place. See the source-lines section of the library
+     * publish-time stamping chapter in {@code WIKI.md}.
+     *
+     * <p>Called once per library publish, never on the select-tests path and never by a test run.
+     * The default is the answer for a VCS with no path-based line (Git): the publish then uses
+     * the publishing workspace's branch instead.
+     *
+     * @param sourceDirs the absolute source directories of the module being published
+     * @return the line, or null when this VCS cannot identify one
+     */
+    default String getSourceLine(List<String> sourceDirs) {
+        return null;
+    }
 }

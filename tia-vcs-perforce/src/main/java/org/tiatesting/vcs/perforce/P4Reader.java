@@ -100,6 +100,20 @@ public class P4Reader implements VCSReader {
         return p4DiffAnalyzer.findMappingDrift(p4Context, baseChangeNum, localDiffs);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>On Perforce the line is the depot location of the source directories, resolved through
+     * the client view with one {@code p4 where}.
+     *
+     * @param sourceDirs {@inheritDoc}
+     * @return {@inheritDoc}
+     */
+    @Override
+    public String getSourceLine(final List<String> sourceDirs) {
+        return p4DiffAnalyzer.resolveSourceLine(p4Context, sourceDirs);
+    }
+
     @Override
     public void close() {
         log.debug("Closing the P4 connection resource");
