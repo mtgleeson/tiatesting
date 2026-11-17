@@ -534,7 +534,8 @@ class SchemaManager {
                 + COL_PROJECT_DIR + " VARCHAR(1000), "
                 + COL_SOURCE_DIRS_CSV + " VARCHAR(2000), "
                 + COL_MAPPING_BASELINE_COMMIT + " VARCHAR(128), "
-                + COL_LAST_APPLIED_SEQ + " BIGINT)";
+                + COL_LAST_APPLIED_SEQ + " BIGINT, "
+                + COL_FOLLOWED_LINE + " VARCHAR(2000))";
     }
 
     /**
@@ -582,6 +583,7 @@ class SchemaManager {
                 + COL_PUBLISHED_VERSION + " VARCHAR(128) NOT NULL, "
                 + COL_JAR_HASH + " VARCHAR(128), "
                 + COL_COMMIT_VALUE + " VARCHAR(128), "
+                + COL_SOURCE_LINE + " VARCHAR(2000), "
                 + COL_PUBLISHED_AT + " BIGINT NOT NULL, "
                 + "PRIMARY KEY (" + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + "), "
                 + "FOREIGN KEY (" + COL_GROUP_ARTIFACT + ") REFERENCES " + TABLE_TIA_LIBRARY + "(" + COL_GROUP_ARTIFACT + ") ON DELETE CASCADE)";

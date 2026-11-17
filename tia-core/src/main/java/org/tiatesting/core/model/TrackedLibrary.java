@@ -38,6 +38,14 @@ public class TrackedLibrary {
      */
     private Long lastAppliedSeq;
 
+    /**
+     * The source line this schema's consumer takes its builds from, set by the first primary run
+     * that has pending stamps and resolves a known build; null until then. Once set, publishes on
+     * other lines no longer stamp this schema. See the source-lines section of the library
+     * publish-time stamping chapter in {@code WIKI.md}.
+     */
+    private String followedLine;
+
     public TrackedLibrary() {
     }
 
@@ -96,6 +104,24 @@ public class TrackedLibrary {
         this.lastAppliedSeq = lastAppliedSeq;
     }
 
+    /**
+     * The source line this schema's consumer takes its library builds from.
+     *
+     * @return the followed line, or null when none has been established
+     */
+    public String getFollowedLine() {
+        return followedLine;
+    }
+
+    /**
+     * Record the source line this schema's consumer takes its library builds from.
+     *
+     * @param followedLine the followed line, or null when none has been established
+     */
+    public void setFollowedLine(String followedLine) {
+        this.followedLine = followedLine;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -113,6 +139,7 @@ public class TrackedLibrary {
     public String toString() {
         return "TrackedLibrary{groupArtifact='" + groupArtifact
                 + "', mappingBaselineCommit='" + mappingBaselineCommit
-                + "', lastAppliedSeq=" + lastAppliedSeq + "}";
+                + "', lastAppliedSeq=" + lastAppliedSeq
+                + ", followedLine='" + followedLine + "'}";
     }
 }

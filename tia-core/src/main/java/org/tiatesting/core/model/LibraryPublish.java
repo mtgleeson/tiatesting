@@ -27,11 +27,23 @@ public class LibraryPublish {
     /** SHA-256 content hash of the published artifact; null when the jar could not be hashed. */
     private String jarHash;
 
-    /** Repo HEAD commit at publish time - provenance for debugging, not used by the drain. */
+    /**
+     * Repo HEAD commit at publish time. The drain reports it for the build the consumer holds,
+     * and the seal uses it as the library's mapping baseline.
+     */
     private String commitValue;
 
     /** Publish wall-clock time as UTC epoch milliseconds. */
     private long publishedAt;
+
+    /**
+     * Where the library source behind this build lives - the depot paths of the publishing
+     * module's source roots on Perforce, the publishing branch on Git. Null for a row written
+     * before lines were recorded or when the publish could not resolve one; a null line matches
+     * any line. See the source-lines section of the library publish-time stamping chapter in
+     * {@code WIKI.md}.
+     */
+    private String sourceLine;
 
     public LibraryPublish() {
     }
@@ -53,6 +65,24 @@ public class LibraryPublish {
         this.jarHash = jarHash;
         this.commitValue = commitValue;
         this.publishedAt = publishedAt;
+    }
+
+    /**
+     * The source line this build was published from.
+     *
+     * @return the source line, or null when unknown
+     */
+    public String getSourceLine() {
+        return sourceLine;
+    }
+
+    /**
+     * Record the source line this build was published from.
+     *
+     * @param sourceLine the source line, or null when unknown
+     */
+    public void setSourceLine(String sourceLine) {
+        this.sourceLine = sourceLine;
     }
 
     public String getGroupArtifact() {

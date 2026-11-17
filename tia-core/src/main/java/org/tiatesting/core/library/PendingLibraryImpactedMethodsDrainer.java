@@ -316,7 +316,7 @@ public class PendingLibraryImpactedMethodsDrainer {
         // snapshots and releases alike; the version fallback only identifies a build for release
         // versions (every snapshot build shares the same version string).
         LibraryPublish resolvedPublish = dataStore.lookupLibraryPublish(groupArtifact, resolvedJarHash,
-                isSnapshotVersion(resolvedVersion) ? null : resolvedVersion);
+                isSnapshotVersion(resolvedVersion) ? null : resolvedVersion, library.getFollowedLine());
         if (resolvedPublish == null) {
             log.info("Library '{}' resolved (version='{}', jarHash='{}') matches no publish ledger row - "
                     + "holding {} pending batches until a known build is resolved.",

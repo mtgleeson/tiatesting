@@ -55,6 +55,7 @@ class LibraryRepository extends JdbcRepository {
                 lib.setMappingBaselineCommit(resultSet.getString(COL_MAPPING_BASELINE_COMMIT));
                 long lastAppliedSeq = resultSet.getLong(COL_LAST_APPLIED_SEQ);
                 lib.setLastAppliedSeq(resultSet.wasNull() ? null : lastAppliedSeq);
+                lib.setFollowedLine(resultSet.getString(COL_FOLLOWED_LINE));
                 libraries.put(lib.getGroupArtifact(), lib);
             }
         } catch (SQLException e) {
@@ -103,7 +104,7 @@ class LibraryRepository extends JdbcRepository {
     void persistTrackedLibrary(Connection connection, TrackedLibrary trackedLibrary) throws SQLException {
         String sql = dialect.upsert(TABLE_TIA_LIBRARY,
                 Arrays.asList(COL_GROUP_ARTIFACT, COL_PROJECT_DIR, COL_SOURCE_DIRS_CSV,
-                        COL_MAPPING_BASELINE_COMMIT, COL_LAST_APPLIED_SEQ),
+                        COL_MAPPING_BASELINE_COMMIT, COL_LAST_APPLIED_SEQ, COL_FOLLOWED_LINE),
                 Collections.singletonList(COL_GROUP_ARTIFACT));
 
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -116,6 +117,7 @@ class LibraryRepository extends JdbcRepository {
             } else {
                 ps.setNull(5, Types.BIGINT);
             }
+            ps.setString(6, trackedLibrary.getFollowedLine());
             ps.executeUpdate();
         }
         log.debug("Persisted tracked library: {}", trackedLibrary.getGroupArtifact());
@@ -448,8 +450,9 @@ class LibraryRepository extends JdbcRepository {
 
             String insertSql = "INSERT INTO " + TABLE_TIA_LIBRARY_PUBLISH + " ("
                     + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + ", " + COL_PUBLISHED_VERSION + ", "
-                    + COL_JAR_HASH + ", " + COL_COMMIT_VALUE + ", " + COL_PUBLISHED_AT + ") "
-                    + "VALUES (?, ?, ?, ?, ?, ?)";
+                    + COL_JAR_HASH + ", " + COL_COMMIT_VALUE + ", " + COL_PUBLISHED_AT + ", "
+                    + COL_SOURCE_LINE + ") "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?)";
             PreparedStatement insertPs = connection.prepareStatement(insertSql);
             insertPs.setString(1, publish.getGroupArtifact());
             insertPs.setLong(2, assignedSeq);
@@ -457,6 +460,7 @@ class LibraryRepository extends JdbcRepository {
             insertPs.setString(4, publish.getJarHash());
             insertPs.setString(5, publish.getCommitValue());
             insertPs.setLong(6, publish.getPublishedAt());
+            insertPs.setString(7, publish.getSourceLine());
             insertPs.executeUpdate();
 
             // Stamp the impacted methods against the assigned sequence in the same transaction,
@@ -571,19 +575,21 @@ class LibraryRepository extends JdbcRepository {
      * @param groupArtifact the library's group:artifact key
      * @param jarHash the resolved jar's hash
      * @param version the resolved jar's version
+     * @param preferredLine the line the consumer follows, or null for no preference
      * @return the matching publish, or null if none matches
      */
-    LibraryPublish lookupLibraryPublish(final String groupArtifact, final String jarHash, final String version) {
+    LibraryPublish lookupLibraryPublish(final String groupArtifact, final String jarHash, final String version,
+                                        final String preferredLine) {
         Connection connection = getConnection();
 
         try {
             schemaManager.ensureSchema(connection);
 
-            LibraryPublish byHash = findHighestSeqPublish(connection, groupArtifact, COL_JAR_HASH, jarHash);
+            LibraryPublish byHash = findBestPublish(connection, groupArtifact, COL_JAR_HASH, jarHash, preferredLine);
             if (byHash != null) {
                 return byHash;
             }
-            return findHighestSeqPublish(connection, groupArtifact, COL_PUBLISHED_VERSION, version);
+            return findBestPublish(connection, groupArtifact, COL_PUBLISHED_VERSION, version, preferredLine);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         } finally {
@@ -596,37 +602,58 @@ class LibraryRepository extends JdbcRepository {
     }
 
     /**
-     * Find the highest-sequence publish row for a library where the given column equals the given
-     * value. Matches are expected to be rare (usually one), so the highest sequence is selected in
-     * Java rather than with a dialect-specific row-limit clause.
+     * Find the best publish row for a library where the given column equals the given value: a
+     * row on the preferred line beats one that is not, then the highest sequence wins. Two lines
+     * can publish the same release version (or byte-identical jars), and only the row on the line
+     * the consumer follows orders correctly against its pending stamps. Matches are rare (usually
+     * one), so the choice is made in Java rather than with a dialect-specific clause.
      *
-     * @param connection the open H2 connection to query on
+     * @param connection the open connection to query on
      * @param groupArtifact the library coordinate to search within
      * @param matchColumn the ledger column to match on ({@code jar_hash} or {@code published_version})
      * @param matchValue the value to match; a null value skips the match and returns null
-     * @return the matching row with the highest {@code publish_seq}, or null when nothing matches
+     * @param preferredLine the line to prefer, or null for no preference
+     * @return the best matching row, or null when nothing matches
      * @throws SQLException if the query fails
      */
-    private LibraryPublish findHighestSeqPublish(Connection connection, String groupArtifact,
-                                                 String matchColumn, String matchValue) throws SQLException {
+    private LibraryPublish findBestPublish(Connection connection, String groupArtifact, String matchColumn,
+                                           String matchValue, String preferredLine) throws SQLException {
         if (matchValue == null) {
             return null;
         }
         String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
                 + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + matchColumn + " = ?";
-        PreparedStatement ps = connection.prepareStatement(sql);
-        ps.setString(1, groupArtifact);
-        ps.setString(2, matchValue);
-        ResultSet resultSet = ps.executeQuery();
-
-        LibraryPublish best = null;
-        while (resultSet.next()) {
-            LibraryPublish candidate = buildLibraryPublishFromRow(resultSet);
-            if (best == null || candidate.getPublishSeq() > best.getPublishSeq()) {
-                best = candidate;
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, groupArtifact);
+            ps.setString(2, matchValue);
+            try (ResultSet resultSet = ps.executeQuery()) {
+                LibraryPublish best = null;
+                while (resultSet.next()) {
+                    LibraryPublish candidate = buildLibraryPublishFromRow(resultSet);
+                    if (best == null || isBetterMatch(candidate, best, preferredLine)) {
+                        best = candidate;
+                    }
+                }
+                return best;
             }
         }
-        return best;
+    }
+
+    /**
+     * Order two matching ledger rows: on the preferred line first, then by sequence.
+     *
+     * @param candidate the row being considered
+     * @param best the best row so far
+     * @param preferredLine the line to prefer, or null for no preference
+     * @return true when the candidate should replace the best row so far
+     */
+    private static boolean isBetterMatch(LibraryPublish candidate, LibraryPublish best, String preferredLine) {
+        boolean candidateOnLine = preferredLine != null && preferredLine.equals(candidate.getSourceLine());
+        boolean bestOnLine = preferredLine != null && preferredLine.equals(best.getSourceLine());
+        if (candidateOnLine != bestOnLine) {
+            return candidateOnLine;
+        }
+        return candidate.getPublishSeq() > best.getPublishSeq();
     }
 
     /**
@@ -645,6 +672,7 @@ class LibraryRepository extends JdbcRepository {
         publish.setJarHash(resultSet.getString(COL_JAR_HASH));
         publish.setCommitValue(resultSet.getString(COL_COMMIT_VALUE));
         publish.setPublishedAt(resultSet.getLong(COL_PUBLISHED_AT));
+        publish.setSourceLine(resultSet.getString(COL_SOURCE_LINE));
         return publish;
     }
 

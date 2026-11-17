@@ -85,6 +85,7 @@ class TrackedLibraryReconcilerTest {
         TrackedLibrary existing = new TrackedLibrary(LIB, "/projects/old", null);
         existing.setMappingBaselineCommit("baseline-1");
         existing.setLastAppliedSeq(4L);
+        existing.setFollowedLine("//depot/libraries/lib/src/main/java");
         dataStore.persistTrackedLibrary(existing);
 
         // when reconcile runs with a changed project dir
@@ -95,6 +96,7 @@ class TrackedLibraryReconcilerTest {
         assertEquals("/projects/new", updated.getProjectDir());
         assertEquals("baseline-1", updated.getMappingBaselineCommit());
         assertEquals(Long.valueOf(4L), updated.getLastAppliedSeq());
+        assertEquals("//depot/libraries/lib/src/main/java", updated.getFollowedLine());
     }
 
     /**
