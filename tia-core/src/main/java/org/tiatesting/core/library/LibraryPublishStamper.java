@@ -80,8 +80,9 @@ public class LibraryPublishStamper {
      * <p>The stamp is written whichever source line the schema follows. The publisher cannot know
      * whether a consumer still takes its builds from the line it follows; the consumer's drain
      * can, because it identifies the jar it holds. A batch from another line is discarded there
-     * unrun while the consumer stays on its line, and is what makes the drain identify the held
-     * build - and so notice the move - once the consumer takes a build from this line. See the
+     * unrun while the consumer stays on its line. If the consumer has taken a build from this line,
+     * the pending batch makes the drain identify the held build and so notice the move, without
+     * waiting for the line it left to publish again. See the
      * source-lines section of the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param dataStore the shared Tia data store (tracked libraries, mapping reads, ledger writes).
