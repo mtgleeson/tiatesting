@@ -1,6 +1,7 @@
 package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.Project;
+import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.plugins.GroovyPlugin;
 import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.testfixtures.ProjectBuilder;
@@ -36,6 +37,25 @@ class LibraryJarResolverPublishingSourceDirsTest {
         List<String> dirs = LibraryJarResolver.readPublishingSourceDirs(project);
 
         // then only the existing java dir is returned, canonicalised
+        assertEquals(Collections.singletonList(javaDir.getCanonicalPath()), dirs);
+    }
+
+    @Test
+    void leavesOutSourceDirsUnderTheBuildDirectory() throws Exception {
+        // given a Java project with a versioned source dir and a generated one in the build dir
+        File javaDir = new File(projectDir, "src/main/java");
+        File generatedDir = new File(projectDir, "build/generated/sources/main");
+        assertTrue(javaDir.mkdirs());
+        assertTrue(generatedDir.mkdirs());
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        project.getPlugins().apply(JavaPlugin.class);
+        project.getExtensions().getByType(SourceSetContainer.class).getByName("main").getJava().srcDir(generatedDir);
+
+        // when
+        List<String> dirs = LibraryJarResolver.readPublishingSourceDirs(project);
+
+        // then only the versioned dir is returned, so the publish's source line does not depend
+        // on what the build has generated
         assertEquals(Collections.singletonList(javaDir.getCanonicalPath()), dirs);
     }
 

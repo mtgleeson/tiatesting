@@ -81,7 +81,9 @@ it was built in:
 - **Perforce:** the depot paths the publishing module's source roots resolve to through the
   client view (one `p4 where`), sorted and comma-joined. A release job working through a virtual
   or importing stream resolves to the real depot location, so the same source is the same line
-  through any view. The stream or client name is deliberately not used.
+  through any view. The stream or client name is deliberately not used. Source roots inside the
+  module's build directory (generated sources) are left out, so the line does not change with
+  what a build happened to generate.
 - **Git:** the branch the publishing workspace identifies as - the configured `tiaBranch` when
   set, the same value that names the schema. Not the checked-out ref, which is a commit SHA on a
   detached HEAD and would make every CI publish a line of its own.

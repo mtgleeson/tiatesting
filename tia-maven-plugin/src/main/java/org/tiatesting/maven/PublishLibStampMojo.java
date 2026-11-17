@@ -4,6 +4,7 @@ import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.tiatesting.core.library.LibraryPublishFanOut;
+import org.tiatesting.core.library.SourceLines;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.vcs.VCSReader;
@@ -33,7 +34,7 @@ public class PublishLibStampMojo extends AbstractTiaMojo {
      * module's own configured static test selection rules (built the same way as the
      * {@code tia-select-tests} mojo, via {@link #buildStaticTestSelectionConfig()}) against the
      * files changed since the previous publish. The impacted-method diff runs over this module's
-     * own compile source roots that exist on disk. No-ops when Tia is disabled or this build does not
+     * own compile source roots that exist on disk and lie outside its build directory. No-ops when Tia is disabled or this build does not
      * own mapping-DB writes; the stamper itself skips (with a warning) when the module is not a
      * tracked library in the Tia DB.
      */
@@ -57,8 +58,12 @@ public class PublishLibStampMojo extends AbstractTiaMojo {
         // Diff against this module's own source roots, not the absolute paths the consumer's build
         // recorded on the tracked library - those belong to the consumer's workspace and need not
         // exist or be mapped in this build's VCS client.
-        List<String> publishingSourceDirs = LibraryJarResolver.filterExistingSourceRoots(
-                getProject().getCompileSourceRoots(), getProject().getId(), getLog());
+        // Roots under the build directory (generated sources) are left out: they hold nothing
+        // versioned, and they come and go with the build, which would change the source line.
+        List<String> publishingSourceDirs = SourceLines.withoutBuildOutput(
+                LibraryJarResolver.filterExistingSourceRoots(
+                        getProject().getCompileSourceRoots(), getProject().getId(), getLog()),
+                getProject().getBuild().getDirectory());
 
         // The consuming schemas are discovered, never declared: every schema in the Tia database
         // holding a tracked-library row for this coordinate. This module's own branch picks no

@@ -17,6 +17,7 @@ import org.gradle.tooling.model.gradle.ProjectPublications;
 import org.slf4j.Logger;
 import org.tiatesting.core.library.LibraryMetadataReader;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
+import org.tiatesting.core.library.SourceLines;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 
 import java.io.File;
@@ -459,14 +460,19 @@ public class LibraryJarResolver implements LibraryMetadataReader {
      * conventional dirs (e.g. {@code src/main/java}, {@code src/main/groovy}) whether or not they
      * exist; passing a missing one to the VCS reader only produces a "not present in the local
      * workspace" warning on Perforce, so they are dropped here, matching the Maven publish goal's
-     * exists-on-disk filter.
+     * exists-on-disk filter. Dirs under the build directory (generated sources) are dropped too:
+     * they hold nothing versioned, and they come and go with the build, which would change the
+     * publish's source line - see the source-lines section of the library publish-time stamping
+     * chapter in {@code WIKI.md}.
      *
      * @param gradleProject the project being published.
-     * @return the canonical paths of the existing main source dirs; empty when there are none.
+     * @return the canonical paths of the existing main source dirs outside the build directory;
+     *         empty when there are none.
      */
     static List<String> readPublishingSourceDirs(Project gradleProject) {
         List<String> result = new ArrayList<>();
-        for (String dir : readSourceDirsFromGradleProject(gradleProject)) {
+        String buildDir = gradleProject.getLayout().getBuildDirectory().getAsFile().get().getPath();
+        for (String dir : SourceLines.withoutBuildOutput(readSourceDirsFromGradleProject(gradleProject), buildDir)) {
             if (new File(dir).isDirectory()) {
                 result.add(dir);
             } else {
