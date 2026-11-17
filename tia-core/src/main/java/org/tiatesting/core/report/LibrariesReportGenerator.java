@@ -51,6 +51,7 @@ public class LibrariesReportGenerator {
             sb.append("\t\tLast applied publish seq: ")
                     .append(lib.getLastAppliedSeq() != null ? lib.getLastAppliedSeq() : "-").append(lineSep);
             sb.append("\t\tMapping baseline commit: ").append(orDash(lib.getMappingBaselineCommit())).append(lineSep);
+            sb.append("\t\tFollowed source line: ").append(orDash(lib.getFollowedLine())).append(lineSep);
             sb.append(formatPendingBatches(pendingByLib.get(lib.getGroupArtifact()), lineSep));
         }
 

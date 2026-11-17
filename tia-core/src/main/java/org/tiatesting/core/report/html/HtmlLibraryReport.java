@@ -92,6 +92,7 @@ public class HtmlLibraryReport {
                                                             th("Project Dir"),
                                                             th("Last applied publish seq").attr(numberDataType),
                                                             th("Pending batches").attr(numberDataType),
+                                                            th("Followed source line"),
                                                             th("Source dirs")
                                                     )),
                                                     tbody(each(tracked.values(), lib ->
@@ -101,6 +102,7 @@ public class HtmlLibraryReport {
                                                                     td(lib.getLastAppliedSeq() != null
                                                                             ? String.valueOf(lib.getLastAppliedSeq()) : "-"),
                                                                     td(String.valueOf(pendingPerLib.getOrDefault(lib.getGroupArtifact(), 0))),
+                                                                    td(emptyDash(lib.getFollowedLine())),
                                                                     td(emptyDash(lib.getSourceDirsCsv()))
                                                             )
                                                     ))
@@ -116,7 +118,8 @@ public class HtmlLibraryReport {
                                                             th("Jar hash"),
                                                             th("Commit"),
                                                             th("Published at"),
-                                                            th("Methods pending").attr(numberDataType)
+                                                            th("Methods pending").attr(numberDataType),
+                                                            th("Source line")
                                                     )),
                                                     tbody(each(publishes, publish ->
                                                             tr(
@@ -129,7 +132,8 @@ public class HtmlLibraryReport {
                                                                     td(emptyDash(truncate(publish.getCommitValue()))),
                                                                     td(Instant.ofEpochMilli(publish.getPublishedAt()).toString()),
                                                                     td(String.valueOf(pendingMethodsBySeq.getOrDefault(
-                                                                            publish.getGroupArtifact() + "|" + publish.getPublishSeq(), 0)))
+                                                                            publish.getGroupArtifact() + "|" + publish.getPublishSeq(), 0))),
+                                                                    td(emptyDash(publish.getSourceLine()))
                                                             )
                                                     ))
                                             ),

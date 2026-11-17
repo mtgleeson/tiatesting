@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -65,14 +66,19 @@ class LibraryPublishesReportGeneratorTest {
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT",
                 "aaaaaaaaaaaaaaaabbbb", "commit-1-aaaaaaaa", 1000L), Collections.emptySet(),
                 Collections.<PendingLibraryForcedSelection>emptyList());
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT",
-                "ccccccccccccccccdddd", "commit-2-bbbbbbbb", 2000L), new HashSet<>(Arrays.asList(10, 20)),
+        LibraryPublish stamped = new LibraryPublish(LIB, "1.0.0-SNAPSHOT",
+                "ccccccccccccccccdddd", "commit-2-bbbbbbbb", 2000L);
+        stamped.setSourceLine("//depot/libraries/mylib/src/main/java");
+        dataStore.persistLibraryPublish(stamped, new HashSet<>(Arrays.asList(10, 20)),
                 Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when the report is generated
         String report = generator.generateLibraryPublishesReport(dataStore, LIB);
 
-        // then the header, separator and both rows render with their detail
+        // then the header, separator and both rows render with their detail, the source line
+        // shown where one was recorded
+        assertTrue(report.contains("Source line"));
+        assertTrue(report.contains("//depot/libraries/mylib/src/main/java"));
         assertTrue(report.contains("Publishes for library " + LIB));
         assertTrue(report.contains("Seq | Version"));
         assertTrue(report.contains("-+-"), "table must render a header separator line");
@@ -135,11 +141,12 @@ class LibraryPublishesReportGeneratorTest {
         // then the drained build's row shows a dash in the pending column
         String[] lines = report.split(System.lineSeparator());
         for (String line : lines) {
+            // "Methods pending" is the sixth column; the source line follows it
             if (line.startsWith("1 ")) {
-                assertTrue(line.trim().endsWith("-"), "drained publish must show '-' pending: " + line);
+                assertEquals("-", line.split("\\|")[5].trim(), "drained publish must show '-' pending: " + line);
             }
             if (line.startsWith("2 ")) {
-                assertTrue(line.trim().endsWith("1"), "pending publish must show its count: " + line);
+                assertEquals("1", line.split("\\|")[5].trim(), "pending publish must show its count: " + line);
             }
         }
     }

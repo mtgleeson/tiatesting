@@ -67,6 +67,61 @@ A crash before the cleanup leaves the stamps pending and the next run re-drains 
 overselection only, never underselection, consistent with the
 [persist flow and crash safety](persist-flow-and-crash-safety.md) model.
 
+### Source lines
+
+One library coordinate can be built from more than one place: a `1.x` hotfix line and a `2.x`
+line, or two streams that each carry their own copy of the library. A consumer takes its builds
+from one of them, and only that line's changes are in the jar it holds. Each publish therefore
+records its **source line**, and each consumer schema records the line it **follows**.
+
+**What a line is.** Where the library source that was built lives, independent of the workspace
+it was built in:
+
+- **Perforce:** the depot paths the publishing module's source roots resolve to through the
+  client view (one `p4 where`), sorted and comma-joined. A release job working through a virtual
+  or importing stream resolves to the real depot location, so the same source is the same line
+  through any view. The stream or client name is deliberately not used.
+- **Git:** the branch the publishing workspace identifies as - the configured `tiaBranch` when
+  set, the same value that names the schema. Not the checked-out ref, which is a commit SHA on a
+  detached HEAD and would make every CI publish a line of its own.
+
+The line is stored on the ledger row (`tia_library_publish.source_line`). When it cannot be
+identified - no source root maps through the client view - the row has no line, the publish logs a
+warning, and the row matches any line, as do rows written before lines were recorded.
+
+**How a consumer learns its line.** It runs no VCS command. The drain already hashes the library
+jar on the classpath and finds it in the schema's ledger; the matching row names the line. The
+first primary run that resolves a known build - one with pending stamps to evaluate, or a forced
+all-tests run - reports that line, and the seal stores it as `tia_library.followed_line`.
+
+**Until the line is established** the schema receives the stamps of every line that publishes the
+coordinate, because nothing yet says which is its own. At the run that establishes it:
+
+- pending batches on the resolved build's line at or below its sequence drain as usual;
+- pending batches from other lines are **discarded**: deleted at the seal without selecting a
+  test. The jar the consumer holds does not contain those changes.
+
+From then on a publish from another line writes only its ledger row into this schema (outcome
+`LEDGER_ONLY_OTHER_LINE`), so any build stays recognisable, and stamps nothing. A stray batch
+from another line that a publish wrote just before the line was established is discarded by the
+next drain the same way.
+
+**Per-line previous publish.** Diff 2's "since the previous publish" is measured from the
+previous publish on the publishing line. Measuring from another line's publish would filter out
+this line's own earlier edits.
+
+**Ambiguous matches.** When several ledger rows match the resolved jar's hash or release version
+(two lines can publish the same version), a row on the followed line is preferred, then the
+highest sequence.
+
+**Line switch.** A consumer that follows a line and resolves a build from another - an app moving
+from the hotfix line to the next major - is held: nothing drains and a warning names both lines.
+Neither sequence orders the other, and the mapping cannot say which methods the switch affects.
+
+Local (non-primary) runs read the followed line and apply the same rules but never write it.
+Nothing here needs the VCS on the consumer side: the line is read at publish time and travels in
+the ledger.
+
 ### End-to-end sequence
 
 ```
@@ -367,11 +422,12 @@ the working tree.
 ### Reporting
 
 - The `libraries` task/mojo lists every tracked library with its ledger state
-  (`last applied publish seq`, mapping baseline) and its pending batches (seq, version, method
-  count).
+  (`last applied publish seq`, mapping baseline, followed source line) and its pending batches
+  (seq, version, method count).
 - `library-publishes` (`-DtiaLibrary=group:artifact` on Maven, `--library=group:artifact` on
   Gradle's `tia-library-publishes`) prints the library's ledger as a table: seq, version, jar
-  hash, commit, publish time and how many of the build's stamped methods still await drain.
+  hash, commit, publish time, how many of the build's stamped methods still await drain, and the
+  source line the build was published from.
 - `library-pending-methods` / `tia-library-pending-methods` prints one row per pending method:
   the publish it shipped in (seq + version) and the method's tracked name and line range.
 - The HTML `tia-libraries.html` page renders all three: tracked libraries, the publish ledger and

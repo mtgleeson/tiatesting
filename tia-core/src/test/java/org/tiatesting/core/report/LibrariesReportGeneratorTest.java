@@ -69,6 +69,7 @@ class LibrariesReportGeneratorTest {
                 "/projects/mylib/src/main/java,/projects/mylib/src/main/groovy");
         library.setLastAppliedSeq(4L);
         library.setMappingBaselineCommit("baseline-abc");
+        library.setFollowedLine("//depot/libraries/mylib/src/main/java");
         dataStore.persistTrackedLibrary(library);
 
         // when
@@ -79,6 +80,7 @@ class LibrariesReportGeneratorTest {
         assertTrue(report.contains("Project dir: /projects/mylib"));
         assertTrue(report.contains("Source dirs: /projects/mylib/src/main/java,/projects/mylib/src/main/groovy"));
         assertTrue(report.contains("Last applied publish seq: 4"));
+        assertTrue(report.contains("Followed source line: //depot/libraries/mylib/src/main/java"));
         assertTrue(report.contains("Mapping baseline commit: baseline-abc"));
         assertTrue(report.contains("Pending batches: 0"));
     }

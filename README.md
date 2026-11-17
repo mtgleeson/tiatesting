@@ -520,7 +520,7 @@ gradle tia-status
 ```
 
 ### Libraries — tracked libraries and their pending changes
-Lists every tracked library (see library impact analysis) with its recorded state - the same details as the `tia-libraries.html` report page, plus the per-batch pending detail: project dir, source dirs, last applied publish seq, mapping baseline commit, and the library's pending impacted-method batches.
+Lists every tracked library (see library impact analysis) with its recorded state - the same details as the `tia-libraries.html` report page, plus the per-batch pending detail: project dir, source dirs, last applied publish seq, mapping baseline commit, the source line the consumer follows, and the library's pending impacted-method batches.
 Example output:
 ```
 Tracked libraries:
@@ -529,6 +529,7 @@ Tracked libraries:
 		Source dirs: /abs/path/to/libA/src/main/java
 		Last applied publish seq: 2
 		Mapping baseline commit: 993f44ec47f4957ff6b8ae5ebdcbce2cdf1c3a2c
+		Followed source line: main
 		Pending batches: 1
 			seq 3 @ 1.1.0 - 3 methods pending
 ```
@@ -544,14 +545,14 @@ gradle tia-libraries
 ```
 
 ### Library publishes — the publish ledger for one library
-Prints a tracked library's publish ledger as a table: one row per published build with its sequence, version, jar hash, commit, publish time, and how many of the build's stamped methods still await their drain. The library is selected with a `groupId:artifactId` parameter.
+Prints a tracked library's publish ledger as a table: one row per published build with its sequence, version, jar hash, commit, publish time, how many of the build's stamped methods still await their drain, and the source line it was published from. The library is selected with a `groupId:artifactId` parameter.
 Example output:
 ```
 Publishes for library com.example:libA:
-Seq | Version        | Jar hash        | Commit          | Published at         | Methods pending
-----+----------------+-----------------+-----------------+----------------------+----------------
-1   | 1.0.0-SNAPSHOT | 3f9358826797... | 993f44ec47f4... | 2026-07-01T10:14:02Z | -
-2   | 1.1.0          | a1b2c3d4e5f6... | 1c63c66aa01b... | 2026-07-12T08:30:11Z | 3
+Seq | Version        | Jar hash        | Commit          | Published at         | Methods pending | Source line
+----+----------------+-----------------+-----------------+----------------------+-----------------+------------
+1   | 1.0.0-SNAPSHOT | 3f9358826797... | 993f44ec47f4... | 2026-07-01T10:14:02Z | -               | main
+2   | 1.1.0          | a1b2c3d4e5f6... | 1c63c66aa01b... | 2026-07-12T08:30:11Z | 3               | main
 ```
 
 **Maven**
