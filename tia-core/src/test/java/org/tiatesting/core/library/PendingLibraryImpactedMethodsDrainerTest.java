@@ -321,6 +321,154 @@ class PendingLibraryImpactedMethodsDrainerTest {
     }
 
     /**
+     * Establishing the line: a schema that follows no line holds stamps from two lines. The app
+     * resolves a line A build, so line A's stamp drains, line B's is discarded without running,
+     * and line A is reported as the line to follow.
+     */
+    @Test
+    void firstResolveDrainsOwnLineAndDiscardsOtherLines() throws Exception {
+        // given a library with no followed line and stamps from line A (seq 1) and line B (seq 2)
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        setupTestMappingWithMethods(10, 20);
+        File jarA = jarFile("line-a-content");
+        publishOnLine("1.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarA), "lineA",
+                new HashSet<>(Arrays.asList(10)));
+        publishOnLine("1.0-SNAPSHOT", "HB", "lineB", new HashSet<>(Arrays.asList(20)));
+
+        // when the drain runs with the app resolving line A's jar
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, configResolving("1.0-SNAPSHOT", jarA.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), false);
+
+        // then line A's batch drains, line B's is discarded and line A is to be followed
+        LibraryImpactDrainResult result = outcome.getDrainResult();
+        assertEquals(1, result.getDrainedBatchKeys().size());
+        assertEquals(1L, result.getDrainedBatchKeys().get(0).getPublishSeq());
+        assertEquals(1, result.getDiscardedBatchKeys().size());
+        assertEquals(2L, result.getDiscardedBatchKeys().get(0).getPublishSeq());
+        assertEquals("lineA", result.getLineToFollowByLibrary().get(LIB));
+        assertTrue(outcome.getTestsToAdd().contains("com.example.TestA"));
+        assertFalse(outcome.getTestsToAdd().contains("com.example.TestB"));
+    }
+
+    /**
+     * The line is established even when nothing on it is at or below the resolved build: the
+     * other line's stamp is still discarded and the line still reported.
+     */
+    @Test
+    void lineIsEstablishedWhenNothingOnItDrains() throws Exception {
+        // given line A's stampless publish and a stamp from line B
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        setupTestMappingWithMethods(10);
+        File jarA = jarFile("line-a-content");
+        publishOnLine("1.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarA), "lineA",
+                Collections.<Integer>emptySet());
+        publishOnLine("1.0-SNAPSHOT", "HB", "lineB", new HashSet<>(Arrays.asList(10)));
+
+        // when the app resolves line A's jar
+        LibraryImpactDrainResult result = drainer.drainPendingMethods(dataStore,
+                configResolving("1.0-SNAPSHOT", jarA.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), false).getDrainResult();
+
+        // then nothing drains, line B's batch is discarded and there is seal work to do
+        assertTrue(result.getDrainedBatchKeys().isEmpty());
+        assertEquals(1, result.getDiscardedBatchKeys().size());
+        assertEquals("lineA", result.getLineToFollowByLibrary().get(LIB));
+        assertTrue(result.hasSealWork());
+        assertNull(result.getAppliedSeqByLibrary().get(LIB));
+    }
+
+    /**
+     * A resolved build on a line other than the followed one is a line switch: everything is
+     * held and nothing is reported for the seal.
+     */
+    @Test
+    void resolvingAnotherLineThanTheFollowedOneHolds() throws Exception {
+        // given a library following line A, with a stamped line B build the app now resolves
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setFollowedLine("lineA");
+        dataStore.persistTrackedLibrary(lib);
+        setupTestMappingWithMethods(10);
+        File jarB = jarFile("line-b-content");
+        publishOnLine("2.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarB), "lineB",
+                new HashSet<>(Arrays.asList(10)));
+
+        // when the drain runs
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, configResolving("2.0-SNAPSHOT", jarB.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), false);
+
+        // then nothing drains and no seal work is reported
+        assertTrue(outcome.getTestsToAdd().isEmpty());
+        assertFalse(outcome.getDrainResult().hasSealWork());
+    }
+
+    /**
+     * A library that already follows a line discards a stray batch from another line - one a
+     * publish wrote just before the line was established - and reports no line to follow.
+     */
+    @Test
+    void followedLineDiscardsAStrayBatchFromAnotherLine() throws Exception {
+        // given a library following line A, holding a line B stamp below its resolved line A build
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setFollowedLine("lineA");
+        dataStore.persistTrackedLibrary(lib);
+        setupTestMappingWithMethods(10, 20);
+        publishOnLine("9.0-SNAPSHOT", "HB", "lineB", new HashSet<>(Arrays.asList(20)));
+        File jarA = jarFile("line-a-content");
+        publishOnLine("1.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarA), "lineA",
+                new HashSet<>(Arrays.asList(10)));
+
+        // when the app resolves line A's jar
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, configResolving("1.0-SNAPSHOT", jarA.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), false);
+
+        // then line A's batch drains, line B's is discarded unrun, and the line is unchanged
+        LibraryImpactDrainResult result = outcome.getDrainResult();
+        assertEquals(2L, result.getDrainedBatchKeys().get(0).getPublishSeq());
+        assertEquals(1L, result.getDiscardedBatchKeys().get(0).getPublishSeq());
+        assertFalse(outcome.getTestsToAdd().contains("com.example.TestB"));
+        assertTrue(result.getLineToFollowByLibrary().isEmpty());
+    }
+
+    /**
+     * Rows written before lines were recorded have no line and drain as they always did.
+     */
+    @Test
+    void batchesWithNoRecordedLineStillDrain() throws Exception {
+        // given a pre-line publish (null line) with a stamp, resolved by the app
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        setupTestMappingWithMethods(10);
+        File jar = jarFile("old-content");
+        publish("1.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jar), new HashSet<>(Arrays.asList(10)));
+
+        // when the drain runs
+        LibraryImpactDrainResult result = drainer.drainPendingMethods(dataStore,
+                configResolving("1.0-SNAPSHOT", jar.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), false).getDrainResult();
+
+        // then the batch drains and there is no line to follow
+        assertEquals(1, result.getDrainedBatchKeys().size());
+        assertTrue(result.getDiscardedBatchKeys().isEmpty());
+        assertTrue(result.getLineToFollowByLibrary().isEmpty());
+    }
+
+    /**
+     * Persist a publish on a source line with the given stamp.
+     *
+     * @param version the published version
+     * @param jarHash the jar hash, or null
+     * @param line the source line
+     * @param methodIds the method ids to stamp
+     */
+    private void publishOnLine(String version, String jarHash, String line, Set<Integer> methodIds) {
+        LibraryPublish publish = new LibraryPublish(LIB, version, jarHash, "c", System.currentTimeMillis());
+        publish.setSourceLine(line);
+        dataStore.persistLibraryPublish(publish, methodIds, Collections.<PendingLibraryForcedSelection>emptyList());
+    }
+
+    /**
      * Persist a publish (ledger row + stamp) for the tracked library, mirroring the publish task.
      *
      * @param version the published version

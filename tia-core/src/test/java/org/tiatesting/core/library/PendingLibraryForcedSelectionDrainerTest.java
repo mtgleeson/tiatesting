@@ -235,6 +235,40 @@ class PendingLibraryForcedSelectionDrainerTest {
     }
 
     /**
+     * A forced batch published from another source line than the build the app resolves is
+     * discarded unrun, like a method batch: the resolved jar does not carry the change behind it.
+     */
+    @Test
+    void firstResolveDiscardsOtherLineForcedBatches() throws Exception {
+        // given a line A publish the app resolves and a RUN_ALL forced batch from line B
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        setupTrackedSuites("com.acme.AaaTest", "com.acme.BbbIT");
+        File jarA = jarFile("line-a-content");
+        LibraryPublish lineA = new LibraryPublish(LIB, "1.0-SNAPSHOT",
+                LibraryJarHasher.computeSha256Hash(jarA), "c1", System.currentTimeMillis());
+        lineA.setSourceLine("lineA");
+        dataStore.persistLibraryPublish(lineA, Collections.<Integer>emptySet(),
+                Collections.<PendingLibraryForcedSelection>emptyList());
+        LibraryPublish lineB = new LibraryPublish(LIB, "1.0-SNAPSHOT", "HB", "c2", System.currentTimeMillis());
+        lineB.setSourceLine("lineB");
+        dataStore.persistLibraryPublish(lineB, Collections.<Integer>emptySet(), Collections.singletonList(
+                new PendingLibraryForcedSelection(LIB, "1.0-SNAPSHOT", 0L, "sql-run-all",
+                        StaticTestSelectionRuleMode.RUN_ALL, Collections.<String>emptyList())));
+
+        // when the drain runs with the app resolving line A's jar
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, configResolving("1.0-SNAPSHOT", jarA.getAbsolutePath()),
+                tracked("com.acme.AaaTest", "com.acme.BbbIT"), false);
+
+        // then nothing is selected, the forced batch is discarded and line A is to be followed
+        assertTrue(outcome.getTestsToAdd().isEmpty());
+        assertTrue(outcome.getDrainResult().getDrainedForcedBatchKeys().isEmpty());
+        assertEquals(1, outcome.getDrainResult().getDiscardedForcedBatchKeys().size());
+        assertEquals(2L, outcome.getDrainResult().getDiscardedForcedBatchKeys().get(0).getPublishSeq());
+        assertEquals("lineA", outcome.getDrainResult().getLineToFollowByLibrary().get(LIB));
+    }
+
+    /**
      * Persist a publish (ledger row + one forced-selection batch) for the tracked library,
      * mirroring the publish task.
      *
