@@ -42,7 +42,9 @@ import java.util.regex.Pattern;
  * <p><b>Source lines.</b> Each ledger row names the source line its build was published from.
  * A library that follows no line yet starts following the line of the build it resolves, and
  * pending batches from other lines are discarded unrun. A library that follows a line and
- * resolves a build from another is held. See the source-lines section of the same chapter.
+ * resolves a build from another has switched line: every tracked suite is selected, all of its
+ * pending batches are discarded and the new line is followed. See the source-lines section of the
+ * same chapter.
  *
  * <p>The drain also reports the commit each identified build was published at. The seal uses it
  * as the library's mapping baseline: the re-covered suites' line numbers describe the library
@@ -105,16 +107,23 @@ public class PendingLibraryImpactedMethodsDrainer {
                 resolveLibrariesOnSourceProject(libraryConfig, coordinates);
         Map<String, LibraryPublish> resolvedBuildByLibrary = resolveBuildsOnce(dataStore, coordinates,
                 pendingByLibrary, forcedByLibrary, trackedLibraries, resolvedLibraries);
+        Set<String> lineSwitched = new HashSet<>();
         for (Map.Entry<String, LibraryPublish> entry : resolvedBuildByLibrary.entrySet()) {
             // A library that follows no line yet starts following the line of the build it holds.
             String resolvedLine = entry.getValue().getSourceLine();
-            if (resolvedLine != null && trackedLibraries.get(entry.getKey()).getFollowedLine() == null) {
+            String followedLine = trackedLibraries.get(entry.getKey()).getFollowedLine();
+            if (resolvedLine != null && followedLine == null) {
                 drainResult.setLineToFollow(entry.getKey(), resolvedLine);
             }
             // The source the consumer's jar was built from - the commit the mapping's line numbers
             // describe once this run re-covers the library's suites.
             if (entry.getValue().getCommitValue() != null) {
                 drainResult.setHeldBuildCommit(entry.getKey(), entry.getValue().getCommitValue());
+            }
+            if (!SourceLines.matches(followedLine, resolvedLine)) {
+                switchLine(entry.getKey(), entry.getValue(), pendingByLibrary, forcedByLibrary,
+                        testSuitesTracked, testsFromDrain, drainResult);
+                lineSwitched.add(entry.getKey());
             }
         }
 
@@ -129,7 +138,7 @@ public class PendingLibraryImpactedMethodsDrainer {
                 continue;
             }
             LibraryPublish resolved = resolvedBuildByLibrary.get(entry.getKey());
-            if (resolved != null) {
+            if (resolved != null && !lineSwitched.contains(entry.getKey())) {
                 drainPendingMethodsForLibrary(dataStore, library, entry.getValue(), resolved,
                         readLineBySeq(dataStore, entry.getKey(), lineBySeqByLibrary), testsFromDrain, drainResult);
             }
@@ -145,7 +154,7 @@ public class PendingLibraryImpactedMethodsDrainer {
                     continue;
                 }
                 LibraryPublish resolved = resolvedBuildByLibrary.get(entry.getKey());
-                if (resolved != null) {
+                if (resolved != null && !lineSwitched.contains(entry.getKey())) {
                     drainForcedSelectionsForLibrary(library, entry.getValue(), resolved,
                             readLineBySeq(dataStore, entry.getKey(), lineBySeqByLibrary), testSuitesTracked,
                             forcedResolver, testsFromDrain, drainResult);
@@ -154,6 +163,44 @@ public class PendingLibraryImpactedMethodsDrainer {
         }
 
         return new DrainOutcome(testsFromDrain, drainResult);
+    }
+
+    /**
+     * Apply a line switch: the library holds a build from another source line than the one it
+     * follows. The mapping does not record which methods belong to the library, and a diff across
+     * lines cannot be matched to the mapping's line numbers, so no narrower selection exists -
+     * every tracked suite is selected. All of the library's pending batches are reported as
+     * discarded, whichever line they are from: the old line's no longer apply to the held jar, and
+     * the new line's are covered by running everything. The seal then follows the new line from
+     * the resolved sequence. See the source-lines section of the library publish-time stamping
+     * chapter in {@code WIKI.md}.
+     *
+     * @param groupArtifact the library that switched line.
+     * @param resolved the ledger row of the build the library resolved to, on the new line.
+     * @param pendingByLibrary pending method batches by library coordinate.
+     * @param forcedByLibrary pending forced-selection batches by library coordinate.
+     * @param testSuitesTracked the consumer's currently tracked test suites, all of which are selected.
+     * @param testsFromDrain accumulator for the selected test suites.
+     * @param drainResult accumulator for the discarded batch keys, the line to follow and the
+     *                    applied sequence.
+     */
+    private void switchLine(String groupArtifact, LibraryPublish resolved,
+                            Map<String, List<PendingLibraryImpactedMethod>> pendingByLibrary,
+                            Map<String, List<PendingLibraryForcedSelection>> forcedByLibrary,
+                            Map<String, TestSuiteTracker> testSuitesTracked,
+                            Set<String> testsFromDrain, LibraryImpactDrainResult drainResult) {
+        testsFromDrain.addAll(testSuitesTracked.keySet());
+        for (PendingLibraryImpactedMethod batch : pendingByLibrary
+                .getOrDefault(groupArtifact, Collections.<PendingLibraryImpactedMethod>emptyList())) {
+            drainResult.addDiscardedBatch(groupArtifact, batch.getPublishSeq());
+        }
+        for (PendingLibraryForcedSelection batch : forcedByLibrary
+                .getOrDefault(groupArtifact, Collections.<PendingLibraryForcedSelection>emptyList())) {
+            drainResult.addDiscardedForcedBatch(groupArtifact, batch.getPublishSeq());
+        }
+        drainResult.setLineToFollow(groupArtifact, resolved.getSourceLine());
+        drainResult.setAppliedSeq(groupArtifact, resolved.getPublishSeq());
+        drainResult.addLineSwitch(groupArtifact);
     }
 
     /**
@@ -310,9 +357,10 @@ public class PendingLibraryImpactedMethodsDrainer {
      * signal that the caller must hold every pending batch for this library. Applies the three
      * hold rules shared by both the method-stamp drain and the forced-selection drain: the
      * library must resolve on the source project classpath, the resolved artifact must match a
-     * known publish ledger row, that row must be on the source line the library follows (when it
-     * follows one), and the resolved build must not be older than the library's
-     * {@code lastAppliedSeq}. When several rows match, one on the followed line is preferred. Logs the same INFO/WARN lines the drain has always emitted so
+     * known publish ledger row, and the resolved build must not be older than the library's
+     * {@code lastAppliedSeq}. When several rows match, one on the followed line is preferred. A
+     * row on another line than the followed one is a line switch: it is returned without the
+     * older-build check, which only orders builds on one line. Logs the same INFO/WARN lines the drain has always emitted so
      * operators see identical diagnostics regardless of which batch kind triggered the hold.
      *
      * @param dataStore the persistence layer for the ledger lookup.
@@ -350,11 +398,13 @@ public class PendingLibraryImpactedMethodsDrainer {
         }
 
         if (!SourceLines.matches(library.getFollowedLine(), resolvedPublish.getSourceLine())) {
-            log.warn("Library '{}' resolved a build from source line '{}' but this schema follows '{}' - "
-                    + "holding {} pending batches. See the source-lines section of the library publish-time "
-                    + "stamping chapter in WIKI.md.", groupArtifact, resolvedPublish.getSourceLine(),
-                    library.getFollowedLine(), pendingCount);
-            return null;
+            // Returned before the downgrade guard: sequences on different lines do not order
+            // each other, so a lower sequence on the new line is not an older build.
+            log.warn("Library '{}' switched source line: this schema follows '{}' and the resolved build "
+                    + "(seq {}, version '{}') is from '{}'. Selecting all tests and following the new line.",
+                    groupArtifact, library.getFollowedLine(), resolvedPublish.getPublishSeq(),
+                    resolvedPublish.getPublishedVersion(), resolvedPublish.getSourceLine());
+            return resolvedPublish;
         }
 
         long resolvedSeq = resolvedPublish.getPublishSeq();

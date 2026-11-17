@@ -325,6 +325,71 @@ class LibraryImpactEndToEndTest {
     }
 
     /**
+     * A consumer that follows line A moves to a line B build. The switch run selects every tracked
+     * suite and seals onto line B; from then on line B publishes stamp and drain precisely, and
+     * line A publishes reach the ledger only.
+     */
+    @Test
+    void consumerSwitchingLineRunsAllTestsThenStampsPreciselyOnTheNewLine() throws Exception {
+        // given a consumer following line A, with a stamped line A build still pending and a
+        // line B build recorded in its ledger only
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR));
+        setupTestMappingWithMethods(METHOD_ID);
+        LibraryPublishStamper stamper = new LibraryPublishStamper();
+        stamper.stampPublish(dataStore, new StubVCSReader("c0"), LIB, "1.0.0-SNAPSHOT",
+                jarFile("line-a-seed").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
+                Collections.<String>emptyList(), "lineA");
+        TrackedLibrary following = dataStore.readTrackedLibraries().get(LIB);
+        following.setFollowedLine("lineA");
+        dataStore.persistTrackedLibrary(following);
+        stamper.stampPublish(dataStore, new StubVCSReader("c1", libraryDiff()), LIB, "1.0.0-SNAPSHOT",
+                jarFile("line-a-build").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
+                Collections.<String>emptyList(), "lineA");
+        File jarB = jarFile("line-b-build");
+        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE,
+                stamper.stampPublish(dataStore, new StubVCSReader("c2", libraryDiff()), LIB, "2.0.0-SNAPSHOT",
+                        jarB.getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
+                        Collections.<String>emptyList(), "lineB").getOutcome());
+        Map<String, TestSuiteTracker> tracked = dataStore.getTiaData().getTestSuitesTracked();
+
+        // when the consumer resolves the line B build, runs and seals
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome switchRun =
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
+                        dataStore, configResolving("2.0.0-SNAPSHOT", jarB.getAbsolutePath()), tracked, false);
+        persistWithDrainResult(switchRun.getDrainResult(), "app-1");
+        setupTestMappingWithMethods(METHOD_ID);
+
+        // then every tracked suite ran, line A's pending stamp is gone and the schema follows
+        // line B from the build it holds
+        assertFalse(tracked.isEmpty());
+        assertEquals(tracked.keySet(), switchRun.getTestsToAdd());
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
+        TrackedLibrary switched = dataStore.readTrackedLibraries().get(LIB);
+        assertEquals("lineB", switched.getFollowedLine());
+        assertEquals("c2", switched.getMappingBaselineCommit());
+
+        // and a further line B publish stamps the changed method, which the next run drains
+        File jarB2 = jarFile("line-b-build-2");
+        LibraryPublishStamper.PublishStampResult nextB = stamper.stampPublish(dataStore,
+                new StubVCSReader("c3", libraryDiff()), LIB, "2.0.0-SNAPSHOT", jarB2.getAbsolutePath(),
+                StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList(), "lineB");
+        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.STAMPED, nextB.getOutcome());
+        assertEquals(Collections.singleton(METHOD_ID), nextB.getStampedMethodIds());
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome preciseRun =
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
+                        dataStore, configResolving("2.0.0-SNAPSHOT", jarB2.getAbsolutePath()),
+                        dataStore.getTiaData().getTestSuitesTracked(), false);
+        assertEquals(1, preciseRun.getDrainResult().getDrainedBatchKeys().size());
+        assertTrue(preciseRun.getDrainResult().getLineSwitchedLibraries().isEmpty());
+
+        // and a line A publish now reaches the ledger only
+        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE,
+                stamper.stampPublish(dataStore, new StubVCSReader("c4", libraryDiff()), LIB, "1.0.0-SNAPSHOT",
+                        jarFile("line-a-build-2").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
+                        Collections.<String>emptyList(), "lineA").getOutcome());
+    }
+
+    /**
      * Build a MODIFY diff for the library source file (line 5 changes inside the tracked
      * method's 2-8 range).
      *

@@ -285,8 +285,11 @@ public final class SealedRunDataAssembler {
      * stamping chapter in {@code WIKI.md}.
      *
      * <p>A library that followed no source line and whose held build the drain identified starts
-     * following that build's line, whether or not anything drained. See the source-lines section
-     * of the same chapter.
+     * following that build's line, whether or not anything drained. A library that switched
+     * line - its held build is from another line than the one it followed - drains nothing, but
+     * the drain reports the new line and the resolved sequence for it, so it too has its followed
+     * line, {@code lastAppliedSeq} and baseline moved. See the source-lines section of the same
+     * chapter.
      *
      * <p>Nothing changes on a selective run (not all-tests) whose drain left no seal work, so
      * that case returns an empty list before reading {@link DataStore#readTrackedLibraries()} -
@@ -312,7 +315,9 @@ public final class SealedRunDataAssembler {
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         Map<String, TrackedLibrary> changed = new LinkedHashMap<>();
 
-        if (drainResult != null && drainResult.hasDrainedBatches()) {
+        if (drainResult != null) {
+            // Reported for a library with a drained batch, and for one that switched source line
+            // (which drains nothing: its batches are discarded and every suite runs).
             for (Map.Entry<String, Long> entry : drainResult.getAppliedSeqByLibrary().entrySet()) {
                 TrackedLibrary library = trackedLibraries.get(entry.getKey());
                 if (library == null) {

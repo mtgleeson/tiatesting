@@ -379,28 +379,69 @@ class PendingLibraryImpactedMethodsDrainerTest {
     }
 
     /**
-     * A resolved build on a line other than the followed one is a line switch: everything is
-     * held and nothing is reported for the seal.
+     * Line switch: the app moves to a build from a line other than the one it follows. No diff
+     * across lines can be matched to the mapping, so every tracked suite is selected, every
+     * pending batch for the library is discarded and the new line is followed. The downgrade guard
+     * does not apply: sequences on different lines do not order each other.
      */
     @Test
-    void resolvingAnotherLineThanTheFollowedOneHolds() throws Exception {
-        // given a library following line A, with a stamped line B build the app now resolves
+    void resolvingAnotherLineSelectsEverySuiteAndFollowsTheNewLine() throws Exception {
+        // given a library following line A at seq 5, pending stamps on both lines, and the app
+        // now resolving a line B build at seq 2 (below the applied seq)
         TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
         lib.setFollowedLine("lineA");
+        lib.setLastAppliedSeq(5L);
+        dataStore.persistTrackedLibrary(lib);
+        setupTestMappingWithMethods(10, 20);
+        publishOnLine("1.0-SNAPSHOT", "HA", "lineA", new HashSet<>(Arrays.asList(10)));
+        File jarB = jarFile("line-b-content");
+        publishOnLine("2.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarB), "lineB",
+                new HashSet<>(Arrays.asList(20)));
+        Map<String, TestSuiteTracker> tracked = dataStore.getTiaData().getTestSuitesTracked();
+
+        // when the drain runs
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, configResolving("2.0-SNAPSHOT", jarB.getAbsolutePath()), tracked, false);
+
+        // then every tracked suite is selected, both batches are discarded and line B is followed
+        LibraryImpactDrainResult result = outcome.getDrainResult();
+        assertEquals(2, tracked.size());
+        assertEquals(tracked.keySet(), outcome.getTestsToAdd());
+        assertEquals(2, result.getDiscardedBatchKeys().size());
+        assertTrue(result.getDrainedBatchKeys().isEmpty());
+        assertEquals("lineB", result.getLineToFollowByLibrary().get(LIB));
+        assertEquals(Long.valueOf(2L), result.getAppliedSeqByLibrary().get(LIB));
+        assertEquals("c", result.getHeldBuildCommitByLibrary().get(LIB));
+        assertTrue(result.getLineSwitchedLibraries().contains(LIB));
+    }
+
+    /**
+     * A forced all-tests run resolves every tracked library with nothing pending, so it also
+     * notices a line switch and moves the library onto the new line.
+     */
+    @Test
+    void aForcedAllTestsRunFollowsTheNewLineWithNothingPending() throws Exception {
+        // given a library following line A whose app now holds a line B build, with no pending
+        // stamp in this schema (a line B publish writes only its ledger row here)
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setFollowedLine("lineA");
+        lib.setLastAppliedSeq(5L);
         dataStore.persistTrackedLibrary(lib);
         setupTestMappingWithMethods(10);
         File jarB = jarFile("line-b-content");
         publishOnLine("2.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarB), "lineB",
-                new HashSet<>(Arrays.asList(10)));
+                Collections.<Integer>emptySet());
 
-        // when the drain runs
+        // when a run known to select all tests drains
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
                 dataStore, configResolving("2.0-SNAPSHOT", jarB.getAbsolutePath()),
-                Collections.<String, TestSuiteTracker>emptyMap(), false);
+                dataStore.getTiaData().getTestSuitesTracked(), true);
 
-        // then nothing drains and no seal work is reported
-        assertTrue(outcome.getTestsToAdd().isEmpty());
-        assertFalse(outcome.getDrainResult().hasSealWork());
+        // then the switch is reported for the seal
+        LibraryImpactDrainResult result = outcome.getDrainResult();
+        assertEquals("lineB", result.getLineToFollowByLibrary().get(LIB));
+        assertEquals(Long.valueOf(1L), result.getAppliedSeqByLibrary().get(LIB));
+        assertTrue(result.getLineSwitchedLibraries().contains(LIB));
     }
 
     /**

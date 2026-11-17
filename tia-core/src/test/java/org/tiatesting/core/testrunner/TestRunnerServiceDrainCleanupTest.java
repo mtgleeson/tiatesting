@@ -276,6 +276,50 @@ class TestRunnerServiceDrainCleanupTest {
     }
 
     /**
+     * A line switch drains nothing, yet the seal still moves the library onto the new line: the
+     * followed line, the applied sequence and the baseline (the resolved build's publish commit)
+     * all change, and every pending batch is deleted unrun.
+     */
+    @Test
+    void lineSwitchPersistsNewLineAppliedSeqAndBaseline() {
+        // given a library following line A at seq 5 with a pending batch on each line, and a
+        // drain result as the drainer reports a switch to a line B build at seq 2
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setFollowedLine("lineA");
+        lib.setLastAppliedSeq(5L);
+        lib.setMappingBaselineCommit("470");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryPublish lineA = new LibraryPublish(LIB, "1.1", "HA", "c8", System.currentTimeMillis());
+        lineA.setSourceLine("lineA");
+        long seqA = dataStore.persistLibraryPublish(lineA, new HashSet<>(Arrays.asList(10)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
+        LibraryPublish lineB = new LibraryPublish(LIB, "2.0", "HB", "c9", System.currentTimeMillis());
+        lineB.setSourceLine("lineB");
+        long seqB = dataStore.persistLibraryPublish(lineB, new HashSet<>(Arrays.asList(20)),
+                Collections.singletonList(new PendingLibraryForcedSelection(LIB, "2.0", 0L, "rule",
+                        StaticTestSelectionRuleMode.RUN_ALL, Collections.<String>emptyList())));
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDiscardedBatch(LIB, seqA);
+        drainResult.addDiscardedBatch(LIB, seqB);
+        drainResult.addDiscardedForcedBatch(LIB, seqB);
+        drainResult.setLineToFollow(LIB, "lineB");
+        drainResult.setAppliedSeq(LIB, seqB);
+        drainResult.setHeldBuildCommit(LIB, "c9");
+        drainResult.addLineSwitch(LIB);
+
+        // when the run persists
+        persistWithDrainResult(drainResult, 0);
+
+        // then the library follows line B from the resolved build, and nothing is left pending
+        TrackedLibrary updated = dataStore.readTrackedLibraries().get(LIB);
+        assertEquals("lineB", updated.getFollowedLine());
+        assertEquals(Long.valueOf(seqB), updated.getLastAppliedSeq());
+        assertEquals("c9", updated.getMappingBaselineCommit());
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
+        assertTrue(dataStore.readPendingLibraryForcedSelections(LIB).isEmpty());
+    }
+
+    /**
      * A drain that drained a batch and established the line in the same run writes both to the
      * one library row.
      */

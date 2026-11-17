@@ -62,6 +62,14 @@ public class LibraryImpactDrainResult implements Serializable {
      */
     private final Map<String, String> lineToFollowByLibrary;
 
+    /**
+     * The libraries whose held build is from another source line than the one they followed. The
+     * drain selected every tracked suite for them and reported the new line, the resolved sequence
+     * and every pending batch as discarded. Null on a result deserialized from a row written
+     * before this field existed.
+     */
+    private final Set<String> lineSwitchedLibraries;
+
     public LibraryImpactDrainResult() {
         this.drainedBatchKeys = new ArrayList<>();
         this.drainedForcedBatchKeys = new ArrayList<>();
@@ -70,6 +78,7 @@ public class LibraryImpactDrainResult implements Serializable {
         this.discardedBatchKeys = new ArrayList<>();
         this.discardedForcedBatchKeys = new ArrayList<>();
         this.lineToFollowByLibrary = new LinkedHashMap<>();
+        this.lineSwitchedLibraries = new LinkedHashSet<>();
     }
 
     /**
@@ -161,6 +170,26 @@ public class LibraryImpactDrainResult implements Serializable {
     }
 
     /**
+     * Record that a library switched source line: the build it holds is from another line than
+     * the one it followed.
+     *
+     * @param groupArtifact the library that switched line.
+     */
+    public void addLineSwitch(String groupArtifact) {
+        lineSwitchedLibraries.add(groupArtifact);
+    }
+
+    /**
+     * The libraries that switched source line in this drain.
+     *
+     * @return the coordinates of the libraries that switched; empty when none, including on a
+     *         result serialized before the field existed.
+     */
+    public Set<String> getLineSwitchedLibraries() {
+        return lineSwitchedLibraries != null ? lineSwitchedLibraries : Collections.<String>emptySet();
+    }
+
+    /**
      * The pending method batches from lines the consumer does not follow.
      *
      * @return the keys to delete at the seal without having run; empty when none, including on a
@@ -229,8 +258,8 @@ public class LibraryImpactDrainResult implements Serializable {
      *
      * @param o the object to compare against
      * @return true if o is a LibraryImpactDrainResult carrying identical drained batches, drained
-     *         forced batches, applied sequences, held build commits, discarded batches and lines
-     *         to follow
+     *         forced batches, applied sequences, held build commits, discarded batches, lines to
+     *         follow and line switches
      */
     @Override
     public boolean equals(Object o) {
@@ -243,7 +272,8 @@ public class LibraryImpactDrainResult implements Serializable {
                 && getHeldBuildCommitByLibrary().equals(that.getHeldBuildCommitByLibrary())
                 && getDiscardedBatchKeys().equals(that.getDiscardedBatchKeys())
                 && getDiscardedForcedBatchKeys().equals(that.getDiscardedForcedBatchKeys())
-                && getLineToFollowByLibrary().equals(that.getLineToFollowByLibrary());
+                && getLineToFollowByLibrary().equals(that.getLineToFollowByLibrary())
+                && getLineSwitchedLibraries().equals(that.getLineSwitchedLibraries());
     }
 
     /**
@@ -255,7 +285,7 @@ public class LibraryImpactDrainResult implements Serializable {
     public int hashCode() {
         return Objects.hash(drainedBatchKeys, drainedForcedBatchKeys, appliedSeqByLibrary,
                 getHeldBuildCommitByLibrary(), getDiscardedBatchKeys(), getDiscardedForcedBatchKeys(),
-                getLineToFollowByLibrary());
+                getLineToFollowByLibrary(), getLineSwitchedLibraries());
     }
 
     /**

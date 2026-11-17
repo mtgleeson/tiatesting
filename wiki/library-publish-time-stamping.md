@@ -55,7 +55,8 @@ build am I actually holding?*
    cannot produce a false green; draining blindly could. Self-heals on the next publish/resolve
    cycle.
 4. Downgrade guard: if R is below the library's `last_applied_seq`, hold and warn - those tests
-   already ran against newer code; check the dependency resolution.
+   already ran against newer code; check the dependency resolution. It applies to builds on the
+   followed line only - see [Source lines](#source-lines).
 
 After the test run, the primary build's persist deletes the drained stamps, advances
 `last_applied_seq` to R and moves the library's `mapping_baseline_commit` to the commit build R
@@ -115,8 +116,26 @@ this line's own earlier edits.
 highest sequence.
 
 **Line switch.** A consumer that follows a line and resolves a build from another - an app moving
-from the hotfix line to the next major - is held: nothing drains and a warning names both lines.
-Neither sequence orders the other, and the mapping cannot say which methods the switch affects.
+from the hotfix line to the next major - has switched line. The run **selects every tracked
+suite**: the mapping does not record which methods belong to the library, and a diff across lines
+cannot be matched to the mapping's line numbers, so no narrower selection exists. A warning names
+both lines. At the seal:
+
+- every pending batch for the library is deleted, whichever line it is from - the old line's no
+  longer describe the held jar, and the new line's are covered by having run everything;
+- the followed line becomes the new line and `last_applied_seq` the resolved build's sequence;
+- the mapping baseline moves to the resolved build's publish commit, as after any drain.
+
+The downgrade guard is skipped on a switch: sequences on different lines do not order each other,
+so a lower sequence on the new line is not an older build. From the next publish on, the new
+line stamps and drains precisely and the old line reaches the ledger only.
+
+A switch is noticed when the drain identifies the held build, which it does only when the library
+has a pending stamp or the run is a forced all-tests run (the no-pending fast path resolves
+nothing, to keep selection cheap). Once a schema follows a line, publishes from other lines leave
+nothing pending in it. So a consumer that moves to another line is switched by the next publish on
+its **old** line, or by a `tiaSelectAllTests` run - run one when moving an app to a line whose
+predecessor is no longer published.
 
 Local (non-primary) runs read the followed line and apply the same rules but never write it.
 Nothing here needs the VCS on the consumer side: the line is read at publish time and travels in
@@ -492,6 +511,10 @@ the working tree.
 - **Duplicate ledger matches** (identical artifact republished): the lookup takes the highest
   matching seq - contents are identical or cumulative, so the higher seq drains a superset, the
   safe direction.
+- **Several release lines of one library** (a `1.x` hotfix line alongside `2.x`, or a copy of the
+  library per stream): each consumer schema follows the line it takes builds from and is stamped
+  only by that line. Moving a consumer to another line runs all of its tests once and re-points it;
+  see [Source lines](#source-lines).
 - **A pinned consumer** accumulates stamps by design and drains them in one catch-up when the
   dependency finally moves; union semantics dedupe repeated methods.
 - **Library commits not yet published** are kept out of the app run's source selection and
@@ -519,6 +542,13 @@ the working tree.
   and requires access Tia does not otherwise need.
 - **Run Tia in the window between commit and version bump**: a timing constraint on someone else's
   schedule; not a correctness mechanism.
+- **Order the builds of different lines by version number**: would let one sequence span a `1.x`
+  and a `2.x` line, but a version says nothing about which source a build contains - a `1.4.1`
+  hotfix published after `2.0.0` is not contained in it - and snapshots of one version carry no
+  order at all. Lines are kept apart instead and a move between them runs everything once.
+- **Decide containment from VCS ancestry** (is the publish commit an ancestor of the held build's):
+  Git-only - Perforce has no ancestry between streams' changelists - and it would put a VCS read on
+  the consumer's drain, which today needs none.
 - **Match by jar hash alone, without a sequence**: cannot order snapshot builds, so a stale
   resolve (an older cached jar) would drain newer stamps against a jar that does not contain
   them - a silent false green. The sequence makes that impossible.
