@@ -98,9 +98,13 @@ public final class SealedRunDataAssembler {
 
         List<LibraryImpactDrainResult.DrainedBatchKey> drainedMethodKeys = Collections.emptyList();
         List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedKeys = Collections.emptyList();
-        if (drainResult != null && drainResult.hasDrainedBatches()) {
+        if (drainResult != null && drainResult.hasSealWork()) {
+            // Batches from another source line are deleted exactly like drained ones; they differ
+            // only in never having selected a test.
             drainedMethodKeys = new ArrayList<>(drainResult.getDrainedBatchKeys());
+            drainedMethodKeys.addAll(drainResult.getDiscardedBatchKeys());
             drainedForcedKeys = new ArrayList<>(drainResult.getDrainedForcedBatchKeys());
+            drainedForcedKeys.addAll(drainResult.getDiscardedForcedBatchKeys());
         }
 
         List<TrackedLibrary> librariesToPersist =
@@ -280,6 +284,10 @@ public final class SealedRunDataAssembler {
      * stamps rather than seeds. See the mapping-baseline section of the library publish-time
      * stamping chapter in {@code WIKI.md}.
      *
+     * <p>A library that followed no source line and whose held build the drain identified starts
+     * following that build's line, whether or not anything drained. See the source-lines section
+     * of the same chapter.
+     *
      * <p>Nothing changes on a selective run (not all-tests) whose drain left no seal work, so
      * that case returns an empty list before reading {@link DataStore#readTrackedLibraries()} -
      * this keeps the common primary-build persist (a targeted mapping run, no library drain) from
@@ -320,6 +328,20 @@ public final class SealedRunDataAssembler {
                 changed.put(entry.getKey(), library);
                 log.info("Updating tracked library '{}': last_applied_seq={}, mapping_baseline_commit='{}'.",
                         entry.getKey(), entry.getValue(), library.getMappingBaselineCommit());
+            }
+        }
+
+        if (drainResult != null) {
+            for (Map.Entry<String, String> entry : drainResult.getLineToFollowByLibrary().entrySet()) {
+                TrackedLibrary library = trackedLibraries.get(entry.getKey());
+                if (library == null) {
+                    log.warn("Tracked library '{}' not found during drain cleanup - skipping followed-line update.",
+                            entry.getKey());
+                    continue;
+                }
+                library.setFollowedLine(entry.getValue());
+                changed.put(entry.getKey(), library);
+                log.info("Tracked library '{}' now follows source line '{}'.", entry.getKey(), entry.getValue());
             }
         }
 

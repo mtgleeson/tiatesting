@@ -242,6 +242,63 @@ class TestRunnerServiceDrainCleanupTest {
         assertEquals("old-baseline", dataStore.readTrackedLibraries().get(LIB).getMappingBaselineCommit());
     }
 
+    /**
+     * A drain that only established a line - nothing drained - still stores the followed line and
+     * deletes the other line's batches unrun, leaving the applied sequence and baseline alone.
+     */
+    @Test
+    void establishingALineStoresItAndDeletesDiscardedBatches() {
+        // given a library with no followed line holding a method batch and a forced batch from
+        // another line, both reported as discarded
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setMappingBaselineCommit("470");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryPublish otherLine = new LibraryPublish(LIB, "9.0", "HB", "c9", System.currentTimeMillis());
+        otherLine.setSourceLine("lineB");
+        long seq = dataStore.persistLibraryPublish(otherLine, new HashSet<>(Arrays.asList(10)),
+                Collections.singletonList(new PendingLibraryForcedSelection(LIB, "9.0", 0L, "rule",
+                        StaticTestSelectionRuleMode.RUN_ALL, Collections.<String>emptyList())));
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDiscardedBatch(LIB, seq);
+        drainResult.addDiscardedForcedBatch(LIB, seq);
+        drainResult.setLineToFollow(LIB, "lineA");
+
+        // when a selective run persists
+        persistWithDrainResult(drainResult, 1);
+
+        // then both batches are gone and only the followed line changed
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
+        assertTrue(dataStore.readPendingLibraryForcedSelections(LIB).isEmpty());
+        TrackedLibrary updated = dataStore.readTrackedLibraries().get(LIB);
+        assertEquals("lineA", updated.getFollowedLine());
+        assertEquals("470", updated.getMappingBaselineCommit());
+        assertNull(updated.getLastAppliedSeq());
+    }
+
+    /**
+     * A drain that drained a batch and established the line in the same run writes both to the
+     * one library row.
+     */
+    @Test
+    void drainingAndEstablishingALineUpdateTheSameRow() {
+        // given a library with no followed line and a drain that applied seq 5 on line A
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDrainedBatch(LIB, 5L);
+        drainResult.setAppliedSeq(LIB, 5L);
+        drainResult.setHeldBuildCommit(LIB, "480");
+        drainResult.setLineToFollow(LIB, "lineA");
+
+        // when a selective run persists
+        persistWithDrainResult(drainResult, 1);
+
+        // then the row carries the applied seq, the baseline and the followed line
+        TrackedLibrary updated = dataStore.readTrackedLibraries().get(LIB);
+        assertEquals(Long.valueOf(5L), updated.getLastAppliedSeq());
+        assertEquals("480", updated.getMappingBaselineCommit());
+        assertEquals("lineA", updated.getFollowedLine());
+    }
+
     @Test
     void handlesNullDrainResultGracefully() {
         persistWithDrainResult(null, 1);

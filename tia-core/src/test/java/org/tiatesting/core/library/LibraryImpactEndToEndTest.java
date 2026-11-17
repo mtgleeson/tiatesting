@@ -276,6 +276,55 @@ class LibraryImpactEndToEndTest {
     }
 
     /**
+     * Two source lines publish the same library into one consumer schema. Until the consumer's
+     * line is known the schema takes both lines' stamps; the first run that resolves a build
+     * drains its own line's stamp, discards the other's unrun and starts following its line, after
+     * which the other line's publishes reach the ledger only.
+     */
+    @Test
+    void twoLinesStampOneSchemaUntilTheConsumerResolvesItsLine() throws Exception {
+        // given a seeded library stamped once from line A and once from line B
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR));
+        setupTestMappingWithMethods(METHOD_ID);
+        LibraryPublishStamper stamper = new LibraryPublishStamper();
+        stamper.stampPublish(dataStore, new StubVCSReader("c0"), LIB, "1.0.0-SNAPSHOT",
+                jarFile("line-a-seed").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
+                Collections.<String>emptyList(), "lineA");
+        File jarA = jarFile("line-a-build");
+        stamper.stampPublish(dataStore, new StubVCSReader("c1", libraryDiff()), LIB, "1.0.0-SNAPSHOT",
+                jarA.getAbsolutePath(), StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList(), "lineA");
+        LibraryPublishStamper.PublishStampResult lineBStamp = stamper.stampPublish(dataStore,
+                new StubVCSReader("c2", libraryDiff()), LIB, "2.0.0-SNAPSHOT",
+                jarFile("line-b-build").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
+                Collections.<String>emptyList(), "lineB");
+        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.STAMPED, lineBStamp.getOutcome());
+        assertEquals(2, dataStore.readPendingLibraryImpactedMethods(LIB).size());
+
+        // when the consumer resolves line A's build, runs and seals
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
+                        dataStore, configResolving("1.0.0-SNAPSHOT", jarA.getAbsolutePath()),
+                        Collections.<String, TestSuiteTracker>emptyMap(), false);
+        persistWithDrainResult(outcome.getDrainResult(), "newcommit");
+
+        // then line A's stamp ran, line B's is gone unrun, and the schema follows line A
+        assertEquals(1, outcome.getDrainResult().getDrainedBatchKeys().size());
+        assertEquals(1, outcome.getDrainResult().getDiscardedBatchKeys().size());
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
+        TrackedLibrary updated = dataStore.readTrackedLibraries().get(LIB);
+        assertEquals("lineA", updated.getFollowedLine());
+        assertEquals("c1", updated.getMappingBaselineCommit());
+
+        // and a further line B publish reaches the ledger only
+        LibraryPublishStamper.PublishStampResult later = stamper.stampPublish(dataStore,
+                new StubVCSReader("c3", libraryDiff()), LIB, "2.0.0-SNAPSHOT",
+                jarFile("line-b-build-2").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
+                Collections.<String>emptyList(), "lineB");
+        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE, later.getOutcome());
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
+    }
+
+    /**
      * Build a MODIFY diff for the library source file (line 5 changes inside the tracked
      * method's 2-8 range).
      *
