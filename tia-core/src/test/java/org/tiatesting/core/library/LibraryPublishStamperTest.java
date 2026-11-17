@@ -647,11 +647,13 @@ class LibraryPublishStamperTest {
     }
 
     /**
-     * A schema following another line gets the ledger row - so the build stays recognisable - but
-     * no stamp: its consumer's jar does not contain this line's changes.
+     * A schema following another line is stamped like any other. Whether its consumer's jar
+     * contains this line's changes is decided at the drain, which discards the batch when the
+     * consumer still holds a build from the line it follows and switches line when it does not -
+     * the pending batch is what makes a consumer that moved to this line notice it.
      */
     @Test
-    void publishFromAnotherLineWritesLedgerRowOnly() {
+    void publishFromAnotherLineIsStampedForTheDrainToJudge() {
         // given a tracked library that follows line A
         TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR);
         lib.setMappingBaselineCommit("baseline-1");
@@ -663,11 +665,13 @@ class LibraryPublishStamperTest {
                 new StubVCSReader("head-2", diffFor(LIB_FILE_KEY)).onLine("lineB"),
                 LIB, "2.0", null, StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList(), "test");
 
-        // then only the ledger row is written
-        assertEquals(PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE, result.getOutcome());
+        // then the ledger row carries line B and the stamp is pending
+        assertEquals(PublishStampResult.Outcome.STAMPED, result.getOutcome());
         assertEquals(1L, result.getPublishSeq());
         assertEquals("lineB", dataStore.readLibraryPublishes(LIB).get(0).getSourceLine());
-        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
+        assertEquals(1, dataStore.readPendingLibraryImpactedMethods(LIB).size());
+        assertEquals(Collections.singleton(METHOD_LIB),
+                dataStore.readPendingLibraryImpactedMethods(LIB).get(0).getSourceMethodIds());
     }
 
     /**

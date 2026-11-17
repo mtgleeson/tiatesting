@@ -278,8 +278,9 @@ class LibraryImpactEndToEndTest {
     /**
      * Two source lines publish the same library into one consumer schema. Until the consumer's
      * line is known the schema takes both lines' stamps; the first run that resolves a build
-     * drains its own line's stamp, discards the other's unrun and starts following its line, after
-     * which the other line's publishes reach the ledger only.
+     * drains its own line's stamp, discards the other's unrun and starts following its line. The
+     * other line keeps stamping the schema, and each such stamp is discarded unrun for as long as
+     * the consumer holds a build from the line it follows.
      */
     @Test
     void twoLinesStampOneSchemaUntilTheConsumerResolvesItsLine() throws Exception {
@@ -315,24 +316,37 @@ class LibraryImpactEndToEndTest {
         assertEquals("lineA", updated.getFollowedLine());
         assertEquals("c1", updated.getMappingBaselineCommit());
 
-        // and a further line B publish reaches the ledger only
+        // and a further line B publish is stamped, then discarded unrun by the next run, which
+        // still holds line A's build
+        setupTestMappingWithMethods(METHOD_ID);
         LibraryPublishStamper.PublishStampResult later = stamper.stampPublish(dataStore,
                 new StubVCSReader("c3", libraryDiff()), LIB, "2.0.0-SNAPSHOT",
                 jarFile("line-b-build-2").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
                 Collections.<String>emptyList(), "lineB");
-        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE, later.getOutcome());
+        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.STAMPED, later.getOutcome());
+        assertEquals(1, dataStore.readPendingLibraryImpactedMethods(LIB).size());
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome nextRun =
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
+                        dataStore, configResolving("1.0.0-SNAPSHOT", jarA.getAbsolutePath()),
+                        dataStore.getTiaData().getTestSuitesTracked(), false);
+        persistWithDrainResult(nextRun.getDrainResult(), "newcommit-2");
+        assertTrue(nextRun.getTestsToAdd().isEmpty());
+        assertEquals(1, nextRun.getDrainResult().getDiscardedBatchKeys().size());
+        assertTrue(nextRun.getDrainResult().getLineSwitchedLibraries().isEmpty());
         assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
+        assertEquals("lineA", dataStore.readTrackedLibraries().get(LIB).getFollowedLine());
     }
 
     /**
-     * A consumer that follows line A moves to a line B build. The switch run selects every tracked
-     * suite and seals onto line B; from then on line B publishes stamp and drain precisely, and
-     * line A publishes reach the ledger only.
+     * A consumer that follows line A moves to a line B build, with nothing pending from line A -
+     * the old line may never publish again. Line B's own stamp is what makes the next run identify
+     * the held build and notice the move. The switch run selects every tracked suite and seals
+     * onto line B; from then on line B publishes drain precisely and line A's are discarded unrun.
      */
     @Test
     void consumerSwitchingLineRunsAllTestsThenStampsPreciselyOnTheNewLine() throws Exception {
-        // given a consumer following line A, with a stamped line A build still pending and a
-        // line B build recorded in its ledger only
+        // given a consumer following line A with nothing pending from it, and a line B publish
+        // stamped into its schema
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR));
         setupTestMappingWithMethods(METHOD_ID);
         LibraryPublishStamper stamper = new LibraryPublishStamper();
@@ -342,14 +356,12 @@ class LibraryImpactEndToEndTest {
         TrackedLibrary following = dataStore.readTrackedLibraries().get(LIB);
         following.setFollowedLine("lineA");
         dataStore.persistTrackedLibrary(following);
-        stamper.stampPublish(dataStore, new StubVCSReader("c1", libraryDiff()), LIB, "1.0.0-SNAPSHOT",
-                jarFile("line-a-build").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
-                Collections.<String>emptyList(), "lineA");
         File jarB = jarFile("line-b-build");
-        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE,
+        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.STAMPED,
                 stamper.stampPublish(dataStore, new StubVCSReader("c2", libraryDiff()), LIB, "2.0.0-SNAPSHOT",
                         jarB.getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
                         Collections.<String>emptyList(), "lineB").getOutcome());
+        assertEquals(1, dataStore.readPendingLibraryImpactedMethods(LIB).size());
         Map<String, TestSuiteTracker> tracked = dataStore.getTiaData().getTestSuitesTracked();
 
         // when the consumer resolves the line B build, runs and seals
@@ -359,8 +371,8 @@ class LibraryImpactEndToEndTest {
         persistWithDrainResult(switchRun.getDrainResult(), "app-1");
         setupTestMappingWithMethods(METHOD_ID);
 
-        // then every tracked suite ran, line A's pending stamp is gone and the schema follows
-        // line B from the build it holds
+        // then every tracked suite ran, nothing is left pending and the schema follows line B
+        // from the build it holds
         assertFalse(tracked.isEmpty());
         assertEquals(tracked.keySet(), switchRun.getTestsToAdd());
         assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
@@ -368,25 +380,26 @@ class LibraryImpactEndToEndTest {
         assertEquals("lineB", switched.getFollowedLine());
         assertEquals("c2", switched.getMappingBaselineCommit());
 
-        // and a further line B publish stamps the changed method, which the next run drains
+        // and of a further publish on each line, the next run drains line B's and discards
+        // line A's unrun
         File jarB2 = jarFile("line-b-build-2");
         LibraryPublishStamper.PublishStampResult nextB = stamper.stampPublish(dataStore,
                 new StubVCSReader("c3", libraryDiff()), LIB, "2.0.0-SNAPSHOT", jarB2.getAbsolutePath(),
                 StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList(), "lineB");
         assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.STAMPED, nextB.getOutcome());
         assertEquals(Collections.singleton(METHOD_ID), nextB.getStampedMethodIds());
+        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.STAMPED,
+                stamper.stampPublish(dataStore, new StubVCSReader("c4", libraryDiff()), LIB, "1.0.0-SNAPSHOT",
+                        jarFile("line-a-build-2").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
+                        Collections.<String>emptyList(), "lineA").getOutcome());
         PendingLibraryImpactedMethodsDrainer.DrainOutcome preciseRun =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
                         dataStore, configResolving("2.0.0-SNAPSHOT", jarB2.getAbsolutePath()),
                         dataStore.getTiaData().getTestSuitesTracked(), false);
         assertEquals(1, preciseRun.getDrainResult().getDrainedBatchKeys().size());
+        assertEquals(1, preciseRun.getDrainResult().getDiscardedBatchKeys().size());
+        assertEquals(1, preciseRun.getTestsToAdd().size());
         assertTrue(preciseRun.getDrainResult().getLineSwitchedLibraries().isEmpty());
-
-        // and a line A publish now reaches the ledger only
-        assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE,
-                stamper.stampPublish(dataStore, new StubVCSReader("c4", libraryDiff()), LIB, "1.0.0-SNAPSHOT",
-                        jarFile("line-a-build-2").getAbsolutePath(), StaticTestSelectionConfig.EMPTY,
-                        Collections.<String>emptyList(), "lineA").getOutcome());
     }
 
     /**

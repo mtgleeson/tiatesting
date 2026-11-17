@@ -72,14 +72,17 @@ public class LibraryPublishStamper {
      *   <li>{@code SEEDED} - first publish for the library (no mapping baseline yet): the ledger
      *       row is written, nothing is stamped, and the baseline is seeded to HEAD so stamping
      *       starts from the next publish. Stamping the library's entire history would be wrong.</li>
-     *   <li>{@code LEDGER_ONLY_OTHER_LINE} - the schema follows a different source line from the
-     *       one this build was published from: the ledger row is written so the build stays
-     *       recognisable, and nothing is stamped, because the consumer's jar does not come from
-     *       this line.</li>
      *   <li>{@code STAMPED} - the ledger row and the impacted-method stamp are written atomically.
      *       An empty diff still writes the ledger row (the publish happened and must be resolvable
      *       by the consumer's drain lookup) with no stamp rows.</li>
      * </ul>
+     *
+     * <p>The stamp is written whichever source line the schema follows. The publisher cannot know
+     * whether a consumer still takes its builds from the line it follows; the consumer's drain
+     * can, because it identifies the jar it holds. A batch from another line is discarded there
+     * unrun while the consumer stays on its line, and is what makes the drain identify the held
+     * build - and so notice the move - once the consumer takes a build from this line. See the
+     * source-lines section of the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param dataStore the shared Tia data store (tracked libraries, mapping reads, ledger writes).
      * @param vcsReader the VCS reader for the repository (library and consumer share one repo).
@@ -139,16 +142,6 @@ public class LibraryPublishStamper {
                     groupArtifact, seq, publishedVersion, headCommit);
             return new PublishStampResult(PublishStampResult.Outcome.SEEDED, seq, Collections.emptySet(),
                     Collections.<PendingLibraryForcedSelection>emptyList());
-        }
-
-        if (!SourceLines.matches(tracked.getFollowedLine(), sourceLine)) {
-            long seq = dataStore.persistLibraryPublish(publish, Collections.<Integer>emptySet(),
-                    Collections.<PendingLibraryForcedSelection>emptyList());
-            log.info("Library '{}' version '{}' was published from line '{}' but this schema follows '{}' - "
-                    + "ledger row written at seq {}, nothing stamped.", groupArtifact, publishedVersion,
-                    sourceLine, tracked.getFollowedLine(), seq);
-            return new PublishStampResult(PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE, seq,
-                    Collections.<Integer>emptySet(), Collections.<PendingLibraryForcedSelection>emptyList());
         }
 
         String previousPublishCommit = resolvePreviousPublishCommit(dataStore, groupArtifact, tracked, sourceLine);
@@ -435,8 +428,6 @@ public class LibraryPublishStamper {
             SKIPPED_NOT_TRACKED,
             /** First publish: ledger row written and baseline seeded, nothing stamped. */
             SEEDED,
-            /** The schema follows another source line: ledger row written, nothing stamped. */
-            LEDGER_ONLY_OTHER_LINE,
             /** Ledger row and impacted-method stamp written (stamp possibly empty). */
             STAMPED
         }

@@ -758,11 +758,6 @@ public class TiaPlugin implements Plugin<Project> {
         if (failure != null) {
             throw new GradleException(failure);
         }
-        if (!result.anyFollowsThisLine()) {
-            LOGGER.warn("Tia publish stamp for {} {}: {} schema(s) track the library but none follows the source "
-                    + "line it was published from - recorded in their ledgers only, nothing stamped.",
-                    groupArtifact, publishedVersion, schemas.size());
-        }
     }
 
     /**

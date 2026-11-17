@@ -109,24 +109,6 @@ public final class LibraryPublishFanOut {
         }
 
         /**
-         * Report whether any schema takes its builds from the line this publish came from (or
-         * follows no line yet). When none does, the publish was recorded in ledgers only and no
-         * consumer will ever drain it - usually a sign the library is being published from an
-         * unexpected place.
-         *
-         * @return true when at least one schema did more than record the ledger row for
-         *         another line
-         */
-        public boolean anyFollowsThisLine() {
-            for (PublishStampResult result : stamped.values()) {
-                if (result.getOutcome() != PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        /**
          * Build the message the publishing build fails with when a schema missed the publish. A
          * warning would not do: what it describes is silent under-selection in those schemas.
          *

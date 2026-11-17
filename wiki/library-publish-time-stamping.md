@@ -97,17 +97,18 @@ jar on the classpath and finds it in the schema's ledger; the matching row names
 first primary run that resolves a known build - one with pending stamps to evaluate, or a forced
 all-tests run - reports that line, and the seal stores it as `tia_library.followed_line`.
 
-**Until the line is established** the schema receives the stamps of every line that publishes the
-coordinate, because nothing yet says which is its own. At the run that establishes it:
+**Every line stamps every consumer.** A publish writes its ledger row and its stamp into every
+schema tracking the coordinate, whichever line that schema follows. The publisher cannot know
+which line a consumer takes its builds from today; the consumer's drain can, because it identifies
+the jar it holds. So the line is applied at the drain. At any run that resolves a build:
 
 - pending batches on the resolved build's line at or below its sequence drain as usual;
 - pending batches from other lines are **discarded**: deleted at the seal without selecting a
   test. The jar the consumer holds does not contain those changes.
 
-From then on a publish from another line writes only its ledger row into this schema (outcome
-`LEDGER_ONLY_OTHER_LINE`), so any build stays recognisable, and stamps nothing. A stray batch
-from another line that a publish wrote just before the line was established is discarded by the
-next drain the same way.
+The first such run also establishes the followed line. A consumer of a library with several active
+lines therefore pays one library resolution on the run after each other-line publish, and selects
+nothing for it.
 
 **Per-line previous publish.** Diff 2's "since the previous publish" is measured from the
 previous publish on the publishing line. Measuring from another line's publish would filter out
@@ -130,14 +131,14 @@ both lines. At the seal:
 
 The downgrade guard is skipped on a switch: sequences on different lines do not order each other,
 so a lower sequence on the new line is not an older build. From the next publish on, the new
-line stamps and drains precisely and the old line reaches the ledger only.
+line's stamps drain precisely and the old line's are discarded.
 
-A switch is noticed when the drain identifies the held build, which it does only when the library
-has a pending stamp or the run is a forced all-tests run (the no-pending fast path resolves
-nothing, to keep selection cheap). Once a schema follows a line, publishes from other lines leave
-nothing pending in it. So a consumer that moves to another line is switched by the next publish on
-its **old** line, or by a `tiaSelectAllTests` run - run one when moving an app to a line whose
-predecessor is no longer published.
+A switch is noticed when the drain identifies the held build, which it does when the library has a
+pending stamp or the run is a forced all-tests run (the no-pending fast path resolves nothing, to
+keep selection cheap). Because every line stamps every consumer, the publish that produced the
+build the consumer moved to has itself left a stamp pending in its schema, so the first run on the
+new build notices the move - even when the old line never publishes again. This is why a publish
+is not withheld from schemas following another line.
 
 Local (non-primary) runs read the followed line and apply the same rules but never write it.
 Nothing here needs the VCS on the consumer side: the line is read at publish time and travels in
@@ -274,9 +275,10 @@ For a publish on source line L:
    shares the prefix is left untouched.
 2. **Ledger row everywhere.** Every discovered schema records the publish (sequence, version, hash,
    commit, line L), so any build stays recognisable to any consumer.
-3. **Stamp by line.** A schema receives the method stamp and forced-selection batches only when it
-   follows L or follows no line yet; otherwise the ledger row alone
-   (`LEDGER_ONLY_OTHER_LINE`). See [Source lines](#source-lines).
+3. **Stamp everywhere.** Every discovered schema also receives the method stamp and
+   forced-selection batches, whichever line it follows. A schema following another line discards
+   them at its next drain, or switches line if its consumer has moved to L. See
+   [Source lines](#source-lines).
 4. **Previous publish is per line, per schema.** Each schema runs its own baseline diff and its own
    "since the previous publish on L" filter, since baselines and sequences are per schema.
 
@@ -285,15 +287,12 @@ The two layouts this serves:
 | Layout | Where the library source lives | What one publish does |
 |---|---|---|
 | Shared library stream | One stream; consumers on `mainline` and `future-development` both take its jars (the release job may build through a virtual stream) | One line. Both consumer schemas record the publish and receive the stamp; each drains it when its own build picks the jar up |
-| Co-located library | Each consumer stream holds its own copy and builds its own jar | One line per stream. Every schema records the ledger row; only the schema following the publishing stream's line is stamped, once lines are established |
+| Co-located library | Each consumer stream holds its own copy and builds its own jar | One line per stream. Every schema records the publish and receives the stamp; only the consumer holding a jar from the publishing stream's line runs tests for it, the others discard it at their next run |
 
 Operational notes:
 
 - **No tracking schema.** The publish logs a warning and succeeds - see "Untracked coordinate
   skips" above.
-- **No schema follows the line.** When every tracking schema follows another line the publish is
-  recorded in ledgers only and a warning says so; no consumer will drain it. Usually the library is
-  being published from an unexpected place.
 - **Not atomic.** Each schema is its own connection and transaction, and the artifact is already
   published. Every schema is attempted, then the build fails naming the schemas that hold the
   stamp and those that do not. Re-run the publish stamp once the cause is fixed.
@@ -514,9 +513,9 @@ the working tree.
   matching seq - contents are identical or cumulative, so the higher seq drains a superset, the
   safe direction.
 - **Several release lines of one library** (a `1.x` hotfix line alongside `2.x`, or a copy of the
-  library per stream): each consumer schema follows the line it takes builds from and is stamped
-  only by that line. Moving a consumer to another line runs all of its tests once and re-points it;
-  see [Source lines](#source-lines).
+  library per stream): each consumer schema follows the line it takes builds from and runs
+  tests only for that line's stamps; the others' are discarded at its drain. Moving a consumer to
+  another line runs all of its tests once and re-points it; see [Source lines](#source-lines).
 - **A pinned consumer** accumulates stamps by design and drains them in one catch-up when the
   dependency finally moves; union semantics dedupe repeated methods.
 - **Library commits not yet published** are kept out of the app run's source selection and

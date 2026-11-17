@@ -445,9 +445,9 @@ public class PendingLibraryImpactedMethodsDrainer {
 
     /**
      * Decide whether a pending batch was published from a different source line than the build
-     * the consumer resolved. Such a batch arrived while the schema followed no line (or raced the
-     * line being established); the resolved jar does not contain its changes, so it is discarded
-     * rather than run. A batch or build with no recorded line matches any line.
+     * the consumer resolved. Every line that publishes the library stamps every consuming schema,
+     * so such a batch is routine wherever a library has more than one line; the resolved jar does
+     * not contain its changes, so it is discarded rather than run. A batch or build with no recorded line matches any line.
      *
      * @param groupArtifact the library, for logging.
      * @param batchSeq the pending batch's publish sequence.

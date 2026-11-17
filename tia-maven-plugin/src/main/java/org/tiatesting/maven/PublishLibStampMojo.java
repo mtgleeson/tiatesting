@@ -99,11 +99,6 @@ public class PublishLibStampMojo extends AbstractTiaMojo {
         if (failure != null) {
             throw new MojoExecutionException(failure);
         }
-        if (!result.anyFollowsThisLine()) {
-            getLog().warn("Tia publish stamp for " + groupArtifact + " " + publishedVersion + ": "
-                    + schemas.size() + " schema(s) track the library but none follows the source line it "
-                    + "was published from - recorded in their ledgers only, nothing stamped.");
-        }
     }
 
     /**

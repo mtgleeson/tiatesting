@@ -23,7 +23,6 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -51,7 +50,6 @@ class LibraryPublishFanOutTest {
         assertEquals(2, result.getStamped().size());
         assertTrue(result.getFailed().isEmpty());
         assertNull(result.failureMessage(LIB, "1.0"));
-        assertTrue(result.anyFollowsThisLine());
         for (String schema : schemas) {
             try (DataStore dataStore = open(db, schema)) {
                 assertEquals(1, dataStore.readLibraryPublishes(LIB).size());
@@ -90,7 +88,7 @@ class LibraryPublishFanOutTest {
     }
 
     @Test
-    void schemasFollowingAnotherLineAreLedgerOnly(@TempDir Path dir) {
+    void schemasFollowingAnotherLineAreStampedToo(@TempDir Path dir) {
         // given one consumer schema that follows line A
         String db = dir.toString();
         trackIn(db, "mainline", "lineA");
@@ -99,10 +97,12 @@ class LibraryPublishFanOutTest {
         // when a publish from line B is fanned out
         FanOutResult result = fanOut(db, schemas, schema -> open(db, schema), "lineB");
 
-        // then the schema records the ledger row only, and no schema follows the publishing line
-        assertEquals(PublishStampResult.Outcome.LEDGER_ONLY_OTHER_LINE,
+        // then the schema is stamped: its drain decides whether the batch applies
+        assertEquals(PublishStampResult.Outcome.STAMPED,
                 result.getStamped().get(schemas.get(0)).getOutcome());
-        assertFalse(result.anyFollowsThisLine());
+        try (DataStore dataStore = open(db, schemas.get(0))) {
+            assertEquals("lineB", dataStore.readLibraryPublishes(LIB).get(0).getSourceLine());
+        }
     }
 
     /**
