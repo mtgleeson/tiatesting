@@ -157,10 +157,19 @@ or client view cannot change what this project resolves, so it does not trigger 
 The workspace root is the Git work tree or the Perforce client root, read locally with no server
 call. When the source project lies outside the workspace, every changed build file counts.
 
-The trigger does not cover a move with no build-file change, such as a snapshot dependency that
-resolves to another line's build because a different line published the same snapshot version
-last. Run `tiaSelectAllTests` once after such a move to switch the consumer at that run;
-otherwise the switch is noticed at the next publish on either line.
+The trigger does not cover every move:
+
+- **No build-file change.** A snapshot dependency can resolve to another line's build because a
+  different line published the same snapshot version last.
+- **A version kept outside the project's own and parent build files.** An in-repo BOM or Gradle
+  platform module beside the project (`bom/pom.xml`, `platform/build.gradle`), a version catalogue
+  outside a `gradle/` directory, a script applied with `apply from:` (such as
+  `gradle/dependencies.gradle`), or `buildSrc` sources. A change there can move the project to
+  another build without changing a build file the trigger counts.
+
+Run `tiaSelectAllTests` once after such a move to switch the consumer at that run; otherwise the
+switch is noticed at the next publish on either line. Until then, a library change the move
+brought in does not re-run the suites that cover it.
 
 Local (non-primary) runs read the followed line and apply the same rules but never write it.
 Nothing here needs the VCS on the consumer side: the line is read at publish time and travels in
