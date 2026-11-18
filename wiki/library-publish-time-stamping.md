@@ -92,10 +92,22 @@ The line is stored on the ledger row (`tia_library_publish.source_line`). When i
 identified - no source root maps through the client view - the row has no line, the publish logs a
 warning, and the row matches any line, as do rows written before lines were recorded.
 
-**How a consumer learns its line.** It runs no VCS command. The drain already hashes the library
-jar on the classpath and finds it in the schema's ledger; the matching row names the line. The
-first primary run that resolves a known build - one with pending stamps to evaluate, or a forced
-all-tests run - reports that line, and the seal stores it as `tia_library.followed_line`.
+**How a consumer learns its line.** This is where publisher and consumer meet: the publisher
+records the line on the ledger row, and the consumer finds out which row it holds. It runs no VCS
+command. The drain already hashes the library jar on the classpath and finds it in the schema's
+ledger (by SHA-256, or by version for a release); the matching row names the line.
+
+- **Before the line is known.** A newly tracked library, or one tracked before lines were
+  recorded, follows no line. No line matches any line, so every pending stamp is treated as the
+  consumer's own and drains by sequence exactly as before lines existed; nothing is discarded.
+- **Learning it.** The first primary run that resolves a known build reports that build's line,
+  and the seal stores it as `tia_library.followed_line`. A run resolves the build when the library
+  has a pending stamp, when it is a forced all-tests run, or when a build file of the source
+  project changed (see the build-file trigger below). A held jar that matches no ledger row - a
+  release published before the library was tracked, for example - teaches nothing, and the line
+  stays unknown until a run resolves a known build.
+- **After it.** Stamps from other lines are discarded at the drain, and a held build from another
+  line is a line switch, both described below.
 
 **Every line stamps every consumer.** A publish writes its ledger row and its stamp into every
 schema tracking the coordinate, whichever line that schema follows. The publisher cannot know
