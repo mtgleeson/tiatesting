@@ -45,6 +45,10 @@ final class TiaSchema {
     static final String COL_SOURCE_DIRS_CSV = "source_dirs_csv";
     static final String COL_MAPPING_BASELINE_COMMIT = "mapping_baseline_commit";
     static final String COL_LAST_APPLIED_SEQ = "last_applied_seq";
+    /** {@code tia_library}: the source line this schema's consumer takes its builds from. */
+    static final String COL_FOLLOWED_LINE = "followed_line";
+    /** {@code tia_library_publish}: where the published build's source lives; null when unknown. */
+    static final String COL_SOURCE_LINE = "source_line";
     static final String TABLE_TIA_LIBRARY_PUBLISH = "tia_library_publish";
     static final String COL_PUBLISH_SEQ = "publish_seq";
     static final String COL_PUBLISHED_VERSION = "published_version";

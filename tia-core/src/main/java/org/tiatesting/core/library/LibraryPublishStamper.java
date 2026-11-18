@@ -77,6 +77,14 @@ public class LibraryPublishStamper {
      *       by the consumer's drain lookup) with no stamp rows.</li>
      * </ul>
      *
+     * <p>The stamp is written whichever source line the schema follows. The publisher cannot know
+     * whether a consumer still takes its builds from the line it follows; the consumer's drain
+     * can, because it identifies the jar it holds. A batch from another line is discarded there
+     * unrun while the consumer stays on its line. If the consumer has taken a build from this line,
+     * the pending batch makes the drain identify the held build and so notice the move, without
+     * waiting for the line it left to publish again. See the
+     * source-lines section of the library publish-time stamping chapter in {@code WIKI.md}.
+     *
      * @param dataStore the shared Tia data store (tracked libraries, mapping reads, ledger writes).
      * @param vcsReader the VCS reader for the repository (library and consumer share one repo).
      * @param groupArtifact the {@code groupId:artifactId} of the library being published.
@@ -94,13 +102,17 @@ public class LibraryPublishStamper {
      *                             publishing machine. The tracked row is not modified - the consumer
      *                             still needs its own paths. Pass an empty list to fall back to the
      *                             tracked library's recorded dirs.
+     * @param publishingBranch the branch the publishing workspace identifies as (its workspace
+     *                         identity's branch), or null when unknown. It is the source line on a
+     *                         VCS where a branch is the line; a VCS with a path-based line ignores it.
      * @return the outcome, the assigned publish sequence (0 when skipped), the stamped method ids
      *         and any forced-selection batches recorded from the library's static rules.
      */
     public PublishStampResult stampPublish(DataStore dataStore, VCSReader vcsReader, String groupArtifact,
                                            String publishedVersion, String jarFilePath,
                                            final StaticTestSelectionConfig staticConfig,
-                                           final List<String> publishingSourceDirs) {
+                                           final List<String> publishingSourceDirs,
+                                           final String publishingBranch) {
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         TrackedLibrary tracked = trackedLibraries.get(groupArtifact);
         if (tracked == null) {
@@ -112,8 +124,15 @@ public class LibraryPublishStamper {
         String jarHash = jarFilePath != null
                 ? LibraryJarHasher.computeSha256Hash(new File(jarFilePath)) : null;
         String headCommit = vcsReader.getHeadCommit();
+        String sourceLine = vcsReader.getSourceLine(
+                resolveLibrarySourceDirs(tracked, publishingSourceDirs), publishingBranch);
+        if (sourceLine == null) {
+            log.warn("Could not identify the source line of library '{}' - recording this publish with no line, "
+                    + "which every consumer schema treats as its own.", groupArtifact);
+        }
         LibraryPublish publish = new LibraryPublish(groupArtifact, publishedVersion, jarHash,
                 headCommit, System.currentTimeMillis());
+        publish.setSourceLine(sourceLine);
 
         if (tracked.getMappingBaselineCommit() == null) {
             long seq = dataStore.persistLibraryPublish(publish, Collections.emptySet(),
@@ -126,7 +145,7 @@ public class LibraryPublishStamper {
                     Collections.<PendingLibraryForcedSelection>emptyList());
         }
 
-        String previousPublishCommit = resolvePreviousPublishCommit(dataStore, groupArtifact, tracked);
+        String previousPublishCommit = resolvePreviousPublishCommit(dataStore, groupArtifact, tracked, sourceLine);
         Set<Integer> impactedMethods = findImpactedMethodsSinceBaseline(dataStore, vcsReader, tracked,
                 previousPublishCommit, publishingSourceDirs);
         List<PendingLibraryForcedSelection> forcedSelections = evaluateForcedSelections(
@@ -138,22 +157,27 @@ public class LibraryPublishStamper {
     }
 
     /**
-     * Resolve the commit of the library's most recent publish - the "from" side of the dedup
-     * filter's Diff 2. That is the {@code commitValue} of the highest-sequence ledger row for the
-     * library; when the ledger is somehow empty (it always holds at least the seed row by the time
-     * this runs) it falls back to the mapping baseline, which makes the filter a no-op.
+     * Resolve the commit of the library's most recent publish on the publishing line - the "from"
+     * side of the dedup filter's Diff 2. Publishes from other lines are skipped: measuring "since
+     * the previous publish" from another line's publish would filter out this line's own earlier
+     * edits. When the line has no earlier publish it falls back to the mapping baseline, which
+     * makes the filter a no-op.
      *
      * @param dataStore the data store to read the publish ledger from.
      * @param groupArtifact the {@code groupId:artifactId} of the library being published.
      * @param tracked the tracked library, used for the baseline fallback.
-     * @return the previous publish's commit, or the mapping baseline when no publish exists yet.
+     * @param sourceLine the publishing line, or null when unknown (matches every row).
+     * @return the previous same-line publish's commit, or the mapping baseline when there is none.
      */
-    private String resolvePreviousPublishCommit(DataStore dataStore, String groupArtifact, TrackedLibrary tracked) {
+    private String resolvePreviousPublishCommit(DataStore dataStore, String groupArtifact, TrackedLibrary tracked,
+                                                String sourceLine) {
         List<LibraryPublish> ledger = dataStore.readLibraryPublishes(groupArtifact);
-        if (ledger.isEmpty()) {
-            return tracked.getMappingBaselineCommit();
+        for (int i = ledger.size() - 1; i >= 0; i--) {
+            if (SourceLines.matches(ledger.get(i).getSourceLine(), sourceLine)) {
+                return ledger.get(i).getCommitValue();
+            }
         }
-        return ledger.get(ledger.size() - 1).getCommitValue();
+        return tracked.getMappingBaselineCommit();
     }
 
     /**

@@ -8,6 +8,7 @@ import org.tiatesting.core.persistence.dialect.SqlDialect;
 import org.tiatesting.core.persistence.dialect.SqlDialectRegistry;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 
+import java.util.List;
 import java.util.function.Function;
 
 /**
@@ -97,8 +98,79 @@ public final class DataStoreFactory {
                                 final String password, final String dialectOverride,
                                 final String branch, final String schemaSuffix,
                                 final boolean compactOnClose, final Function<String, String> env) {
+        ResolvedConnection resolved = resolveConnection(dbFilePath, dbUrl, user, password, dialectOverride,
+                compactOnClose, env);
+        return new JdbcDataStore(resolved.dialect, resolved.provider,
+                BranchSchema.schemaName(branch, schemaSuffix));
+    }
+
+    /**
+     * List the schemas in the configured datastore that track a library - the consumers a publish
+     * stamp must reach. Read-only: it creates no schema and no table. See the consumer-discovery
+     * section of the library publish-time stamping chapter in {@code WIKI.md}.
+     *
+     * @param dbFilePath embedded-mode database directory
+     * @param dbUrl server-mode JDBC URL, or null/blank for embedded mode
+     * @param user the configured database username, or null/blank to fall back
+     * @param password the configured database password, or null to fall back
+     * @param dialectOverride an explicit dialect id, or null/blank to infer it from {@code dbUrl}
+     * @param groupArtifact the library's {@code groupId:artifactId}
+     * @return the tracking schemas' names, sorted; empty when none tracks the coordinate
+     */
+    public static List<String> findSchemasTrackingLibrary(final String dbFilePath, final String dbUrl,
+                                                          final String user, final String password,
+                                                          final String dialectOverride,
+                                                          final String groupArtifact) {
+        ResolvedConnection resolved = resolveConnection(dbFilePath, dbUrl, user, password, dialectOverride,
+                true, System::getenv);
+        try {
+            return ConsumerSchemaDiscovery.findSchemasTracking(resolved.dialect, resolved.provider, groupArtifact);
+        } finally {
+            resolved.provider.close();
+        }
+    }
+
+    /**
+     * Build a {@link DataStore} on an explicitly named schema, for a caller that discovered the
+     * schema rather than deriving it. A discovered name cannot be turned back into a branch:
+     * {@link BranchSchema#schemaName(String, String)} sanitises and clamps.
+     *
+     * @param dbFilePath embedded-mode database directory
+     * @param dbUrl server-mode JDBC URL, or null/blank for embedded mode
+     * @param user the configured database username, or null/blank to fall back
+     * @param password the configured database password, or null to fall back
+     * @param dialectOverride an explicit dialect id, or null/blank to infer it from {@code dbUrl}
+     * @param schemaName the exact schema name to select on each connection
+     * @return the constructed {@link DataStore}
+     */
+    public static DataStore forSchema(final String dbFilePath, final String dbUrl, final String user,
+                                      final String password, final String dialectOverride,
+                                      final String schemaName) {
+        ResolvedConnection resolved = resolveConnection(dbFilePath, dbUrl, user, password, dialectOverride,
+                true, System::getenv);
+        return new JdbcDataStore(resolved.dialect, resolved.provider, schemaName);
+    }
+
+    /**
+     * Resolve the dialect and build the matching {@link ConnectionProvider} for the configured
+     * datastore, with no schema chosen yet. Shared by every way of opening the datastore so they
+     * cannot resolve credentials or dialects differently.
+     *
+     * @param dbFilePath     embedded-mode database directory (H2: used only when {@code dbUrl} is blank)
+     * @param dbUrl          server-mode JDBC URL, or {@code null}/blank for embedded mode
+     * @param user           the configured database username, or {@code null}/blank to fall back
+     * @param password       the configured database password, or {@code null} to fall back
+     * @param dialectOverride an explicit dialect id, or {@code null}/blank to infer it from {@code dbUrl}
+     * @param compactOnClose whether an embedded H2 database compacts its file when it closes
+     * @param env            lookup from environment variable name to value
+     * @return the resolved dialect and its connection provider
+     */
+    private static ResolvedConnection resolveConnection(final String dbFilePath, final String dbUrl,
+                                                        final String user, final String password,
+                                                        final String dialectOverride,
+                                                        final boolean compactOnClose,
+                                                        final Function<String, String> env) {
         SqlDialect dialect = SqlDialectRegistry.forUrl(dbUrl, dialectOverride);
-        String schema = BranchSchema.schemaName(branch, schemaSuffix);
         boolean h2 = "h2".equals(dialect.id());
 
         // Resolved here, before the dialect branch, so every dialect honours the environment
@@ -113,15 +185,29 @@ public final class DataStoreFactory {
             H2ConnectionSettings resolved = H2ConnectionSettings.fromConfig(dbFilePath, dbUrl,
                     resolvedUser, resolvedPassword);
             H2ConnectionSettings settings = compactOnClose ? resolved : resolved.withoutCloseCompaction();
-            ConnectionProvider connectionProvider = new H2ConnectionProvider(settings);
-            return new JdbcDataStore(dialect, connectionProvider, schema);
+            return new ResolvedConnection(dialect, new H2ConnectionProvider(settings));
         }
 
         requireDriverPresent(dialect.id());
         ConnectionProvider connectionProvider = "postgres".equals(dialect.id())
                 ? new PostgresConnectionProvider(dbUrl, resolvedUser, resolvedPassword)
                 : new JdbcConnectionProvider(dialect.id(), dbUrl, resolvedUser, resolvedPassword);
-        return new JdbcDataStore(dialect, connectionProvider, schema);
+        return new ResolvedConnection(dialect, connectionProvider);
+    }
+
+    /** A resolved dialect paired with the connection provider built for it. */
+    private static final class ResolvedConnection {
+        private final SqlDialect dialect;
+        private final ConnectionProvider provider;
+
+        /**
+         * @param dialect the resolved SQL dialect
+         * @param provider the connection provider built for that dialect
+         */
+        ResolvedConnection(final SqlDialect dialect, final ConnectionProvider provider) {
+            this.dialect = dialect;
+            this.provider = provider;
+        }
     }
 
     /**

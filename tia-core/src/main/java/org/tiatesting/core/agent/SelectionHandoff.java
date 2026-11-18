@@ -67,7 +67,8 @@ public final class SelectionHandoff {
     /**
      * @param ignoredTestsFile the written ignored-tests file
      * @param selectedTestsFile the written selected-tests file
-     * @param drainResultFile the written drain result file, or {@code null} when nothing was drained
+     * @param drainResultFile the written drain result file, or {@code null} when the drain left the
+     *                        seal nothing to apply
      * @param selectionDetailsFile the written selection details file
      */
     private SelectionHandoff(final File ignoredTestsFile, final File selectedTestsFile,
@@ -80,7 +81,8 @@ public final class SelectionHandoff {
 
     /**
      * Write a selection's hand-off files into a directory, creating it if needed. The drain result
-     * file is only written when the drain result has drained batches; the other three are always
+     * file is only written when the drain result has work for the seal (drained batches, or a held
+     * build the mapping baseline may move to); the other three are always
      * written, even when empty, since the fork needs a valid file to read.
      *
      * @param dir the directory to write into
@@ -98,7 +100,7 @@ public final class SelectionHandoff {
         File selectedTestsFile = writeLines(new File(dir, SELECTED_TESTS_FILENAME), testsToRun);
 
         File drainResultFile = null;
-        if (drainResult != null && drainResult.hasDrainedBatches()) {
+        if (drainResult != null && drainResult.hasSealWork()) {
             drainResultFile = new File(dir, DRAIN_RESULT_FILENAME);
             LibraryImpactDrainResultSerializer.serialize(drainResult, drainResultFile);
         }

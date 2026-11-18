@@ -448,8 +448,9 @@ public class JdbcDataStore implements DataStore {
      * <p>Delegates to {@link LibraryRepository#lookupLibraryPublish}.
      */
     @Override
-    public LibraryPublish lookupLibraryPublish(final String groupArtifact, final String jarHash, final String version) {
-        return libraryRepository.lookupLibraryPublish(groupArtifact, jarHash, version);
+    public LibraryPublish lookupLibraryPublish(final String groupArtifact, final String jarHash, final String version,
+                                               final String preferredLine) {
+        return libraryRepository.lookupLibraryPublish(groupArtifact, jarHash, version, preferredLine);
     }
 
     /**

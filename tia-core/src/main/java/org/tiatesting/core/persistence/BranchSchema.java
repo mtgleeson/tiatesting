@@ -20,7 +20,9 @@ import java.util.zip.CRC32;
 public final class BranchSchema {
 
     private static final int MAX_IDENTIFIER_LENGTH = 63; // Postgres identifier limit
-    private static final String PREFIX = "tia_";
+    /** The prefix every Tia schema name starts with; also how consumer discovery recognises one. */
+    static final String SCHEMA_PREFIX = "tia_";
+    private static final String PREFIX = SCHEMA_PREFIX;
 
     private BranchSchema() { }
 

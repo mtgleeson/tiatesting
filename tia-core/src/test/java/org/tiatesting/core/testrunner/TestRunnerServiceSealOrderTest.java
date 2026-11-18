@@ -453,8 +453,8 @@ class TestRunnerServiceSealOrderTest {
             return delegate.persistLibraryPublish(publish, impactedMethodIds, forcedSelections);
         }
         @Override
-        public LibraryPublish lookupLibraryPublish(String groupArtifact, String jarHash, String version) {
-            return delegate.lookupLibraryPublish(groupArtifact, jarHash, version);
+        public LibraryPublish lookupLibraryPublish(String groupArtifact, String jarHash, String version, String preferredLine) {
+            return delegate.lookupLibraryPublish(groupArtifact, jarHash, version, preferredLine);
         }
         @Override
         public List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods() {

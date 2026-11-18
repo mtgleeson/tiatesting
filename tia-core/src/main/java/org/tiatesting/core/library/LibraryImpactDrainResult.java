@@ -8,7 +8,9 @@ import java.util.*;
  * Carried from the selector to the post-test-run persistence step (serialized across the Maven
  * plugin-to-fork boundary) so that drained stamp rows can be deleted and each drained library's
  * {@code tia_library.last_applied_seq} / {@code mapping_baseline_commit} advanced after the tests
- * finish. See the drain-rule section of the library publish-time stamping chapter in {@code WIKI.md}.
+ * finish. The baseline moves to the commit the resolved build was published at, which the drain
+ * also carries here. See the drain-rule section of the library publish-time stamping chapter in
+ * {@code WIKI.md}.
  */
 public class LibraryImpactDrainResult implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -33,10 +35,50 @@ public class LibraryImpactDrainResult implements Serializable {
      */
     private final Map<String, Long> appliedSeqByLibrary;
 
+    /**
+     * For each library whose held build the drain identified in the publish ledger, the commit
+     * that build was published at - the new {@code mapping_baseline_commit} to record
+     * post-test-run. Null on a result deserialized from a row written before this field existed.
+     */
+    private final Map<String, String> heldBuildCommitByLibrary;
+
+    /**
+     * The keys of pending method batches published from a source line the consumer does not take
+     * its builds from. They selected no test and are deleted post-test-run. Null on a result
+     * deserialized from a row written before this field existed.
+     */
+    private final List<DrainedBatchKey> discardedBatchKeys;
+
+    /**
+     * The forced-selection counterpart of {@link #discardedBatchKeys}, kept apart because the two
+     * batch kinds live in separate pending tables.
+     */
+    private final List<DrainedBatchKey> discardedForcedBatchKeys;
+
+    /**
+     * For each library that follows no source line yet and whose held build the drain identified,
+     * the line that build was published from - the {@code followed_line} to record
+     * post-test-run. Null on a result deserialized from a row written before this field existed.
+     */
+    private final Map<String, String> lineToFollowByLibrary;
+
+    /**
+     * The libraries whose held build is from another source line than the one they followed. The
+     * drain selected every tracked suite for them and reported the new line, the resolved sequence
+     * and every pending batch as discarded. Null on a result deserialized from a row written
+     * before this field existed.
+     */
+    private final Set<String> lineSwitchedLibraries;
+
     public LibraryImpactDrainResult() {
         this.drainedBatchKeys = new ArrayList<>();
         this.drainedForcedBatchKeys = new ArrayList<>();
         this.appliedSeqByLibrary = new LinkedHashMap<>();
+        this.heldBuildCommitByLibrary = new LinkedHashMap<>();
+        this.discardedBatchKeys = new ArrayList<>();
+        this.discardedForcedBatchKeys = new ArrayList<>();
+        this.lineToFollowByLibrary = new LinkedHashMap<>();
+        this.lineSwitchedLibraries = new LinkedHashSet<>();
     }
 
     /**
@@ -70,6 +112,114 @@ public class LibraryImpactDrainResult implements Serializable {
         appliedSeqByLibrary.put(groupArtifact, appliedSeq);
     }
 
+    /**
+     * Record the commit a library's held build was published at. The seal moves the library's
+     * mapping baseline there, because that is the library source the re-covered suites' line
+     * numbers describe - not the consumer's own sealed commit, which can be past library changes
+     * the held jar does not contain.
+     *
+     * @param groupArtifact the library whose held build was identified.
+     * @param commit the commit recorded on that build's publish ledger row.
+     */
+    public void setHeldBuildCommit(String groupArtifact, String commit) {
+        heldBuildCommitByLibrary.put(groupArtifact, commit);
+    }
+
+    /**
+     * The publish commit of each library's held build, for the libraries the drain identified.
+     *
+     * @return the held build's publish commit by library coordinate; empty when the drain
+     *         identified none, including on a result serialized before the field existed.
+     */
+    public Map<String, String> getHeldBuildCommitByLibrary() {
+        return heldBuildCommitByLibrary != null
+                ? heldBuildCommitByLibrary : Collections.<String, String>emptyMap();
+    }
+
+    /**
+     * Record a pending method batch from a line the consumer does not follow, for deletion
+     * post-run without having selected anything.
+     *
+     * @param groupArtifact the library the batch belongs to.
+     * @param publishSeq the publish sequence of the discarded batch.
+     */
+    public void addDiscardedBatch(String groupArtifact, long publishSeq) {
+        discardedBatchKeys.add(new DrainedBatchKey(groupArtifact, publishSeq));
+    }
+
+    /**
+     * Record a pending forced-selection batch from a line the consumer does not follow, for
+     * deletion post-run without having selected anything.
+     *
+     * @param groupArtifact the library the forced batch belongs to.
+     * @param publishSeq the publish sequence of the discarded forced batch.
+     */
+    public void addDiscardedForcedBatch(String groupArtifact, long publishSeq) {
+        discardedForcedBatchKeys.add(new DrainedBatchKey(groupArtifact, publishSeq));
+    }
+
+    /**
+     * Record the source line a library's held build was published from, for a library that
+     * follows no line yet. The seal stores it as the library's followed line.
+     *
+     * @param groupArtifact the library whose line is being established.
+     * @param line the source line of the held build.
+     */
+    public void setLineToFollow(String groupArtifact, String line) {
+        lineToFollowByLibrary.put(groupArtifact, line);
+    }
+
+    /**
+     * Record that a library switched source line: the build it holds is from another line than
+     * the one it followed.
+     *
+     * @param groupArtifact the library that switched line.
+     */
+    public void addLineSwitch(String groupArtifact) {
+        lineSwitchedLibraries.add(groupArtifact);
+    }
+
+    /**
+     * The libraries that switched source line in this drain.
+     *
+     * @return the coordinates of the libraries that switched; empty when none, including on a
+     *         result serialized before the field existed.
+     */
+    public Set<String> getLineSwitchedLibraries() {
+        return lineSwitchedLibraries != null ? lineSwitchedLibraries : Collections.<String>emptySet();
+    }
+
+    /**
+     * The pending method batches from lines the consumer does not follow.
+     *
+     * @return the keys to delete at the seal without having run; empty when none, including on a
+     *         result serialized before the field existed.
+     */
+    public List<DrainedBatchKey> getDiscardedBatchKeys() {
+        return discardedBatchKeys != null ? discardedBatchKeys : Collections.<DrainedBatchKey>emptyList();
+    }
+
+    /**
+     * The pending forced-selection batches from lines the consumer does not follow.
+     *
+     * @return the keys to delete at the seal without having run; empty when none, including on a
+     *         result serialized before the field existed.
+     */
+    public List<DrainedBatchKey> getDiscardedForcedBatchKeys() {
+        return discardedForcedBatchKeys != null
+                ? discardedForcedBatchKeys : Collections.<DrainedBatchKey>emptyList();
+    }
+
+    /**
+     * The source line to start following, per library.
+     *
+     * @return the line to follow by library coordinate; empty when no line is being established,
+     *         including on a result serialized before the field existed.
+     */
+    public Map<String, String> getLineToFollowByLibrary() {
+        return lineToFollowByLibrary != null ? lineToFollowByLibrary : Collections.<String, String>emptyMap();
+    }
+
     public List<DrainedBatchKey> getDrainedBatchKeys() {
         return drainedBatchKeys;
     }
@@ -88,13 +238,28 @@ public class LibraryImpactDrainResult implements Serializable {
     }
 
     /**
+     * Whether the seal has anything to apply from this drain: drained batches to delete, batches
+     * from another line to discard, a followed line to record, or a held build whose publish
+     * commit a library's mapping baseline may move to. A result with no seal work need not be
+     * handed to the test JVM.
+     *
+     * @return true when the seal must act on this result.
+     */
+    public boolean hasSealWork() {
+        return hasDrainedBatches() || !getHeldBuildCommitByLibrary().isEmpty()
+                || !getDiscardedBatchKeys().isEmpty() || !getDiscardedForcedBatchKeys().isEmpty()
+                || !getLineToFollowByLibrary().isEmpty();
+    }
+
+    /**
      * Value equality across every drained batch, forced batch and applied sequence, so a drain
      * result that has been serialized - to the fork handoff file, or to the {@code drain_result}
      * column of a distributed run row - can be asserted equal to the one it was written from.
      *
      * @param o the object to compare against
      * @return true if o is a LibraryImpactDrainResult carrying identical drained batches, drained
-     *         forced batches and applied sequences
+     *         forced batches, applied sequences, held build commits, discarded batches, lines to
+     *         follow and line switches
      */
     @Override
     public boolean equals(Object o) {
@@ -103,7 +268,12 @@ public class LibraryImpactDrainResult implements Serializable {
         LibraryImpactDrainResult that = (LibraryImpactDrainResult) o;
         return drainedBatchKeys.equals(that.drainedBatchKeys)
                 && drainedForcedBatchKeys.equals(that.drainedForcedBatchKeys)
-                && appliedSeqByLibrary.equals(that.appliedSeqByLibrary);
+                && appliedSeqByLibrary.equals(that.appliedSeqByLibrary)
+                && getHeldBuildCommitByLibrary().equals(that.getHeldBuildCommitByLibrary())
+                && getDiscardedBatchKeys().equals(that.getDiscardedBatchKeys())
+                && getDiscardedForcedBatchKeys().equals(that.getDiscardedForcedBatchKeys())
+                && getLineToFollowByLibrary().equals(that.getLineToFollowByLibrary())
+                && getLineSwitchedLibraries().equals(that.getLineSwitchedLibraries());
     }
 
     /**
@@ -113,7 +283,9 @@ public class LibraryImpactDrainResult implements Serializable {
      */
     @Override
     public int hashCode() {
-        return Objects.hash(drainedBatchKeys, drainedForcedBatchKeys, appliedSeqByLibrary);
+        return Objects.hash(drainedBatchKeys, drainedForcedBatchKeys, appliedSeqByLibrary,
+                getHeldBuildCommitByLibrary(), getDiscardedBatchKeys(), getDiscardedForcedBatchKeys(),
+                getLineToFollowByLibrary(), getLineSwitchedLibraries());
     }
 
     /**

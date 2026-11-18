@@ -68,7 +68,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         // when the drain runs with the app resolving seq 3's jar
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", jar3.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
+                dataStore, configResolving("1.0-SNAPSHOT", jar3.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // then both pending batches (seq 2 and 3) drain and both covering tests are selected
         assertEquals(2, outcome.getDrainResult().getDrainedBatchKeys().size());
@@ -93,7 +93,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
         // when the app resolves release 1.0.0 with a jar hash the ledger has never seen
         File unknownJar = jarFile("repackaged-content");
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0.0", unknownJar.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
+                dataStore, configResolving("1.0.0", unknownJar.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // then the version fallback identifies seq 2 and the seq-1 stamp drains
         assertEquals(1, outcome.getDrainResult().getDrainedBatchKeys().size());
@@ -119,7 +119,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         // when the drain runs against the older resolved jar
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", jar2.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
+                dataStore, configResolving("1.0-SNAPSHOT", jar2.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // then nothing drains - the seq-3 stamp is held until a build >= seq 3 is resolved
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
@@ -140,7 +140,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         File unknownJar = jarFile("never-published-content");
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", unknownJar.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
+                dataStore, configResolving("1.0-SNAPSHOT", unknownJar.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // then everything is held
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
@@ -163,7 +163,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
         // when the app resolves an unknown jar under the same SNAPSHOT version string
         File unknownJar = jarFile("some-other-snapshot-build");
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", unknownJar.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
+                dataStore, configResolving("1.0-SNAPSHOT", unknownJar.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // then the version string is not used as identity and the batch is held
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
@@ -188,7 +188,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         // when the drain runs against the downgraded resolve
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", jar2.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
+                dataStore, configResolving("1.0-SNAPSHOT", jar2.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // then the downgrade guard holds everything, even batches at or below the resolved seq
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
@@ -212,7 +212,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         // when the drain runs
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap());
+                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // then everything is held
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
@@ -241,11 +241,272 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         // when the drain runs
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap());
+                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap(), false);
 
         // then it returns empty without touching resolution
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
         assertTrue(outcome.getTestsToAdd().isEmpty());
+    }
+
+    /**
+     * A drain reports the commit the resolved build was published at, so the seal can move the
+     * mapping baseline to the source the consumer's jar was built from.
+     */
+    @Test
+    void drainReportsTheHeldBuildsPublishCommit() throws Exception {
+        // given a stamped publish at commit c7 that the app resolves
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        setupTestMappingWithMethods(10);
+        File jar = jarFile("build-c7");
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0-SNAPSHOT",
+                LibraryJarHasher.computeSha256Hash(jar), "c7", 1L), new HashSet<>(Arrays.asList(10)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
+
+        // when the drain runs
+        LibraryImpactDrainResult result = drainer.drainPendingMethods(dataStore,
+                configResolving("1.0-SNAPSHOT", jar.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), false).getDrainResult();
+
+        // then the held build's publish commit is reported
+        assertEquals("c7", result.getHeldBuildCommitByLibrary().get(LIB));
+    }
+
+    /**
+     * With nothing pending the drain resolves no library - unless the run is known to select all
+     * tests, where every suite is re-covered and the baseline must follow the held build.
+     */
+    @Test
+    void heldBuildIsResolvedWithNothingPendingOnlyWhenAllTestsAreSelected() throws Exception {
+        // given a stampless publish at commit c7 that the app resolves, and nothing pending
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        File jar = jarFile("build-c7");
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0-SNAPSHOT",
+                LibraryJarHasher.computeSha256Hash(jar), "c7", 1L), Collections.<Integer>emptySet(),
+                Collections.<PendingLibraryForcedSelection>emptyList());
+        LibraryImpactAnalysisConfig config = configResolving("1.0-SNAPSHOT", jar.getAbsolutePath());
+
+        // when a selective drain and an all-tests drain run
+        LibraryImpactDrainResult selective = drainer.drainPendingMethods(dataStore, config,
+                Collections.<String, TestSuiteTracker>emptyMap(), false).getDrainResult();
+        LibraryImpactDrainResult allTests = drainer.drainPendingMethods(dataStore, config,
+                Collections.<String, TestSuiteTracker>emptyMap(), true).getDrainResult();
+
+        // then only the all-tests drain resolved the held build, and it has work for the seal
+        assertTrue(selective.getHeldBuildCommitByLibrary().isEmpty());
+        assertFalse(selective.hasSealWork());
+        assertEquals("c7", allTests.getHeldBuildCommitByLibrary().get(LIB));
+        assertTrue(allTests.hasSealWork());
+        assertFalse(allTests.hasDrainedBatches());
+    }
+
+    /**
+     * A build the ledger does not know is never reported as held, so the seal leaves that
+     * library's baseline where it is.
+     */
+    @Test
+    void unknownBuildReportsNoHeldBuildCommit() throws Exception {
+        // given a publish at c7 and the app resolving a jar the ledger has never seen
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        publish("1.0-SNAPSHOT", "H1", Collections.<Integer>emptySet());
+        File unknownJar = jarFile("never-published");
+
+        // when an all-tests drain runs
+        LibraryImpactDrainResult result = drainer.drainPendingMethods(dataStore,
+                configResolving("1.0-SNAPSHOT", unknownJar.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), true).getDrainResult();
+
+        // then no held build is reported
+        assertTrue(result.getHeldBuildCommitByLibrary().isEmpty());
+        assertFalse(result.hasSealWork());
+    }
+
+    /**
+     * Establishing the line: a schema that follows no line holds stamps from two lines. The app
+     * resolves a line A build, so line A's stamp drains, line B's is discarded without running,
+     * and line A is reported as the line to follow.
+     */
+    @Test
+    void firstResolveDrainsOwnLineAndDiscardsOtherLines() throws Exception {
+        // given a library with no followed line and stamps from line A (seq 1) and line B (seq 2)
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        setupTestMappingWithMethods(10, 20);
+        File jarA = jarFile("line-a-content");
+        publishOnLine("1.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarA), "lineA",
+                new HashSet<>(Arrays.asList(10)));
+        publishOnLine("1.0-SNAPSHOT", "HB", "lineB", new HashSet<>(Arrays.asList(20)));
+
+        // when the drain runs with the app resolving line A's jar
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, configResolving("1.0-SNAPSHOT", jarA.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), false);
+
+        // then line A's batch drains, line B's is discarded and line A is to be followed
+        LibraryImpactDrainResult result = outcome.getDrainResult();
+        assertEquals(1, result.getDrainedBatchKeys().size());
+        assertEquals(1L, result.getDrainedBatchKeys().get(0).getPublishSeq());
+        assertEquals(1, result.getDiscardedBatchKeys().size());
+        assertEquals(2L, result.getDiscardedBatchKeys().get(0).getPublishSeq());
+        assertEquals("lineA", result.getLineToFollowByLibrary().get(LIB));
+        assertTrue(outcome.getTestsToAdd().contains("com.example.TestA"));
+        assertFalse(outcome.getTestsToAdd().contains("com.example.TestB"));
+    }
+
+    /**
+     * The line is established even when nothing on it is at or below the resolved build: the
+     * other line's stamp is still discarded and the line still reported.
+     */
+    @Test
+    void lineIsEstablishedWhenNothingOnItDrains() throws Exception {
+        // given line A's stampless publish and a stamp from line B
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        setupTestMappingWithMethods(10);
+        File jarA = jarFile("line-a-content");
+        publishOnLine("1.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarA), "lineA",
+                Collections.<Integer>emptySet());
+        publishOnLine("1.0-SNAPSHOT", "HB", "lineB", new HashSet<>(Arrays.asList(10)));
+
+        // when the app resolves line A's jar
+        LibraryImpactDrainResult result = drainer.drainPendingMethods(dataStore,
+                configResolving("1.0-SNAPSHOT", jarA.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), false).getDrainResult();
+
+        // then nothing drains, line B's batch is discarded and there is seal work to do
+        assertTrue(result.getDrainedBatchKeys().isEmpty());
+        assertEquals(1, result.getDiscardedBatchKeys().size());
+        assertEquals("lineA", result.getLineToFollowByLibrary().get(LIB));
+        assertTrue(result.hasSealWork());
+        assertNull(result.getAppliedSeqByLibrary().get(LIB));
+    }
+
+    /**
+     * Line switch: the app moves to a build from a line other than the one it follows. No diff
+     * across lines can be matched to the mapping, so every tracked suite is selected, every
+     * pending batch for the library is discarded and the new line is followed. The downgrade guard
+     * does not apply: sequences on different lines do not order each other.
+     */
+    @Test
+    void resolvingAnotherLineSelectsEverySuiteAndFollowsTheNewLine() throws Exception {
+        // given a library following line A at seq 5, pending stamps on both lines, and the app
+        // now resolving a line B build at seq 2 (below the applied seq)
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setFollowedLine("lineA");
+        lib.setLastAppliedSeq(5L);
+        dataStore.persistTrackedLibrary(lib);
+        setupTestMappingWithMethods(10, 20);
+        publishOnLine("1.0-SNAPSHOT", "HA", "lineA", new HashSet<>(Arrays.asList(10)));
+        File jarB = jarFile("line-b-content");
+        publishOnLine("2.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarB), "lineB",
+                new HashSet<>(Arrays.asList(20)));
+        Map<String, TestSuiteTracker> tracked = dataStore.getTiaData().getTestSuitesTracked();
+
+        // when the drain runs
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, configResolving("2.0-SNAPSHOT", jarB.getAbsolutePath()), tracked, false);
+
+        // then every tracked suite is selected, both batches are discarded and line B is followed
+        LibraryImpactDrainResult result = outcome.getDrainResult();
+        assertEquals(2, tracked.size());
+        assertEquals(tracked.keySet(), outcome.getTestsToAdd());
+        assertEquals(2, result.getDiscardedBatchKeys().size());
+        assertTrue(result.getDrainedBatchKeys().isEmpty());
+        assertEquals("lineB", result.getLineToFollowByLibrary().get(LIB));
+        assertEquals(Long.valueOf(2L), result.getAppliedSeqByLibrary().get(LIB));
+        assertEquals("c", result.getHeldBuildCommitByLibrary().get(LIB));
+        assertTrue(result.getLineSwitchedLibraries().contains(LIB));
+    }
+
+    /**
+     * A forced all-tests run resolves every tracked library with nothing pending, so it also
+     * notices a line switch and moves the library onto the new line.
+     */
+    @Test
+    void aForcedAllTestsRunFollowsTheNewLineWithNothingPending() throws Exception {
+        // given a library following line A whose app now holds a line B build, with no pending
+        // stamp in this schema (a line B publish writes only its ledger row here)
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setFollowedLine("lineA");
+        lib.setLastAppliedSeq(5L);
+        dataStore.persistTrackedLibrary(lib);
+        setupTestMappingWithMethods(10);
+        File jarB = jarFile("line-b-content");
+        publishOnLine("2.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarB), "lineB",
+                Collections.<Integer>emptySet());
+
+        // when a run known to select all tests drains
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, configResolving("2.0-SNAPSHOT", jarB.getAbsolutePath()),
+                dataStore.getTiaData().getTestSuitesTracked(), true);
+
+        // then the switch is reported for the seal
+        LibraryImpactDrainResult result = outcome.getDrainResult();
+        assertEquals("lineB", result.getLineToFollowByLibrary().get(LIB));
+        assertEquals(Long.valueOf(1L), result.getAppliedSeqByLibrary().get(LIB));
+        assertTrue(result.getLineSwitchedLibraries().contains(LIB));
+    }
+
+    /**
+     * A library that already follows a line discards a stray batch from another line - one a
+     * publish wrote just before the line was established - and reports no line to follow.
+     */
+    @Test
+    void followedLineDiscardsAStrayBatchFromAnotherLine() throws Exception {
+        // given a library following line A, holding a line B stamp below its resolved line A build
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setFollowedLine("lineA");
+        dataStore.persistTrackedLibrary(lib);
+        setupTestMappingWithMethods(10, 20);
+        publishOnLine("9.0-SNAPSHOT", "HB", "lineB", new HashSet<>(Arrays.asList(20)));
+        File jarA = jarFile("line-a-content");
+        publishOnLine("1.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jarA), "lineA",
+                new HashSet<>(Arrays.asList(10)));
+
+        // when the app resolves line A's jar
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, configResolving("1.0-SNAPSHOT", jarA.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), false);
+
+        // then line A's batch drains, line B's is discarded unrun, and the line is unchanged
+        LibraryImpactDrainResult result = outcome.getDrainResult();
+        assertEquals(2L, result.getDrainedBatchKeys().get(0).getPublishSeq());
+        assertEquals(1L, result.getDiscardedBatchKeys().get(0).getPublishSeq());
+        assertFalse(outcome.getTestsToAdd().contains("com.example.TestB"));
+        assertTrue(result.getLineToFollowByLibrary().isEmpty());
+    }
+
+    /**
+     * Rows written before lines were recorded have no line and drain as they always did.
+     */
+    @Test
+    void batchesWithNoRecordedLineStillDrain() throws Exception {
+        // given a pre-line publish (null line) with a stamp, resolved by the app
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        setupTestMappingWithMethods(10);
+        File jar = jarFile("old-content");
+        publish("1.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jar), new HashSet<>(Arrays.asList(10)));
+
+        // when the drain runs
+        LibraryImpactDrainResult result = drainer.drainPendingMethods(dataStore,
+                configResolving("1.0-SNAPSHOT", jar.getAbsolutePath()),
+                Collections.<String, TestSuiteTracker>emptyMap(), false).getDrainResult();
+
+        // then the batch drains and there is no line to follow
+        assertEquals(1, result.getDrainedBatchKeys().size());
+        assertTrue(result.getDiscardedBatchKeys().isEmpty());
+        assertTrue(result.getLineToFollowByLibrary().isEmpty());
+    }
+
+    /**
+     * Persist a publish on a source line with the given stamp.
+     *
+     * @param version the published version
+     * @param jarHash the jar hash, or null
+     * @param line the source line
+     * @param methodIds the method ids to stamp
+     */
+    private void publishOnLine(String version, String jarHash, String line, Set<Integer> methodIds) {
+        LibraryPublish publish = new LibraryPublish(LIB, version, jarHash, "c", System.currentTimeMillis());
+        publish.setSourceLine(line);
+        dataStore.persistLibraryPublish(publish, methodIds, Collections.<PendingLibraryForcedSelection>emptyList());
     }
 
     /**

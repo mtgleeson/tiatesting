@@ -3,6 +3,7 @@ package org.tiatesting.core.agent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 
@@ -20,6 +21,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -80,6 +82,27 @@ class SelectionHandoffTest {
         // then
         assertNull(handoff.getDrainResultFile());
         assertFalse(new File(tempDir.toFile(), SelectionHandoff.DRAIN_RESULT_FILENAME).exists());
+    }
+
+    /**
+     * A forced all-tests run can identify a library's held build with nothing drained. The seal
+     * still needs that to move the mapping baseline, so the result is handed off, and it reads
+     * back equal to what was written.
+     */
+    @Test
+    void drainResultFileIsWrittenWhenOnlyAHeldBuildWasIdentified() {
+        // given
+        LibraryImpactDrainResult heldBuildOnly = new LibraryImpactDrainResult();
+        heldBuildOnly.setHeldBuildCommit("com.example:lib", "480");
+
+        // when
+        SelectionHandoff handoff = SelectionHandoff.write(tempDir.toFile(), Collections.emptySet(),
+                Collections.emptySet(), heldBuildOnly, TestRunSelectionDetails.empty());
+
+        // then
+        assertNotNull(handoff.getDrainResultFile());
+        assertEquals(heldBuildOnly, LibraryImpactDrainResultSerializer.deserialize(
+                handoff.getDrainResultFile().getPath()));
     }
 
     @Test

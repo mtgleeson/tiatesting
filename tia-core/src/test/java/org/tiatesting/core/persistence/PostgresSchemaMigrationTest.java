@@ -4,6 +4,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import org.tiatesting.core.model.LibraryPublish;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
+import org.tiatesting.core.model.TrackedLibrary;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -12,6 +16,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -165,5 +170,35 @@ class PostgresSchemaMigrationTest {
 
         // then the column is back and holds it
         assertEquals("at startup: java.io.IOException: refused", postgresStore.readTestRunCoverageFailure("run-1"));
+    }
+
+    @Test
+    void existingPostgresSchemaMissingTheLibraryLineColumnsGetsThemAdded() throws Exception {
+        // given a schema created by one store, then stripped back to the pre-line library tables
+        DataStore creator = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
+                null, BRANCH, null);
+        creator.getTiaData();
+        creator.close();
+        executeInBranchSchema(
+                "ALTER TABLE " + TiaSchema.TABLE_TIA_LIBRARY + " DROP COLUMN " + TiaSchema.COL_FOLLOWED_LINE);
+        executeInBranchSchema(
+                "ALTER TABLE " + TiaSchema.TABLE_TIA_LIBRARY_PUBLISH + " DROP COLUMN " + TiaSchema.COL_SOURCE_LINE);
+
+        // when a later store makes first contact and records a library following a line and a
+        // publish on that line
+        postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
+                null, BRANCH, null);
+        postgresStore.getTiaData();
+        TrackedLibrary library = new TrackedLibrary("com.example:lib", "/projects/lib", null);
+        library.setFollowedLine("main");
+        postgresStore.persistTrackedLibrary(library);
+        LibraryPublish publish = new LibraryPublish("com.example:lib", "1.0", "H1", "c1", 1L);
+        publish.setSourceLine("main");
+        postgresStore.persistLibraryPublish(publish, Collections.<Integer>emptySet(),
+                Collections.<PendingLibraryForcedSelection>emptyList());
+
+        // then both columns are back and hold the lines
+        assertEquals("main", postgresStore.readTrackedLibraries().get("com.example:lib").getFollowedLine());
+        assertEquals("main", postgresStore.readLibraryPublishes("com.example:lib").get(0).getSourceLine());
     }
 }

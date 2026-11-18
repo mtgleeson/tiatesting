@@ -328,17 +328,21 @@ public interface DataStore extends AutoCloseable {
      * Resolve a consumed artifact to its publish ledger row: match by jar content hash first
      * (identifies both SNAPSHOT and release builds), falling back to an exact published-version
      * match when no hash row matches. When multiple rows match (e.g. an identical artifact
-     * republished), the highest sequence wins - contents are identical or cumulative, so the
-     * higher sequence drains a superset, which is the safe direction.
+     * republished), a row on the preferred source line wins, then the highest sequence - contents
+     * are identical or cumulative, so the higher sequence drains a superset, which is the safe
+     * direction. The line preference matters when two lines publish the same release version:
+     * only the row on the line the consumer follows orders correctly against its pending stamps.
      *
      * @param groupArtifact the {@code groupId:artifactId} of the library.
      * @param jarHash the resolved artifact's SHA-256 hash, or null to skip hash matching.
      * @param version the resolved version to fall back to, or null to skip version matching
      *                (callers pass null for SNAPSHOT resolved versions, which are shared across
      *                builds and identify nothing).
-     * @return the matching ledger row with the highest sequence, or null when nothing matches.
+     * @param preferredLine the source line the consumer follows, or null for no preference.
+     * @return the best matching ledger row, or null when nothing matches.
      */
-    LibraryPublish lookupLibraryPublish(final String groupArtifact, final String jarHash, final String version);
+    LibraryPublish lookupLibraryPublish(final String groupArtifact, final String jarHash, final String version,
+                                        final String preferredLine);
 
     /**
      * Read all pending library impacted method batches for a given library.

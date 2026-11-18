@@ -49,6 +49,34 @@ class LibraryImpactDrainResultSerializerTest {
         assertEquals(Long.valueOf(2L), deserialized.getAppliedSeqByLibrary().get("com.example:lib"));
     }
 
+    /**
+     * The held build commit, the discarded batches and the line to follow all travel with the
+     * drain result - the seal has no other way to learn them.
+     *
+     * @throws Exception if serializing or deserializing the drain result fails
+     */
+    @Test
+    void byteArrayRoundTripPreservesHeldBuildDiscardsAndLineToFollow() throws Exception {
+        // given a drain result that only identified a held build and established a line
+        LibraryImpactDrainResult original = new LibraryImpactDrainResult();
+        original.setHeldBuildCommit("com.example:lib", "480");
+        original.addDiscardedBatch("com.example:lib", 3L);
+        original.addDiscardedForcedBatch("com.example:lib", 4L);
+        original.setLineToFollow("com.example:lib", "//depot/libraries/lib/src/main/java");
+
+        // when it is serialized to bytes and read back
+        LibraryImpactDrainResult deserialized = LibraryImpactDrainResultSerializer.fromBytes(
+                LibraryImpactDrainResultSerializer.toBytes(original));
+
+        // then everything survives
+        assertEquals(original, deserialized);
+        assertEquals("480", deserialized.getHeldBuildCommitByLibrary().get("com.example:lib"));
+        assertEquals(3L, deserialized.getDiscardedBatchKeys().get(0).getPublishSeq());
+        assertEquals(4L, deserialized.getDiscardedForcedBatchKeys().get(0).getPublishSeq());
+        assertEquals("//depot/libraries/lib/src/main/java",
+                deserialized.getLineToFollowByLibrary().get("com.example:lib"));
+    }
+
     @Test
     void deserializeReturnsNullForMissingFile() {
         assertNull(LibraryImpactDrainResultSerializer.deserialize("/nonexistent/file.ser"));

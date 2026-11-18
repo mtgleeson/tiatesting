@@ -1,5 +1,8 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
+import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.staticselection.StaticTestSelectionRule;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +67,7 @@ class TestSelectorLibraryPreviewTest {
 
     private static final String LIB_COORD = "com.example:lib";
     private static final String LIB_PROJECT_DIR = "/projects/lib";
+    private static final String WORKSPACE_ROOT = "/workspace";
     private static final String LIB_SRC_DIR = "/projects/lib/src/main/java";
     private static final String LIB_FILE_KEY = "com/example/Lib.java";
     private static final String LIB_DIFF_PATH = LIB_SRC_DIR + "/" + LIB_FILE_KEY;
@@ -307,6 +311,137 @@ class TestSelectorLibraryPreviewTest {
     }
 
     /**
+     * A consumer that follows line A moved to a line B build by changing its build file, with
+     * nothing pending in its schema - an earlier run on line A discarded line B's stamp. The
+     * changed build file makes selection identify the held build, so the switch is noticed at
+     * this run and every tracked suite is selected.
+     */
+    @Test
+    void aChangedBuildFileSwitchesALibraryWithNothingPending() {
+        // given a library following line A and a line B release in the ledger, nothing pending
+        TrackedLibrary lib = new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR);
+        lib.setFollowedLine("lineA");
+        dataStore.persistTrackedLibrary(lib);
+        seedLibraryMethodMapping();
+        persistReleaseOnLine("2.0.0", "lineB");
+        StubVCSReader reader = new StubVCSReader("head").withChangedPaths("app/pom.xml")
+                .withWorkspaceRoot(WORKSPACE_ROOT);
+        StubMetadataReader metadataReader = new StubMetadataReader("2.0.0");
+
+        // when a primary run selects with the app's build file changed
+        TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(reader,
+                Collections.emptyList(), Collections.emptyList(), TestSuiteRunnabilityClassifier.disabled(),
+                false, config(metadataReader, WORKSPACE_ROOT + "/app"), null, true, SelectionMode.SELECTIVE);
+
+        // then the library was resolved, every tracked suite is selected and the switch is reported
+        assertEquals(1, metadataReader.getResolutions());
+        assertTrue(result.getTestsToRun().contains(LIB_TEST));
+        assertTrue(result.getLibraryImpactDrainResult().getLineSwitchedLibraries().contains(LIB_COORD));
+        assertEquals("lineB", result.getLibraryImpactDrainResult().getLineToFollowByLibrary().get(LIB_COORD));
+    }
+
+    /**
+     * A build file of another project in the same workspace cannot change what the source project
+     * resolves, so it does not trigger: nothing is resolved and nothing is selected.
+     */
+    @Test
+    void anotherProjectsBuildFileResolvesNothing() {
+        // given a library following line A, a line B release, and only a sibling project's POM changed
+        TrackedLibrary lib = new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR);
+        lib.setFollowedLine("lineA");
+        dataStore.persistTrackedLibrary(lib);
+        seedLibraryMethodMapping();
+        persistReleaseOnLine("2.0.0", "lineB");
+        StubVCSReader reader = new StubVCSReader("head").withChangedPaths("other-app/pom.xml")
+                .withWorkspaceRoot(WORKSPACE_ROOT);
+        StubMetadataReader metadataReader = new StubMetadataReader("2.0.0");
+
+        // when a primary run selects for the source project under app/
+        TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(reader,
+                Collections.emptyList(), Collections.emptyList(), TestSuiteRunnabilityClassifier.disabled(),
+                false, config(metadataReader, WORKSPACE_ROOT + "/app"), null, true, SelectionMode.SELECTIVE);
+
+        // then no library was resolved and nothing was selected
+        assertEquals(0, metadataReader.getResolutions());
+        assertFalse(result.getTestsToRun().contains(LIB_TEST));
+    }
+
+    /**
+     * Without a changed build file, a run with nothing pending keeps the fast path: no library is
+     * resolved and nothing is selected for it, so the trigger adds no cost to ordinary runs.
+     */
+    @Test
+    void noChangedBuildFileResolvesNothingWhenNothingIsPending() {
+        // given the same library and ledger, and only a source file changed
+        TrackedLibrary lib = new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR);
+        lib.setFollowedLine("lineA");
+        dataStore.persistTrackedLibrary(lib);
+        seedLibraryMethodMapping();
+        persistReleaseOnLine("2.0.0", "lineB");
+        StubVCSReader reader = new StubVCSReader("head").withChangedPaths("app/src/main/java/App.java");
+        StubMetadataReader metadataReader = new StubMetadataReader("2.0.0");
+
+        // when a primary run selects
+        TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(reader,
+                Collections.emptyList(), Collections.emptyList(), TestSuiteRunnabilityClassifier.disabled(),
+                false, config(metadataReader, "/projects/source"), null, true, SelectionMode.SELECTIVE);
+
+        // then no library was resolved and nothing was selected
+        assertEquals(0, metadataReader.getResolutions());
+        assertFalse(result.getTestsToRun().contains(LIB_TEST));
+    }
+
+    /**
+     * The build-file trigger and the static rules both need the changed paths; they share one
+     * read, so the trigger costs no extra VCS call where static rules are configured.
+     */
+    @Test
+    void theChangedPathsAreReadOnceForTheTriggerAndTheStaticRules() {
+        // given a tracked library and a static rule, with a build file changed
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR));
+        seedLibraryMethodMapping();
+        StubVCSReader reader = new StubVCSReader("head").withChangedPaths("app/pom.xml");
+        StaticTestSelectionConfig staticConfig = new StaticTestSelectionConfig(Collections.singletonList(
+                new StaticTestSelectionRule("sql", ".*\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null)),
+                null);
+
+        // when a run selects
+        new TestSelector(dataStore, new File(".")).selectTestsToIgnore(reader,
+                Collections.emptyList(), Collections.emptyList(), TestSuiteRunnabilityClassifier.disabled(),
+                false, config(new StubMetadataReader("2.0.0"), "/projects/source"), staticConfig, true, SelectionMode.SELECTIVE);
+
+        // then the VCS was asked for the changed paths once
+        assertEquals(1, reader.getChangedPathReads());
+    }
+
+    /**
+     * Record a release in the ledger on a source line, with no stamp.
+     *
+     * @param version the release version, which the drain matches by version
+     * @param line the source line it was published from
+     */
+    private void persistReleaseOnLine(String version, String line) {
+        LibraryPublish publish = new LibraryPublish(LIB_COORD, version, null, "lib-commit-" + version, 1000L);
+        publish.setSourceLine(line);
+        dataStore.persistLibraryPublish(publish, Collections.<Integer>emptySet(),
+                Collections.<PendingLibraryForcedSelection>emptyList());
+    }
+
+    /**
+     * Build a library config around the given metadata reader and source project directory.
+     *
+     * @param metadataReader the reader resolving the library on the app classpath
+     * @param sourceProjectDir the absolute source project directory
+     * @return the library config
+     */
+    private LibraryImpactAnalysisConfig config(StubMetadataReader metadataReader, String sourceProjectDir) {
+        Map<String, String> projectDirs = new HashMap<>();
+        projectDirs.put(LIB_COORD, LIB_PROJECT_DIR);
+        return new LibraryImpactAnalysisConfig(
+                Collections.singletonList(LIB_COORD), projectDirs, sourceProjectDir, metadataReader);
+    }
+
+    /**
      * Seed a mapping where the library file {@code com/example/Lib.java} has one tracked method
      * spanning lines 2-8, covered by {@code com.example.LibTest}. The unsealed flag
      * {@link JdbcDataStore#persistTestSuites} sets as a side effect of the edge write is
@@ -368,10 +503,52 @@ class TestSelectorLibraryPreviewTest {
         private final Set<SourceFileDiffContext> diffs;
         private final List<List<String>> requestedSourceDirs = new ArrayList<>();
         private final List<SourceFileDiffContext> contentLoadedDiffs = new ArrayList<>();
+        private final Set<String> changedPaths = new HashSet<>();
+        private int changedPathReads;
+        private String workspaceRoot;
 
         StubVCSReader(String headCommit, SourceFileDiffContext... diffs) {
             this.headCommit = headCommit;
             this.diffs = new HashSet<>(java.util.Arrays.asList(diffs));
+        }
+
+        /**
+         * Report the given paths as changed since the stored commit.
+         *
+         * @param paths the repo-relative changed paths
+         * @return this reader
+         */
+        StubVCSReader withChangedPaths(String... paths) {
+            changedPaths.addAll(java.util.Arrays.asList(paths));
+            return this;
+        }
+
+        /**
+         * Name the workspace root the changed paths are relative to.
+         *
+         * @param root the absolute workspace root
+         * @return this reader
+         */
+        StubVCSReader withWorkspaceRoot(String root) {
+            workspaceRoot = root;
+            return this;
+        }
+
+        /**
+         * Return the workspace root set by {@link #withWorkspaceRoot}, or null when none was set.
+         *
+         * @return the workspace root, or null
+         */
+        @Override
+        public String getWorkspaceRoot() {
+            return workspaceRoot;
+        }
+
+        /**
+         * @return how many times the changed paths were read
+         */
+        int getChangedPathReads() {
+            return changedPathReads;
         }
 
         @Override public String getBranchName() { return "test"; }
@@ -416,7 +593,8 @@ class TestSelectorLibraryPreviewTest {
 
         @Override
         public Set<String> getChangedFilePaths(String baseChangeNum, boolean checkLocalChanges) {
-            return new HashSet<>();
+            changedPathReads++;
+            return new HashSet<>(changedPaths);
         }
 
         /**
@@ -472,9 +650,17 @@ class TestSelectorLibraryPreviewTest {
      */
     private static final class StubMetadataReader implements LibraryMetadataReader {
         private final String resolvedVersion;
+        private int resolutions;
 
         StubMetadataReader(String resolvedVersion) {
             this.resolvedVersion = resolvedVersion;
+        }
+
+        /**
+         * @return how many times libraries were resolved on the source project
+         */
+        int getResolutions() {
+            return resolutions;
         }
 
         @Override
@@ -485,6 +671,7 @@ class TestSelectorLibraryPreviewTest {
         @Override
         public List<ResolvedSourceProjectLibrary> resolveLibrariesInSourceProject(String sourceProjectDir,
                                                                                   List<String> coordinates) {
+            resolutions++;
             List<ResolvedSourceProjectLibrary> result = new ArrayList<>();
             for (String coord : coordinates) {
                 result.add(new ResolvedSourceProjectLibrary(coord, resolvedVersion, null));

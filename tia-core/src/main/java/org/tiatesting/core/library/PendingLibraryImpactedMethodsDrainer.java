@@ -38,6 +38,19 @@ import java.util.regex.Pattern;
  * listing the drained batch sequences and the applied sequence per library; the caller
  * ({@code TestRunnerService}) deletes the drained rows and advances
  * {@code tia_library.last_applied_seq} / {@code mapping_baseline_commit} after the test run.
+ *
+ * <p><b>Source lines.</b> Each ledger row names the source line its build was published from.
+ * A library that follows no line yet starts following the line of the build it resolves, and
+ * pending batches from other lines are discarded unrun. A library that follows a line and
+ * resolves a build from another has switched line: every tracked suite is selected, all of its
+ * pending batches are discarded and the new line is followed. See the source-lines section of the
+ * same chapter.
+ *
+ * <p>The drain also reports the commit each identified build was published at. The seal uses it
+ * as the library's mapping baseline: the re-covered suites' line numbers describe the library
+ * source the held jar was built from, which is that commit and not the consumer's sealed commit.
+ * Everything here is answered by the build model, the jar on disk and the publish ledger - the
+ * drain never reads the VCS.
  */
 public class PendingLibraryImpactedMethodsDrainer {
 
@@ -47,7 +60,8 @@ public class PendingLibraryImpactedMethodsDrainer {
      * Drain the pending stamps contained in the library builds the source project resolves, and
      * return the covering tests to add to the run set along with the drain result for post-run
      * cleanup. Reads all pending stamps first and returns immediately when none exist, so the
-     * common no-pending path never pays the (expensive) source-project library resolution.
+     * common no-pending path never pays the (expensive) source-project library resolution - unless
+     * {@code resolveAllTracked} asks for every tracked library's held build to be identified.
      *
      * <p>Test resolution for drained batches uses the targeted
      * {@link DataStore#getTestSuitesForMethods} query per batch, so the drain path never needs
@@ -59,10 +73,15 @@ public class PendingLibraryImpactedMethodsDrainer {
      * @param testSuitesTracked the consumer's currently tracked test suites, used to resolve
      *                          drained forced-selection batches' {@code RUN_ALL} / {@code SUITE_NAMES}
      *                          modes against the consumer's own suite set.
+     * @param resolveAllTracked true when the run is known to select all tests, so every tracked
+     *                          library's held build is identified even with nothing pending and
+     *                          its mapping baseline can follow; false keeps the no-pending fast
+     *                          path, which resolves nothing.
      * @return a {@link DrainOutcome} containing the tests to add and the drain result.
      */
     public DrainOutcome drainPendingMethods(DataStore dataStore, LibraryImpactAnalysisConfig libraryConfig,
-                                            Map<String, TestSuiteTracker> testSuitesTracked) {
+                                            Map<String, TestSuiteTracker> testSuitesTracked,
+                                            boolean resolveAllTracked) {
         LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
         Set<String> testsFromDrain = new LinkedHashSet<>();
 
@@ -70,18 +89,47 @@ public class PendingLibraryImpactedMethodsDrainer {
                 groupPendingByLibrary(dataStore.readAllPendingLibraryImpactedMethods());
         Map<String, List<PendingLibraryForcedSelection>> forcedByLibrary =
                 groupForcedByLibrary(dataStore.readAllPendingLibraryForcedSelections());
-        if (pendingByLibrary.isEmpty() && forcedByLibrary.isEmpty()) {
+        if (pendingByLibrary.isEmpty() && forcedByLibrary.isEmpty() && !resolveAllTracked) {
             return new DrainOutcome(testsFromDrain, drainResult);
         }
 
+        Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         Set<String> coordinates = new LinkedHashSet<>(pendingByLibrary.keySet());
         coordinates.addAll(forcedByLibrary.keySet());
+        if (resolveAllTracked) {
+            coordinates.addAll(trackedLibraries.keySet());
+        }
+        if (coordinates.isEmpty()) {
+            return new DrainOutcome(testsFromDrain, drainResult);
+        }
 
-        Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         Map<String, ResolvedSourceProjectLibrary> resolvedLibraries =
                 resolveLibrariesOnSourceProject(libraryConfig, coordinates);
-        Map<String, Long> resolvedSeqByLibrary = resolveBuildSeqsOnce(dataStore, coordinates, pendingByLibrary,
-                forcedByLibrary, trackedLibraries, resolvedLibraries);
+        Map<String, LibraryPublish> resolvedBuildByLibrary = resolveBuildsOnce(dataStore, coordinates,
+                pendingByLibrary, forcedByLibrary, trackedLibraries, resolvedLibraries);
+        Set<String> lineSwitched = new HashSet<>();
+        for (Map.Entry<String, LibraryPublish> entry : resolvedBuildByLibrary.entrySet()) {
+            // A library that follows no line yet starts following the line of the build it holds.
+            String resolvedLine = entry.getValue().getSourceLine();
+            String followedLine = trackedLibraries.get(entry.getKey()).getFollowedLine();
+            if (resolvedLine != null && followedLine == null) {
+                drainResult.setLineToFollow(entry.getKey(), resolvedLine);
+            }
+            // The source the consumer's jar was built from - the commit the mapping's line numbers
+            // describe once this run re-covers the library's suites.
+            if (entry.getValue().getCommitValue() != null) {
+                drainResult.setHeldBuildCommit(entry.getKey(), entry.getValue().getCommitValue());
+            }
+            if (!SourceLines.matches(followedLine, resolvedLine)) {
+                switchLine(entry.getKey(), entry.getValue(), pendingByLibrary, forcedByLibrary,
+                        testSuitesTracked, testsFromDrain, drainResult);
+                lineSwitched.add(entry.getKey());
+            }
+        }
+
+        // Filled only for libraries that have a pending batch and resolved a build, so a forced
+        // run that merely identifies held builds reads no ledger here.
+        Map<String, Map<Long, String>> lineBySeqByLibrary = new HashMap<>();
 
         for (Map.Entry<String, List<PendingLibraryImpactedMethod>> entry : pendingByLibrary.entrySet()) {
             TrackedLibrary library = trackedLibraries.get(entry.getKey());
@@ -89,8 +137,11 @@ public class PendingLibraryImpactedMethodsDrainer {
                 log.warn("Pending stamps exist for '{}' but the library is not tracked - skipping.", entry.getKey());
                 continue;
             }
-            drainPendingMethodsForLibrary(dataStore, library, entry.getValue(),
-                    resolvedSeqByLibrary.get(entry.getKey()), testsFromDrain, drainResult);
+            LibraryPublish resolved = resolvedBuildByLibrary.get(entry.getKey());
+            if (resolved != null && !lineSwitched.contains(entry.getKey())) {
+                drainPendingMethodsForLibrary(dataStore, library, entry.getValue(), resolved,
+                        readLineBySeq(dataStore, entry.getKey(), lineBySeqByLibrary), testsFromDrain, drainResult);
+            }
         }
 
         if (!forcedByLibrary.isEmpty()) {
@@ -102,9 +153,12 @@ public class PendingLibraryImpactedMethodsDrainer {
                             entry.getKey());
                     continue;
                 }
-                drainForcedSelectionsForLibrary(library, entry.getValue(),
-                        resolvedSeqByLibrary.get(entry.getKey()), testSuitesTracked, forcedResolver,
-                        testsFromDrain, drainResult);
+                LibraryPublish resolved = resolvedBuildByLibrary.get(entry.getKey());
+                if (resolved != null && !lineSwitched.contains(entry.getKey())) {
+                    drainForcedSelectionsForLibrary(library, entry.getValue(), resolved,
+                            readLineBySeq(dataStore, entry.getKey(), lineBySeqByLibrary), testSuitesTracked,
+                            forcedResolver, testsFromDrain, drainResult);
+                }
             }
         }
 
@@ -112,16 +166,54 @@ public class PendingLibraryImpactedMethodsDrainer {
     }
 
     /**
-     * Resolve each library's build sequence (or hold decision) exactly once, over the union of
+     * Apply a line switch: the library holds a build from another source line than the one it
+     * follows. The mapping does not record which methods belong to the library, and a diff across
+     * lines cannot be matched to the mapping's line numbers, so no narrower selection exists -
+     * every tracked suite is selected. All of the library's pending batches are reported as
+     * discarded, whichever line they are from: the old line's no longer apply to the held jar, and
+     * the new line's are covered by running everything. The seal then follows the new line from
+     * the resolved sequence. See the source-lines section of the library publish-time stamping
+     * chapter in {@code WIKI.md}.
+     *
+     * @param groupArtifact the library that switched line.
+     * @param resolved the ledger row of the build the library resolved to, on the new line.
+     * @param pendingByLibrary pending method batches by library coordinate.
+     * @param forcedByLibrary pending forced-selection batches by library coordinate.
+     * @param testSuitesTracked the consumer's currently tracked test suites, all of which are selected.
+     * @param testsFromDrain accumulator for the selected test suites.
+     * @param drainResult accumulator for the discarded batch keys, the line to follow and the
+     *                    applied sequence.
+     */
+    private void switchLine(String groupArtifact, LibraryPublish resolved,
+                            Map<String, List<PendingLibraryImpactedMethod>> pendingByLibrary,
+                            Map<String, List<PendingLibraryForcedSelection>> forcedByLibrary,
+                            Map<String, TestSuiteTracker> testSuitesTracked,
+                            Set<String> testsFromDrain, LibraryImpactDrainResult drainResult) {
+        testsFromDrain.addAll(testSuitesTracked.keySet());
+        for (PendingLibraryImpactedMethod batch : pendingByLibrary
+                .getOrDefault(groupArtifact, Collections.<PendingLibraryImpactedMethod>emptyList())) {
+            drainResult.addDiscardedBatch(groupArtifact, batch.getPublishSeq());
+        }
+        for (PendingLibraryForcedSelection batch : forcedByLibrary
+                .getOrDefault(groupArtifact, Collections.<PendingLibraryForcedSelection>emptyList())) {
+            drainResult.addDiscardedForcedBatch(groupArtifact, batch.getPublishSeq());
+        }
+        drainResult.setLineToFollow(groupArtifact, resolved.getSourceLine());
+        drainResult.setAppliedSeq(groupArtifact, resolved.getPublishSeq());
+        drainResult.addLineSwitch(groupArtifact);
+    }
+
+    /**
+     * Resolve each library's build (or hold decision) exactly once, over the union of
      * its pending method-batch and forced-selection-batch coordinates. Without this, a library
      * with both a pending method batch and a pending forced batch would have
-     * {@link #resolveBuildSeqOrHold} called twice - once per batch kind - each recomputing the
+     * {@link #resolveBuildOrHold} called twice - once per batch kind - each recomputing the
      * resolved jar's SHA-256 hash and re-querying the publish ledger, and logging the "resolved to
      * ledger seq" line twice for what is really one resolution.
      *
      * @param dataStore the persistence layer for the ledger lookup.
      * @param coordinates the union of coordinates with a pending method batch and/or a pending
-     *                    forced batch.
+     *                    forced batch, plus every tracked coordinate when all are being resolved.
      * @param pendingByLibrary pending method batches by library coordinate, used to size the
      *                         reported pending count.
      * @param forcedByLibrary pending forced batches by library coordinate, used to size the
@@ -130,16 +222,16 @@ public class PendingLibraryImpactedMethodsDrainer {
      *                         left unresolved (the per-batch-kind loops report the untracked
      *                         warning for their own kind).
      * @param resolvedLibraries the libraries resolved on the source project classpath, by coordinate.
-     * @return the resolved build sequence per library coordinate; a coordinate is absent when it
-     *         is not tracked or any hold rule fired, which the drain helpers treat identically to
-     *         a {@code null} map lookup - the batch is held.
+     * @return the resolved build's ledger row per library coordinate; a coordinate is absent when
+     *         it is not tracked or any hold rule fired, which the drain helpers treat identically
+     *         to a {@code null} map lookup - the batch is held.
      */
-    private Map<String, Long> resolveBuildSeqsOnce(DataStore dataStore, Set<String> coordinates,
+    private Map<String, LibraryPublish> resolveBuildsOnce(DataStore dataStore, Set<String> coordinates,
                                                     Map<String, List<PendingLibraryImpactedMethod>> pendingByLibrary,
                                                     Map<String, List<PendingLibraryForcedSelection>> forcedByLibrary,
                                                     Map<String, TrackedLibrary> trackedLibraries,
                                                     Map<String, ResolvedSourceProjectLibrary> resolvedLibraries) {
-        Map<String, Long> resolvedSeqByLibrary = new LinkedHashMap<>();
+        Map<String, LibraryPublish> resolvedBuildByLibrary = new LinkedHashMap<>();
         for (String coordinate : coordinates) {
             TrackedLibrary library = trackedLibraries.get(coordinate);
             if (library == null) {
@@ -149,40 +241,43 @@ public class PendingLibraryImpactedMethodsDrainer {
             }
             int pendingCount = pendingByLibrary.getOrDefault(coordinate, Collections.<PendingLibraryImpactedMethod>emptyList()).size()
                     + forcedByLibrary.getOrDefault(coordinate, Collections.<PendingLibraryForcedSelection>emptyList()).size();
-            Long resolvedSeq = resolveBuildSeqOrHold(dataStore, library, resolvedLibraries, pendingCount);
-            if (resolvedSeq != null) {
-                resolvedSeqByLibrary.put(coordinate, resolvedSeq);
+            LibraryPublish resolvedBuild = resolveBuildOrHold(dataStore, library, resolvedLibraries, pendingCount);
+            if (resolvedBuild != null) {
+                resolvedBuildByLibrary.put(coordinate, resolvedBuild);
             }
         }
-        return resolvedSeqByLibrary;
+        return resolvedBuildByLibrary;
     }
 
     /**
-     * Drain one library's pending stamps against the build the source project resolved: look the
-     * resolved artifact up in the publish ledger, apply the hold rules, then drain every pending
-     * batch at or below the resolved build's sequence.
+     * Drain one library's pending stamps against the build the source project resolved. A batch
+     * published from another source line than the resolved build's is discarded - the resolved
+     * jar does not contain it. Of the rest, every batch at or below the resolved build's sequence
+     * drains.
      *
      * @param dataStore the persistence layer for test-suite resolution
      * @param library the tracked library whose pending batches are evaluated
      * @param pendingBatches the library's pending batches
-     * @param resolvedSeq the library's pre-resolved build sequence from {@link #resolveBuildSeqsOnce},
-     *                    or {@code null} when the library is held (unresolvable, unknown build, or
-     *                    downgrade) - in which case every batch is left pending and nothing drains
+     * @param resolved the ledger row of the build the library resolved to, from
+     *                 {@link #resolveBuildsOnce}
+     * @param lineBySeq the source line of each of the library's publishes, by publish sequence
      * @param testsFromDrain accumulator for the test suites selected by drained batches
      * @param drainResult accumulator for the drained batch keys and applied sequences
      */
     private void drainPendingMethodsForLibrary(DataStore dataStore, TrackedLibrary library,
                                                List<PendingLibraryImpactedMethod> pendingBatches,
-                                               Long resolvedSeq,
+                                               LibraryPublish resolved, Map<Long, String> lineBySeq,
                                                Set<String> testsFromDrain,
                                                LibraryImpactDrainResult drainResult) {
-        if (resolvedSeq == null) {
-            return;
-        }
         String groupArtifact = library.getGroupArtifact();
+        long resolvedSeq = resolved.getPublishSeq();
 
         boolean anyDrained = false;
         for (PendingLibraryImpactedMethod batch : pendingBatches) {
+            if (isFromAnotherLine(groupArtifact, batch.getPublishSeq(), lineBySeq, resolved)) {
+                drainResult.addDiscardedBatch(groupArtifact, batch.getPublishSeq());
+                continue;
+            }
             if (batch.getPublishSeq() <= resolvedSeq) {
                 Set<String> testsForBatch = resolveTestSuitesFromMethodIds(batch.getSourceMethodIds(), dataStore);
                 testsFromDrain.addAll(testsForBatch);
@@ -204,15 +299,15 @@ public class PendingLibraryImpactedMethodsDrainer {
 
     /**
      * Drain one library's pending forced-selection batches against the build the source project
-     * resolved: apply the identical resolved-build lookup and hold rules as the method drain, then
-     * for each forced batch at or below the resolved sequence, resolve the forced suites against the
-     * consumer's current tracked suites and union them into the run set.
+     * resolved, by the same rules as the method drain: a batch from another source line is
+     * discarded, and each remaining batch at or below the resolved sequence has its forced suites
+     * resolved against the consumer's current tracked suites and unioned into the run set.
      *
      * @param library the tracked library whose forced batches are evaluated.
      * @param forcedBatches the library's pending forced-selection batches.
-     * @param resolvedSeq the library's pre-resolved build sequence from {@link #resolveBuildSeqsOnce},
-     *                    or {@code null} when the library is held - in which case every forced
-     *                    batch is left pending and nothing drains.
+     * @param resolved the ledger row of the build the library resolved to, from
+     *                 {@link #resolveBuildsOnce}.
+     * @param lineBySeq the source line of each of the library's publishes, by publish sequence.
      * @param testSuitesTracked the consumer's tracked suites, used to resolve RUN_ALL / SUITE_NAMES.
      * @param resolver the shared static resolver used for forced resolution.
      * @param testsFromDrain accumulator for the selected test suites.
@@ -220,18 +315,20 @@ public class PendingLibraryImpactedMethodsDrainer {
      */
     private void drainForcedSelectionsForLibrary(TrackedLibrary library,
                                                  List<PendingLibraryForcedSelection> forcedBatches,
-                                                 Long resolvedSeq,
+                                                 LibraryPublish resolved, Map<Long, String> lineBySeq,
                                                  Map<String, TestSuiteTracker> testSuitesTracked,
                                                  StaticTestSelectionResolver resolver,
                                                  Set<String> testsFromDrain,
                                                  LibraryImpactDrainResult drainResult) {
-        if (resolvedSeq == null) {
-            return;
-        }
         String groupArtifact = library.getGroupArtifact();
+        long resolvedSeq = resolved.getPublishSeq();
 
         boolean anyDrained = false;
         for (PendingLibraryForcedSelection batch : forcedBatches) {
+            if (isFromAnotherLine(groupArtifact, batch.getPublishSeq(), lineBySeq, resolved)) {
+                drainResult.addDiscardedForcedBatch(groupArtifact, batch.getPublishSeq());
+                continue;
+            }
             if (batch.getPublishSeq() <= resolvedSeq) {
                 List<Pattern> patterns = new ArrayList<>();
                 for (String p : batch.getSuiteNamePatterns()) {
@@ -256,12 +353,14 @@ public class PendingLibraryImpactedMethodsDrainer {
     }
 
     /**
-     * Resolve the publish-ledger sequence the source project's resolved build corresponds to, or
+     * Resolve the publish-ledger row the source project's resolved build corresponds to, or
      * signal that the caller must hold every pending batch for this library. Applies the three
      * hold rules shared by both the method-stamp drain and the forced-selection drain: the
      * library must resolve on the source project classpath, the resolved artifact must match a
      * known publish ledger row, and the resolved build must not be older than the library's
-     * {@code lastAppliedSeq}. Logs the same INFO/WARN lines the drain has always emitted so
+     * {@code lastAppliedSeq}. When several rows match, one on the followed line is preferred. A
+     * row on another line than the followed one is a line switch: it is returned without the
+     * older-build check, which only orders builds on one line. Logs the same INFO/WARN lines the drain has always emitted so
      * operators see identical diagnostics regardless of which batch kind triggered the hold.
      *
      * @param dataStore the persistence layer for the ledger lookup.
@@ -269,9 +368,9 @@ public class PendingLibraryImpactedMethodsDrainer {
      * @param resolvedLibraries the libraries resolved on the source project classpath, by coordinate.
      * @param pendingCount the number of pending batches (of whichever kind the caller is draining)
      *                     to report in the hold warning/info messages.
-     * @return the resolved build's publish sequence, or {@code null} when any hold rule fires.
+     * @return the resolved build's publish ledger row, or {@code null} when any hold rule fires.
      */
-    private Long resolveBuildSeqOrHold(DataStore dataStore, TrackedLibrary library,
+    private LibraryPublish resolveBuildOrHold(DataStore dataStore, TrackedLibrary library,
                                        Map<String, ResolvedSourceProjectLibrary> resolvedLibraries,
                                        int pendingCount) {
         String groupArtifact = library.getGroupArtifact();
@@ -289,13 +388,23 @@ public class PendingLibraryImpactedMethodsDrainer {
         // snapshots and releases alike; the version fallback only identifies a build for release
         // versions (every snapshot build shares the same version string).
         LibraryPublish resolvedPublish = dataStore.lookupLibraryPublish(groupArtifact, resolvedJarHash,
-                isSnapshotVersion(resolvedVersion) ? null : resolvedVersion);
+                isSnapshotVersion(resolvedVersion) ? null : resolvedVersion, library.getFollowedLine());
         if (resolvedPublish == null) {
             log.info("Library '{}' resolved (version='{}', jarHash='{}') matches no publish ledger row - "
                     + "holding {} pending batches until a known build is resolved.",
                     groupArtifact, resolvedVersion, resolvedJarHash != null ? resolvedJarHash : "N/A",
                     pendingCount);
             return null;
+        }
+
+        if (!SourceLines.matches(library.getFollowedLine(), resolvedPublish.getSourceLine())) {
+            // Returned before the downgrade guard: sequences on different lines do not order
+            // each other, so a lower sequence on the new line is not an older build.
+            log.warn("Library '{}' switched source line: this schema follows '{}' and the resolved build "
+                    + "(seq {}, version '{}') is from '{}'. Selecting all tests and following the new line.",
+                    groupArtifact, library.getFollowedLine(), resolvedPublish.getPublishSeq(),
+                    resolvedPublish.getPublishedVersion(), resolvedPublish.getSourceLine());
+            return resolvedPublish;
         }
 
         long resolvedSeq = resolvedPublish.getPublishSeq();
@@ -310,7 +419,52 @@ public class PendingLibraryImpactedMethodsDrainer {
         log.info("Library '{}' resolved to ledger seq {} (version='{}').",
                 groupArtifact, resolvedSeq, resolvedPublish.getPublishedVersion());
 
-        return resolvedSeq;
+        return resolvedPublish;
+    }
+
+    /**
+     * Read the source line of each of a library's publishes, once per drain.
+     *
+     * @param dataStore the persistence layer for the ledger read.
+     * @param groupArtifact the library whose ledger to read.
+     * @param cache the per-drain cache, filled on first use for a library.
+     * @return the source line by publish sequence; a publish with no recorded line maps to null.
+     */
+    private Map<Long, String> readLineBySeq(DataStore dataStore, String groupArtifact,
+                                            Map<String, Map<Long, String>> cache) {
+        Map<Long, String> lineBySeq = cache.get(groupArtifact);
+        if (lineBySeq == null) {
+            lineBySeq = new HashMap<>();
+            for (LibraryPublish row : dataStore.readLibraryPublishes(groupArtifact)) {
+                lineBySeq.put(row.getPublishSeq(), row.getSourceLine());
+            }
+            cache.put(groupArtifact, lineBySeq);
+        }
+        return lineBySeq;
+    }
+
+    /**
+     * Decide whether a pending batch was published from a different source line than the build
+     * the consumer resolved. Every line that publishes the library stamps every consuming schema,
+     * so such a batch is routine wherever a library has more than one line; the resolved jar does
+     * not contain its changes, so it is discarded rather than run. A batch or build with no recorded line matches any line.
+     *
+     * @param groupArtifact the library, for logging.
+     * @param batchSeq the pending batch's publish sequence.
+     * @param lineBySeq the source line of each of the library's publishes, by publish sequence.
+     * @param resolved the ledger row of the build the consumer resolved.
+     * @return true when the batch is from another line and must be discarded.
+     */
+    private boolean isFromAnotherLine(String groupArtifact, long batchSeq, Map<Long, String> lineBySeq,
+                                      LibraryPublish resolved) {
+        String batchLine = lineBySeq.get(batchSeq);
+        if (SourceLines.matches(batchLine, resolved.getSourceLine())) {
+            return false;
+        }
+        log.info("Discarding pending batch for library '{}' at seq {} - published from source line '{}', "
+                + "this consumer resolved a build from line '{}'.", groupArtifact, batchSeq, batchLine,
+                resolved.getSourceLine());
+        return true;
     }
 
     /**

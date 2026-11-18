@@ -19,8 +19,9 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Post-run drain cleanup under the publish ledger model: drained stamp batches are deleted by
  * {@code (groupArtifact, publishSeq)}, each drained library's {@code last_applied_seq} advances
- * to the resolved build's sequence and its {@code mapping_baseline_commit} to the run's sealed
- * commit, and an all-tests run advances every tracked library's baseline.
+ * to the resolved build's sequence and its {@code mapping_baseline_commit} to the commit that
+ * build was published at, and an all-tests run moves the baseline of every tracked library whose
+ * held build is known.
  * See the drain-rule and mapping-baseline sections of the library publish-time stamping chapter in {@code WIKI.md}.
  */
 class TestRunnerServiceDrainCleanupTest {
@@ -114,12 +115,39 @@ class TestRunnerServiceDrainCleanupTest {
 
     /**
      * A drained library's last_applied_seq advances to the resolved build's sequence and its
-     * mapping baseline to the run's sealed commit (its covering suites just re-ran with coverage).
+     * mapping baseline to the commit that build was published at - the library source its covering
+     * suites just re-ran against - not to the consumer's own sealed commit.
      */
     @Test
     void advancesAppliedSeqAndBaselineForDrainedLibrary() {
-        // given a tracked library and a drain result applying seq 5
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        // given a tracked library and a drain result applying seq 5, a build published at 480
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setMappingBaselineCommit("470");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDrainedBatch(LIB, 5L);
+        drainResult.setAppliedSeq(LIB, 5L);
+        drainResult.setHeldBuildCommit(LIB, "480");
+
+        // when the post-run persist applies the drain result (not an all-tests run)
+        persistWithDrainResult(drainResult, 1);
+
+        // then the applied seq advances and the baseline is the held build's publish commit
+        TrackedLibrary updated = dataStore.readTrackedLibraries().get(LIB);
+        assertEquals(Long.valueOf(5L), updated.getLastAppliedSeq());
+        assertEquals("480", updated.getMappingBaselineCommit());
+    }
+
+    /**
+     * A drained library whose ledger row carries no commit keeps its baseline: the applied seq
+     * still advances, and the next publish diffs a wider range rather than a narrower one.
+     */
+    @Test
+    void drainedLibraryKeepsItsBaselineWhenTheHeldBuildCommitIsUnknown() {
+        // given a tracked library with a baseline and a drain result with no held build commit
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setMappingBaselineCommit("470");
+        dataStore.persistTrackedLibrary(lib);
         LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
         drainResult.addDrainedBatch(LIB, 5L);
         drainResult.setAppliedSeq(LIB, 5L);
@@ -127,26 +155,71 @@ class TestRunnerServiceDrainCleanupTest {
         // when the post-run persist applies the drain result (not an all-tests run)
         persistWithDrainResult(drainResult, 1);
 
-        // then the applied seq and mapping baseline are advanced
+        // then the applied seq advances and the baseline is untouched
         TrackedLibrary updated = dataStore.readTrackedLibraries().get(LIB);
         assertEquals(Long.valueOf(5L), updated.getLastAppliedSeq());
-        assertEquals("newcommit", updated.getMappingBaselineCommit());
+        assertEquals("470", updated.getMappingBaselineCommit());
     }
 
     /**
-     * An all-tests run re-captures every library's method line numbers, so every tracked
-     * library's mapping baseline advances to the sealed commit - even libraries with no drain.
+     * An all-tests run re-covers every suite, so a library whose held build the drain identified
+     * has its baseline moved to that build's publish commit even though nothing was drained. A
+     * library whose held build is unknown keeps the baseline it has.
      */
     @Test
-    void allTestsRunAdvancesBaselineForEveryTrackedLibrary() {
-        // given two tracked libraries and no drain at all
+    void allTestsRunMovesTheBaselineOnlyWhereTheHeldBuildIsKnown() {
+        // given two tracked libraries with baselines, one with a known held build
+        TrackedLibrary known = new TrackedLibrary("com.example:known", "/known", null);
+        known.setMappingBaselineCommit("470");
+        TrackedLibrary unknown = new TrackedLibrary("com.example:unknown", "/unknown", null);
+        unknown.setMappingBaselineCommit("460");
+        dataStore.persistTrackedLibrary(known);
+        dataStore.persistTrackedLibrary(unknown);
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.setHeldBuildCommit("com.example:known", "480");
+
+        // when an all-tests run persists (ignored count 0)
+        persistWithDrainResult(drainResult, 0);
+
+        // then only the library with a known held build moved, to that build's commit
+        assertEquals("480", dataStore.readTrackedLibraries().get("com.example:known").getMappingBaselineCommit());
+        assertEquals("460", dataStore.readTrackedLibraries().get("com.example:unknown").getMappingBaselineCommit());
+    }
+
+    /**
+     * A selective run is not a statement about a library it did not drain: a held build commit on
+     * the drain result moves no baseline unless the library drained or every suite re-ran.
+     */
+    @Test
+    void selectiveRunDoesNotMoveTheBaselineOfAnUndrainedLibrary() {
+        // given a tracked library with a baseline and a drain result naming only its held build
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setMappingBaselineCommit("470");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.setHeldBuildCommit(LIB, "480");
+
+        // when a selective run persists (ignored count > 0)
+        persistWithDrainResult(drainResult, 1);
+
+        // then the baseline is untouched
+        assertEquals("470", dataStore.readTrackedLibraries().get(LIB).getMappingBaselineCommit());
+    }
+
+    /**
+     * A library with no baseline yet and no known held build takes the sealed commit on an
+     * all-tests run (a seed, typically), so that its first publish stamps instead of seeding.
+     */
+    @Test
+    void allTestsRunGivesTheSealedCommitToLibrariesWithNoBaseline() {
+        // given two tracked libraries with no baseline and no drain at all
         dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:a", "/a", null));
         dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:b", "/b", null));
 
         // when an all-tests run persists (ignored count 0)
         persistWithDrainResult(null, 0);
 
-        // then both baselines advance to the sealed commit
+        // then both baselines are set to the sealed commit
         assertEquals("newcommit", dataStore.readTrackedLibraries().get("com.example:a").getMappingBaselineCommit());
         assertEquals("newcommit", dataStore.readTrackedLibraries().get("com.example:b").getMappingBaselineCommit());
     }
@@ -167,6 +240,107 @@ class TestRunnerServiceDrainCleanupTest {
 
         // then the baseline is untouched
         assertEquals("old-baseline", dataStore.readTrackedLibraries().get(LIB).getMappingBaselineCommit());
+    }
+
+    /**
+     * A drain that only established a line - nothing drained - still stores the followed line and
+     * deletes the other line's batches unrun, leaving the applied sequence and baseline alone.
+     */
+    @Test
+    void establishingALineStoresItAndDeletesDiscardedBatches() {
+        // given a library with no followed line holding a method batch and a forced batch from
+        // another line, both reported as discarded
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setMappingBaselineCommit("470");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryPublish otherLine = new LibraryPublish(LIB, "9.0", "HB", "c9", System.currentTimeMillis());
+        otherLine.setSourceLine("lineB");
+        long seq = dataStore.persistLibraryPublish(otherLine, new HashSet<>(Arrays.asList(10)),
+                Collections.singletonList(new PendingLibraryForcedSelection(LIB, "9.0", 0L, "rule",
+                        StaticTestSelectionRuleMode.RUN_ALL, Collections.<String>emptyList())));
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDiscardedBatch(LIB, seq);
+        drainResult.addDiscardedForcedBatch(LIB, seq);
+        drainResult.setLineToFollow(LIB, "lineA");
+
+        // when a selective run persists
+        persistWithDrainResult(drainResult, 1);
+
+        // then both batches are gone and only the followed line changed
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
+        assertTrue(dataStore.readPendingLibraryForcedSelections(LIB).isEmpty());
+        TrackedLibrary updated = dataStore.readTrackedLibraries().get(LIB);
+        assertEquals("lineA", updated.getFollowedLine());
+        assertEquals("470", updated.getMappingBaselineCommit());
+        assertNull(updated.getLastAppliedSeq());
+    }
+
+    /**
+     * A line switch drains nothing, yet the seal still moves the library onto the new line: the
+     * followed line, the applied sequence and the baseline (the resolved build's publish commit)
+     * all change, and every pending batch is deleted unrun.
+     */
+    @Test
+    void lineSwitchPersistsNewLineAppliedSeqAndBaseline() {
+        // given a library following line A at seq 5 with a pending batch on each line, and a
+        // drain result as the drainer reports a switch to a line B build at seq 2
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", null);
+        lib.setFollowedLine("lineA");
+        lib.setLastAppliedSeq(5L);
+        lib.setMappingBaselineCommit("470");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryPublish lineA = new LibraryPublish(LIB, "1.1", "HA", "c8", System.currentTimeMillis());
+        lineA.setSourceLine("lineA");
+        long seqA = dataStore.persistLibraryPublish(lineA, new HashSet<>(Arrays.asList(10)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
+        LibraryPublish lineB = new LibraryPublish(LIB, "2.0", "HB", "c9", System.currentTimeMillis());
+        lineB.setSourceLine("lineB");
+        long seqB = dataStore.persistLibraryPublish(lineB, new HashSet<>(Arrays.asList(20)),
+                Collections.singletonList(new PendingLibraryForcedSelection(LIB, "2.0", 0L, "rule",
+                        StaticTestSelectionRuleMode.RUN_ALL, Collections.<String>emptyList())));
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDiscardedBatch(LIB, seqA);
+        drainResult.addDiscardedBatch(LIB, seqB);
+        drainResult.addDiscardedForcedBatch(LIB, seqB);
+        drainResult.setLineToFollow(LIB, "lineB");
+        drainResult.setAppliedSeq(LIB, seqB);
+        drainResult.setHeldBuildCommit(LIB, "c9");
+        drainResult.addLineSwitch(LIB);
+
+        // when the run persists
+        persistWithDrainResult(drainResult, 0);
+
+        // then the library follows line B from the resolved build, and nothing is left pending
+        TrackedLibrary updated = dataStore.readTrackedLibraries().get(LIB);
+        assertEquals("lineB", updated.getFollowedLine());
+        assertEquals(Long.valueOf(seqB), updated.getLastAppliedSeq());
+        assertEquals("c9", updated.getMappingBaselineCommit());
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
+        assertTrue(dataStore.readPendingLibraryForcedSelections(LIB).isEmpty());
+    }
+
+    /**
+     * A drain that drained a batch and established the line in the same run writes both to the
+     * one library row.
+     */
+    @Test
+    void drainingAndEstablishingALineUpdateTheSameRow() {
+        // given a library with no followed line and a drain that applied seq 5 on line A
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDrainedBatch(LIB, 5L);
+        drainResult.setAppliedSeq(LIB, 5L);
+        drainResult.setHeldBuildCommit(LIB, "480");
+        drainResult.setLineToFollow(LIB, "lineA");
+
+        // when a selective run persists
+        persistWithDrainResult(drainResult, 1);
+
+        // then the row carries the applied seq, the baseline and the followed line
+        TrackedLibrary updated = dataStore.readTrackedLibraries().get(LIB);
+        assertEquals(Long.valueOf(5L), updated.getLastAppliedSeq());
+        assertEquals("480", updated.getMappingBaselineCommit());
+        assertEquals("lineA", updated.getFollowedLine());
     }
 
     @Test

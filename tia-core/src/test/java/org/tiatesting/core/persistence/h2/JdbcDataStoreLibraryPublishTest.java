@@ -142,7 +142,7 @@ class JdbcDataStoreLibraryPublishTest {
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H2", "c2", 2000L), Collections.emptySet(), Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when looking up with the older build's hash and the shared version
-        LibraryPublish found = dataStore.lookupLibraryPublish(LIB, "H1", "1.0.0");
+        LibraryPublish found = dataStore.lookupLibraryPublish(LIB, "H1", "1.0.0", null);
 
         // then the hash match (seq 1) wins over the version match (which would give seq 2)
         assertNotNull(found);
@@ -161,7 +161,7 @@ class JdbcDataStoreLibraryPublishTest {
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L), Collections.emptySet(), Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when looking up with an unknown hash but a matching version
-        LibraryPublish found = dataStore.lookupLibraryPublish(LIB, "H-unknown", "1.0.0");
+        LibraryPublish found = dataStore.lookupLibraryPublish(LIB, "H-unknown", "1.0.0", null);
 
         // then the version fallback resolves the row
         assertNotNull(found);
@@ -181,7 +181,7 @@ class JdbcDataStoreLibraryPublishTest {
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H-same", "c3", 3000L), Collections.emptySet(), Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when looking up that hash
-        LibraryPublish found = dataStore.lookupLibraryPublish(LIB, "H-same", null);
+        LibraryPublish found = dataStore.lookupLibraryPublish(LIB, "H-same", null, null);
 
         // then the highest matching sequence is returned
         assertNotNull(found);
@@ -199,8 +199,8 @@ class JdbcDataStoreLibraryPublishTest {
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L), Collections.emptySet(), Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when looking up unknown identities and null identities
-        LibraryPublish unknown = dataStore.lookupLibraryPublish(LIB, "H-x", "9.9.9");
-        LibraryPublish nulls = dataStore.lookupLibraryPublish(LIB, null, null);
+        LibraryPublish unknown = dataStore.lookupLibraryPublish(LIB, "H-x", "9.9.9", null);
+        LibraryPublish nulls = dataStore.lookupLibraryPublish(LIB, null, null, null);
 
         // then both lookups return null
         assertNull(unknown);
@@ -327,5 +327,61 @@ class JdbcDataStoreLibraryPublishTest {
         assertEquals("com/example/A.m.()V", result.get(10).getMethodName());
         assertEquals(2, result.get(10).getLineNumberStart());
         assertEquals(8, result.get(10).getLineNumberEnd());
+    }
+
+    /**
+     * The followed line and the publish's source line round-trip through their tables.
+     */
+    @Test
+    void sourceLineAndFollowedLineRoundTrip() {
+        // given a tracked library following a line and a publish recorded on that line
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", "/projects/lib/src/main/java");
+        lib.setFollowedLine("//depot/libraries/libA/src/main/java");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryPublish publish = new LibraryPublish(LIB, "1.0", "H1", "c1", 1L);
+        publish.setSourceLine("//depot/libraries/libA/src/main/java");
+
+        // when both are persisted and read back
+        dataStore.persistLibraryPublish(publish, Collections.<Integer>emptySet(),
+                Collections.<PendingLibraryForcedSelection>emptyList());
+        TrackedLibrary readLib = dataStore.readTrackedLibraries().get(LIB);
+        LibraryPublish readPublish = dataStore.readLibraryPublishes(LIB).get(0);
+
+        // then the lines are intact
+        assertEquals("//depot/libraries/libA/src/main/java", readLib.getFollowedLine());
+        assertEquals("//depot/libraries/libA/src/main/java", readPublish.getSourceLine());
+    }
+
+    /**
+     * Two lines published the same release version with no jar hash: the lookup returns the row
+     * on the preferred line even though the other line's row has the higher sequence.
+     */
+    @Test
+    void lookupPrefersTheRowOnThePreferredLine() {
+        // given the same version published on line A (seq 1) and then line B (seq 2)
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        persistPublishOnLine("1.2", "lineA");
+        persistPublishOnLine("1.2", "lineB");
+
+        // when the version is looked up preferring line A, and with no preference
+        LibraryPublish preferred = dataStore.lookupLibraryPublish(LIB, null, "1.2", "lineA");
+        LibraryPublish unpreferred = dataStore.lookupLibraryPublish(LIB, null, "1.2", null);
+
+        // then the preferred line's row wins, and no preference keeps the highest sequence
+        assertEquals(1L, preferred.getPublishSeq());
+        assertEquals(2L, unpreferred.getPublishSeq());
+    }
+
+    /**
+     * Persist a hashless publish of the given version on the given line.
+     *
+     * @param version the published version
+     * @param line the source line to record
+     */
+    private void persistPublishOnLine(String version, String line) {
+        LibraryPublish publish = new LibraryPublish(LIB, version, null, "c", 1L);
+        publish.setSourceLine(line);
+        dataStore.persistLibraryPublish(publish, Collections.<Integer>emptySet(),
+                Collections.<PendingLibraryForcedSelection>emptyList());
     }
 }

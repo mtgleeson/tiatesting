@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.diffanalyze.FileImpactAnalyzer;
 import org.tiatesting.core.diff.diffanalyze.MethodImpactAnalyzer;
+import org.tiatesting.core.library.LibraryBuildFiles;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
@@ -36,6 +37,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.function.Supplier;
 
 import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXT;
 import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;
@@ -156,11 +158,16 @@ public class TestSelector {
                 runnabilityClassifier, checkLocalChanges, tiaCore.getCommitValue(), testSuitesTracked, libraryConfig);
         Set<String> testsToRun = runResult.getTestsToRun();
 
-        PendingLibrarySelection librarySelection = drainPendingLibraryMethodsIfConfigured(
-                libraryConfig, testsToRun, testSuitesTracked);
+        // Read at most once, shared by the library build-file trigger and the static rules.
+        Supplier<Set<String>> changedPaths = memoize(
+                () -> vcsReader.getChangedFilePaths(tiaCore.getCommitValue(), checkLocalChanges));
 
-        List<TestRunTrigger> staticRuleTriggers = applyStaticTestSelection(vcsReader, staticMappingConfig,
-                tiaCore.getCommitValue(), testSuitesTracked, testsToRun, checkLocalChanges, libraryConfig);
+        PendingLibrarySelection librarySelection = drainPendingLibraryMethodsIfConfigured(
+                libraryConfig, testsToRun, testSuitesTracked,
+                isLibraryBuildFileTriggered(libraryConfig, changedPaths, vcsReader));
+
+        List<TestRunTrigger> staticRuleTriggers = applyStaticTestSelection(staticMappingConfig, changedPaths,
+                vcsReader, tiaCore.getCommitValue(), testSuitesTracked, testsToRun, checkLocalChanges, libraryConfig);
 
         // @Nested families are selected whole - added after every other source of selection, so it
         // covers all of them. See NestedTestSuites#addFamilies for why.
@@ -219,7 +226,7 @@ public class TestSelector {
         }
 
         PendingLibrarySelection librarySelection = drainPendingLibraryMethodsIfConfigured(
-                libraryConfig, testsToRun, testSuitesTracked);
+                libraryConfig, testsToRun, testSuitesTracked, true);
         RunTimeEstimate estimate = estimateRunTime(testsToRun, testSuitesTracked,
                 tiaCore.getTestStats());
 
@@ -1369,8 +1376,10 @@ public class TestSelector {
      * {@code testsToRun}. Static rules are additive only: they can add suites to the run set
      * but never remove them.
      *
-     * @param vcsReader the VCS reader used to fetch changed file paths.
      * @param staticMappingConfig the static test selection config; may be {@code null}.
+     * @param changedPaths the files changed since the stored commit, read on first use and shared
+     *                     with the library build-file trigger.
+     * @param vcsReader the VCS reader, for the POM content a POM-aware rule loads.
      * @param storedCommitValue the commit the stored mapping was built at; the baseline for
      *                          the changed-paths query.
      * @param testSuitesTracked the tracked test suites (names + stats) keyed by suite name,
@@ -1383,8 +1392,9 @@ public class TestSelector {
      * @return one {@link TestRunTrigger} per fired rule, for the run-history selection breakdown;
      *         empty when no rule fired or {@code staticMappingConfig} is null/disabled.
      */
-    private List<TestRunTrigger> applyStaticTestSelection(final VCSReader vcsReader,
-                                          final StaticTestSelectionConfig staticMappingConfig,
+    private List<TestRunTrigger> applyStaticTestSelection(final StaticTestSelectionConfig staticMappingConfig,
+                                          final Supplier<Set<String>> changedPaths,
+                                          final VCSReader vcsReader,
                                           final String storedCommitValue,
                                           final Map<String, TestSuiteTracker> testSuitesTracked,
                                           final Set<String> testsToRun,
@@ -1397,13 +1407,13 @@ public class TestSelector {
         StaticTestSelectionResolver resolver = new StaticTestSelectionResolver(staticMappingConfig);
         resolver.warnOnEmptyRules(testSuitesTracked);
 
-        Set<String> changedPaths = vcsReader.getChangedFilePaths(storedCommitValue, checkLocalChanges);
+        Set<String> paths = changedPaths.get();
         // POM content is fetched lazily by the analyzer, only if a POM-aware rule matches a changed path.
         List<String> trackedLibraries = libraryConfig != null && libraryConfig.isEnabled()
                 ? libraryConfig.getCoordinates() : Collections.<String>emptyList();
-        PomChangeAnalyzer pomAnalyzer = new PomChangeAnalyzer(vcsReader, storedCommitValue, checkLocalChanges, changedPaths,
+        PomChangeAnalyzer pomAnalyzer = new PomChangeAnalyzer(vcsReader, storedCommitValue, checkLocalChanges, paths,
                 new PomChangeClassifier(trackedLibraries), staticMappingConfig.getExternalPomSource());
-        StaticTestSelectionResult staticResult = resolver.resolve(changedPaths, testSuitesTracked, pomAnalyzer);
+        StaticTestSelectionResult staticResult = resolver.resolve(paths, testSuitesTracked, pomAnalyzer);
         Set<String> forced = staticResult.getForcedSuites();
         // Always log the static selection outcome when rules are configured - an empty result
         // is as informative as a hit, and this matches the unconditional logging of the other
@@ -1581,13 +1591,18 @@ public class TestSelector {
      *                          drainer so drained forced-selection batches resolve
      *                          {@code RUN_ALL} / {@code SUITE_NAMES} against this project's own
      *                          suite set rather than the library's.
+     * @param resolveAllTracked true when the drain must identify every tracked library's held
+     *                          build even with nothing pending: on a forced run, so the seal can
+     *                          move each mapping baseline to it, and when a build file changed, so
+     *                          a consumer that moved to another source line is switched; false
+     *                          resolves only libraries with something pending
      * @return the drain result for post-run cleanup (null when draining was skipped) together
      *         with the count of suites selected from pending library changes, for the
      *         run-history selection breakdown
      */
     private PendingLibrarySelection drainPendingLibraryMethodsIfConfigured(
             LibraryImpactAnalysisConfig libraryConfig, Set<String> testsToRun,
-            Map<String, TestSuiteTracker> testSuitesTracked) {
+            Map<String, TestSuiteTracker> testSuitesTracked, boolean resolveAllTracked) {
 
         if (libraryConfig == null || !libraryConfig.isEnabled()) {
             return new PendingLibrarySelection(null, 0);
@@ -1595,7 +1610,7 @@ public class TestSelector {
 
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                drainer.drainPendingMethods(dataStore, libraryConfig, testSuitesTracked);
+                drainer.drainPendingMethods(dataStore, libraryConfig, testSuitesTracked, resolveAllTracked);
 
         if (!outcome.getTestsToAdd().isEmpty()) {
             LogUtil.infoSampled(log, "Selected tests to run from pending library changes", outcome.getTestsToAdd());
@@ -1603,6 +1618,71 @@ public class TestSelector {
         }
 
         return new PendingLibrarySelection(outcome.getDrainResult(), outcome.getTestsToAdd().size());
+    }
+
+    /**
+     * Decide whether a selective run must identify every tracked library's held build because a
+     * build file changed since the stored commit. A changed build file is how a consumer moves to
+     * another library build - a declared version, a version property or catalogue, a BOM import -
+     * and a move to another source line leaves nothing pending in its schema once the old line's
+     * run has discarded the new line's stamp. Resolving on that run notices the switch. Only the
+     * source project's own build files count - in its directory, below it, or above it up to the
+     * workspace root - so another project's build file in the same repository or client view
+     * does not trigger it. When the VCS cannot name its workspace root, or the source project
+     * lies outside it, every changed build file counts. A run with no library impact analysis, or
+     * no changed build file of the project, keeps the drain's no-pending fast path. The changed
+     * paths are only read when libraries are configured. See the source-lines section of the
+     * library publish-time stamping chapter in {@code WIKI.md}.
+     *
+     * @param libraryConfig the library impact analysis configuration, or null when not configured
+     * @param changedPaths the files changed since the stored commit, read on first use
+     * @param vcsReader the VCS reader, naming the workspace root the changed paths are relative to
+     * @return true when tracked libraries are configured and a build file of the source project changed
+     */
+    private boolean isLibraryBuildFileTriggered(final LibraryImpactAnalysisConfig libraryConfig,
+                                                final Supplier<Set<String>> changedPaths,
+                                                final VCSReader vcsReader) {
+        if (libraryConfig == null || !libraryConfig.isEnabled()) {
+            return false;
+        }
+        Set<String> paths = changedPaths.get();
+        if (!LibraryBuildFiles.anyProjectBuildFile(paths, null)) {
+            return false;
+        }
+        String projectPath = LibraryBuildFiles.projectPathInWorkspace(vcsReader.getWorkspaceRoot(),
+                libraryConfig.getSourceProjectDir());
+        boolean triggered = LibraryBuildFiles.anyProjectBuildFile(paths, projectPath);
+        if (triggered) {
+            log.info("A build file of the source project changed since the stored commit - identifying the "
+                    + "build each tracked library resolves to, so a move to another source line is noticed.");
+        } else {
+            log.debug("Changed build files lie outside the source project {} - not identifying the tracked "
+                    + "libraries' builds.", libraryConfig.getSourceProjectDir());
+        }
+        return triggered;
+    }
+
+    /**
+     * Wrap a supplier so it is evaluated at most once and its result reused.
+     *
+     * @param supplier the supplier to wrap
+     * @param <T> the supplied type
+     * @return a supplier returning the first evaluation's result on every call
+     */
+    private static <T> Supplier<T> memoize(final Supplier<T> supplier) {
+        return new Supplier<T>() {
+            private boolean evaluated;
+            private T value;
+
+            @Override
+            public T get() {
+                if (!evaluated) {
+                    value = supplier.get();
+                    evaluated = true;
+                }
+                return value;
+            }
+        };
     }
 
     /**

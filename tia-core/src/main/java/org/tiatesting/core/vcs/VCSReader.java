@@ -143,4 +143,37 @@ public interface VCSReader {
      * Do any clean up action when no further interactions with the VCS are needed.
      */
     void close();
+
+    /**
+     * Identify the source line the given source directories belong to: where that source lives in
+     * the VCS, independent of the workspace viewing it. Two builds of a library are on the same
+     * line when they were built from the same place. See the source-lines section of the library
+     * publish-time stamping chapter in {@code WIKI.md}.
+     *
+     * <p>Called once per library publish, never on the select-tests path and never by a test run.
+     * The default is the answer for a VCS where a branch is the line (Git): the branch the
+     * publishing workspace identifies as. That is the workspace identity's branch - the
+     * configured one when set - and not this reader's own branch name, which is a commit SHA on
+     * a detached HEAD and would make every CI publish a line of its own. A VCS that can name the
+     * source's real location (Perforce depot paths) overrides this and ignores the branch.
+     *
+     * @param sourceDirs the absolute source directories of the module being published
+     * @param workspaceBranch the branch the publishing workspace identifies as, or null when unknown
+     * @return the line, or null when it cannot be identified
+     */
+    default String getSourceLine(List<String> sourceDirs, String workspaceBranch) {
+        return workspaceBranch;
+    }
+
+    /**
+     * Name the directory the paths from {@link #getChangedFilePaths} are relative to, so a caller
+     * can tell which changed files lie in a given project directory. Read from local state - no
+     * server call. A VCS that cannot name one returns null and callers then treat every changed
+     * path as in scope.
+     *
+     * @return the absolute workspace root (Git work tree, Perforce client root), or null when unknown
+     */
+    default String getWorkspaceRoot() {
+        return null;
+    }
 }

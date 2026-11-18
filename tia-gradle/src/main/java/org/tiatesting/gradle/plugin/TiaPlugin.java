@@ -14,6 +14,7 @@ import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.bundling.AbstractArchiveTask;
 import org.gradle.api.tasks.testing.Test;
 import org.gradle.util.GradleVersion;
+import org.tiatesting.core.library.LibraryPublishFanOut;
 import org.tiatesting.core.library.LibraryPublishStamper;
 import org.tiatesting.core.testrunner.TestClassScanner;
 import org.slf4j.Logger;
@@ -713,27 +714,24 @@ public class TiaPlugin implements Plugin<Project> {
     }
 
     /**
-     * Write the publish stamp into every schema that consumes this library.
-     *
-     * <p>The list is declared, never derived. The consuming app is a separate build, so this
-     * project cannot see its schemas - and a stamp written to a schema no consumer reads is never
-     * drained, leaving the suites the library change affects un-run. Unset means the single schema
-     * this project itself resolves to, which is where the stamp has always gone and is right
-     * whenever the consumers use the plain {@code tia_<branch>} schema.
+     * Write the publish stamp into every schema that consumes this library. The consumers are
+     * discovered - every schema in the Tia database holding a tracked-library row for this
+     * coordinate - not declared, so a new consumer branch or test task is reached as soon as it
+     * has reconciled, and this project's own branch decides nothing. See the consumer-discovery
+     * section of the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * <p><b>Stamping several schemas is not atomic.</b> Each is its own connection and its own
      * transaction, and the publish itself has already happened by the time this runs, so a failure
-     * part-way leaves some schemas recording the publish and others not - and the ones that missed
-     * it will never force-run the affected suites. Every schema is therefore attempted rather than
-     * failing at the first, so the damage is as small as it can be, and the build then fails naming
-     * exactly which schemas hold the stamp and which do not. A warning would not do: the failure it
-     * describes is silent under-selection, which nobody discovers from a log line.
+     * part-way leaves some schemas recording the publish and others not. Every schema is therefore
+     * attempted, and the build then fails naming exactly which hold the stamp and which do not. A
+     * warning would not do: the failure it describes is silent under-selection.
      *
      * @param groupArtifact the published library's {@code groupId:artifactId}
      * @param publishedVersion the version being published
      * @param jarFilePath the built archive's path, for content hashing; may be null
      * @param vcsReader this project's VCS reader
-     * @param branch the branch whose schemas are stamped
+     * @param publishingBranch the branch this workspace identifies as - the publish's source line
+     *                         on a VCS where a branch is the line; it selects no schema
      * @param staticConfig this project's static test selection configuration
      * @param publishingSourceDirs this project's own source roots, which the publish diff runs over
      */
@@ -741,64 +739,36 @@ public class TiaPlugin implements Plugin<Project> {
                                                    final String publishedVersion,
                                                    final String jarFilePath,
                                                    final VCSReader vcsReader,
-                                                   final String branch,
+                                                   final String publishingBranch,
                                                    final StaticTestSelectionConfig staticConfig,
                                                    final List<String> publishingSourceDirs) {
-        List<String> targetSuffixes = declaredLibraryStampSchemas();
-        if (targetSuffixes.isEmpty()) {
-            targetSuffixes = new ArrayList<>(reportingSchemaSuffixes());
+        List<String> schemas = DataStoreFactory.findSchemasTrackingLibrary(resolveDbFilePath(), getDbUrl(),
+                getDbUser(), resolveDbPassword(), getDbDialect(), groupArtifact);
+        if (schemas.isEmpty()) {
+            LOGGER.warn("Tia publish stamp skipped: no schema in the Tia database tracks library '{}'. "
+                    + "It becomes tracked once a consuming project lists it in sourceLibs and runs.", groupArtifact);
+            return;
         }
 
-        List<String> stamped = new ArrayList<>();
-        Map<String, String> failed = new LinkedHashMap<>();
+        LibraryPublishFanOut.FanOutResult result = new LibraryPublishFanOut().stampEachSchema(schemas,
+                this::buildDataStoreForSchema, vcsReader, groupArtifact, publishedVersion, jarFilePath,
+                staticConfig, publishingSourceDirs, publishingBranch);
 
-        for (String suffix : targetSuffixes) {
-            String schemaLabel = suffix == null ? "(none)" : suffix;
-            try (DataStore dataStore = buildDataStore(branch, suffix)) {
-                LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
-                        .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion,
-                                jarFilePath, staticConfig, publishingSourceDirs);
-                LOGGER.info("Tia publish stamp for {} {} into schema {}: {} (seq {}, {} methods).",
-                        groupArtifact, publishedVersion, schemaLabel, result.getOutcome(),
-                        result.getPublishSeq(), result.getStampedMethodIds().size());
-                stamped.add(schemaLabel);
-            } catch (RuntimeException e) {
-                LOGGER.error("Tia publish stamp for {} {} FAILED for schema {}.", groupArtifact,
-                        publishedVersion, schemaLabel, e);
-                failed.put(schemaLabel, String.valueOf(e.getMessage()));
-            }
-        }
-
-        if (!failed.isEmpty()) {
-            throw new GradleException("Tia: the publish stamp for " + groupArtifact + " "
-                    + publishedVersion + " reached " + stamped + " but FAILED for " + failed.keySet()
-                    + ". Those schemas have no record of this publish, so they will never drain the"
-                    + " methods it changed and never re-run the suites those methods affect - a"
-                    + " silent gap in their selection until the library publishes again. Re-run the"
-                    + " publish stamp once the cause is fixed. Failures: " + failed);
+        String failure = result.failureMessage(groupArtifact, publishedVersion);
+        if (failure != null) {
+            throw new GradleException(failure);
         }
     }
 
     /**
-     * The consuming schema suffixes declared for a library publish stamp, parsed from the
-     * comma-separated setting.
+     * Open the datastore on a schema found by consumer discovery, named exactly as discovered.
      *
-     * @return the declared suffixes with blanks discarded, or an empty list when none is declared
+     * @param schemaName the discovered schema name
+     * @return an open datastore the caller owns and closes
      */
-    private List<String> declaredLibraryStampSchemas() {
-        List<String> suffixes = new ArrayList<>();
-        String declared = tiaTaskExtension.getLibraryStampSchemas();
-        if (declared == null || declared.trim().isEmpty()) {
-            return suffixes;
-        }
-
-        for (String entry : declared.split(",")) {
-            String trimmed = entry.trim();
-            if (!trimmed.isEmpty()) {
-                suffixes.add(trimmed);
-            }
-        }
-        return suffixes;
+    public DataStore buildDataStoreForSchema(final String schemaName) {
+        return DataStoreFactory.forSchema(resolveDbFilePath(), getDbUrl(), getDbUser(), resolveDbPassword(),
+                getDbDialect(), schemaName);
     }
 
     /**

@@ -55,17 +55,125 @@ build am I actually holding?*
    cannot produce a false green; draining blindly could. Self-heals on the next publish/resolve
    cycle.
 4. Downgrade guard: if R is below the library's `last_applied_seq`, hold and warn - those tests
-   already ran against newer code; check the dependency resolution.
+   already ran against newer code; check the dependency resolution. It applies to builds on the
+   followed line only - see [Source lines](#source-lines).
 
 After the test run, the primary build's persist deletes the drained stamps, advances
-`last_applied_seq` to R and moves the library's `mapping_baseline_commit` to the run's sealed
-commit. `last_applied_seq` is deliberately NOT part of the drain predicate - it is a monotonic
+`last_applied_seq` to R and moves the library's `mapping_baseline_commit` to the commit build R
+was published at (the ledger row's commit, carried on the drain result). `last_applied_seq` is deliberately NOT part of the drain predicate - it is a monotonic
 high-water mark for the downgrade warning and reporting only; at worst a corrupted value produces
 a wrong warning, never a wrong drain.
 
 A crash before the cleanup leaves the stamps pending and the next run re-drains them -
 overselection only, never underselection, consistent with the
 [persist flow and crash safety](persist-flow-and-crash-safety.md) model.
+
+### Source lines
+
+One library coordinate can be built from more than one place: a `1.x` hotfix line and a `2.x`
+line, or two streams that each carry their own copy of the library. A consumer takes its builds
+from one of them, and only that line's changes are in the jar it holds. Each publish therefore
+records its **source line**, and each consumer schema records the line it **follows**.
+
+**What a line is.** Where the library source that was built lives, independent of the workspace
+it was built in:
+
+- **Perforce:** the depot paths the publishing module's source roots resolve to through the
+  client view (one `p4 where`), sorted and comma-joined. A release job working through a virtual
+  or importing stream resolves to the real depot location, so the same source is the same line
+  through any view. The stream or client name is deliberately not used. Source roots inside the
+  module's build directory (generated sources) are left out, so the line does not change with
+  what a build happened to generate.
+- **Git:** the branch the publishing workspace identifies as - the configured `tiaBranch` when
+  set, the same value that names the schema. Not the checked-out ref, which is a commit SHA on a
+  detached HEAD and would make every CI publish a line of its own.
+
+The line is stored on the ledger row (`tia_library_publish.source_line`). When it cannot be
+identified - no source root maps through the client view - the row has no line, the publish logs a
+warning, and the row matches any line, as do rows written before lines were recorded.
+
+**How a consumer learns its line.** It runs no VCS command. The drain already hashes the library
+jar on the classpath and finds it in the schema's ledger; the matching row names the line. The
+first primary run that resolves a known build - one with pending stamps to evaluate, or a forced
+all-tests run - reports that line, and the seal stores it as `tia_library.followed_line`.
+
+**Every line stamps every consumer.** A publish writes its ledger row and its stamp into every
+schema tracking the coordinate, whichever line that schema follows. The publisher cannot know
+which line a consumer takes its builds from today; the consumer's drain can, because it identifies
+the jar it holds. So the line is applied at the drain. At any run that resolves a build:
+
+- pending batches on the resolved build's line at or below its sequence drain as usual;
+- pending batches from other lines are **discarded**: deleted at the seal without selecting a
+  test. The jar the consumer holds does not contain those changes.
+
+The first such run also establishes the followed line. A consumer of a library with several active
+lines therefore pays one library resolution on the run after each other-line publish, and selects
+nothing for it.
+
+**Per-line previous publish.** Diff 2's "since the previous publish" is measured from the
+previous publish on the publishing line. Measuring from another line's publish would filter out
+this line's own earlier edits.
+
+**Ambiguous matches.** When several ledger rows match the resolved jar's hash or release version
+(two lines can publish the same version), a row on the followed line is preferred, then the
+highest sequence.
+
+**Line switch.** A consumer that follows a line and resolves a build from another - an app moving
+from the hotfix line to the next major - has switched line. The run **selects every tracked
+suite**: the mapping does not record which methods belong to the library, and a diff across lines
+cannot be matched to the mapping's line numbers, so no narrower selection exists. A warning names
+both lines. At the seal:
+
+- every pending batch for the library is deleted, whichever line it is from - the old line's no
+  longer describe the held jar, and the new line's are covered by having run everything;
+- the followed line becomes the new line and `last_applied_seq` the resolved build's sequence;
+- the mapping baseline moves to the resolved build's publish commit, as after any drain.
+
+The downgrade guard is skipped on a switch: sequences on different lines do not order each other,
+so a lower sequence on the new line is not an older build. From the next publish on, the new
+line's stamps drain precisely and the old line's are discarded.
+
+A switch is noticed when the drain identifies the held build, which it does when the library has a
+pending stamp or the run is a forced all-tests run (the no-pending fast path resolves nothing, to
+keep selection cheap). Because every line stamps every consumer, a publish on the new line leaves
+a stamp pending in the consumer's schema, so the old line need not publish again for the move to
+be noticed. This is why a publish is not withheld from schemas following another line.
+
+**A changed build file also triggers it.** A run on the old line discards the new line's pending
+stamp, so if the consumer ran between the new line's publish and adopting that build - the usual
+order for a release - nothing is pending when it moves. Moving normally means editing a build file
+(a declared version, a version property or catalogue, a BOM import), so a selective run whose
+changes since the stored commit include a `pom.xml`, a Gradle build or settings script,
+`gradle.properties` or a `*.versions.toml` identifies every tracked library's held build, as a
+forced run does, and a switch is noticed at that run. The changed paths are read once and shared
+with the static selection rules; with no static rules configured, the trigger costs one
+changed-paths query per run, plus a library resolution on the runs where a build file changed.
+
+Only the source project's own build files count: those in the source project directory, below it
+(its modules), or in a directory above it up to the workspace root (parent POMs, root settings
+scripts and `gradle.properties`). A version catalogue in a `gradle/` directory counts for the
+build one level up, where Gradle reads it. A build file of another project in the same repository
+or client view cannot change what this project resolves, so it does not trigger a resolution.
+The workspace root is the Git work tree or the Perforce client root, read locally with no server
+call. When the source project lies outside the workspace, every changed build file counts.
+
+The trigger does not cover every move:
+
+- **No build-file change.** A snapshot dependency can resolve to another line's build because a
+  different line published the same snapshot version last.
+- **A version kept outside the project's own and parent build files.** An in-repo BOM or Gradle
+  platform module beside the project (`bom/pom.xml`, `platform/build.gradle`), a version catalogue
+  outside a `gradle/` directory, a script applied with `apply from:` (such as
+  `gradle/dependencies.gradle`), or `buildSrc` sources. A change there can move the project to
+  another build without changing a build file the trigger counts.
+
+Run `tiaSelectAllTests` once after such a move to switch the consumer at that run; otherwise the
+switch is noticed at the next publish on either line. Until then, a library change the move
+brought in does not re-run the suites that cover it.
+
+Local (non-primary) runs read the followed line and apply the same rules but never write it.
+Nothing here needs the VCS on the consumer side: the line is read at publish time and travels in
+the ledger.
 
 ### End-to-end sequence
 
@@ -109,7 +217,7 @@ time
  |                                                            post-run cleanup:
  |                                                               DELETE stamp seq2
  |                                                               last_applied_seq = 2
- |                                                               mapping_baseline_commit = sealed commit
+ |                                                               mapping_baseline_commit = C2 (seq2's publish commit)
  v
 ```
 
@@ -143,7 +251,7 @@ The producer side is a goal/task on the **library** module's build, firing on ev
     <tiaEnabled>true</tiaEnabled>
     <tiaUpdateDBMapping>true</tiaUpdateDBMapping>
     <tiaProjectDir>${project.basedir}</tiaProjectDir>
-    <!-- must point at the same DB location the consuming project uses -->
+    <!-- the database the consuming projects use; the stamp needs nothing else to find them -->
     <tiaDBFilePath>${project.basedir}/../my-app</tiaDBFilePath>
   </configuration>
 </plugin>
@@ -171,15 +279,61 @@ Behaviours worth knowing:
   no source roots, the recorded dirs are used.
 - **First publish seeds.** A library with no mapping baseline gets a ledger row and its baseline
   set to HEAD, with nothing stamped - stamping the library's entire history would be wrong.
-- **Untracked coordinate skips.** The module must already be a tracked library (declared in the
-  consumer's `tiaSourceLibs` and reconciled by a primary consumer run); otherwise the task logs a
-  warning and writes nothing.
+- **Untracked coordinate skips.** The module must already be a tracked library (declared in a
+  consumer's `tiaSourceLibs` and reconciled by a primary consumer run); when no schema in the
+  database tracks it the task logs a warning, writes nothing and the publish succeeds.
 - **Ownership gating.** Only a build that owns mapping-DB writes stamps (`tiaUpdateDBMapping` /
   `updateDBMapping` true). On a developer machine against a shared DB the task is a logged no-op -
   the local flow below covers development without persisted stamps.
 - **Empty diffs still publish.** A rebuild with no source change writes a ledger row with an empty
   stamp; a consumer resolving it drains everything at or below it, all genuinely contained in the
   jar. Non-reproducible rebuild hashes are therefore benign.
+
+### Consumer discovery
+
+One library can be consumed from several branches or streams, each with its own schema, and from
+several test tasks of one project, each with its own suffixed schema. The publish reaches all of
+them without being told which exist. The only thing the publishing build shares with its consumers
+is the database connection; its own branch and schema suffix select nothing, and no schema is
+created for the publishing workspace.
+
+For a publish on source line L:
+
+1. **Discover.** List the schemas in the database named `tia_*` and keep those whose `tia_library`
+   table holds a row for the published coordinate. That row is written by the consumer's own
+   reconcile, so the set is exactly the consumers - nothing is declared, and a new consumer branch
+   or test task is reached as soon as it has run once. Discovery is read-only: a schema that only
+   shares the prefix is left untouched.
+2. **Ledger row everywhere.** Every discovered schema records the publish (sequence, version, hash,
+   commit, line L), so any build stays recognisable to any consumer.
+3. **Stamp everywhere.** Every discovered schema also receives the method stamp and
+   forced-selection batches, whichever line it follows. A schema following another line discards
+   them at its next drain, or switches line if its consumer has moved to L. See
+   [Source lines](#source-lines).
+4. **Previous publish is per line, per schema.** Each schema runs its own baseline diff and its own
+   "since the previous publish on L" filter, since baselines and sequences are per schema.
+
+The two layouts this serves:
+
+| Layout | Where the library source lives | What one publish does |
+|---|---|---|
+| Shared library stream | One stream; consumers on `mainline` and `future-development` both take its jars (the release job may build through a virtual stream) | One line. Both consumer schemas record the publish and receive the stamp; each drains it when its own build picks the jar up |
+| Co-located library | Each consumer stream holds its own copy and builds its own jar | One line per stream. Every schema records the publish and receives the stamp; only the consumer holding a jar from the publishing stream's line runs tests for it, the others discard it at their next run |
+
+Operational notes:
+
+- **No tracking schema.** The publish logs a warning and succeeds - see "Untracked coordinate
+  skips" above.
+- **Not atomic.** Each schema is its own connection and transaction, and the artifact is already
+  published. Every schema is attempted, then the build fails naming the schemas that hold the
+  stamp and those that do not. Re-run the publish stamp once the cause is fixed.
+- **Cost.** One metadata listing plus one indexed lookup per `tia_*` schema, then one stamp per
+  consumer. It runs at publish time only; nothing is added to test selection. The stamps share
+  their VCS work for the length of the publish: the source line is resolved once, and each diff,
+  changed-paths query and content load is made once for all the schemas asking the same question.
+  Schemas that hold the same build share one baseline and one previous publish, so the VCS work
+  grows with the number of distinct baselines, not the number of schemas. Each schema still costs
+  its own database reads and writes.
 
 ### Line-number correctness: the mapping baseline
 
@@ -189,9 +343,46 @@ the library's covering suites last ran with coverage - so each `tia_library` row
 commit as its `mapping_baseline_commit`, and the publish task always diffs from it (not from the
 previous publish, which would compound line drift and risk underselection).
 
-The baseline advances only when line numbers actually refresh: on an all-tests run (every suite
-re-covered), and on a primary run that drained the library's stamps (the drain ran its covering
-suites with coverage). Between advances the baseline diff is cumulative - it re-reports every
+The commit that matters is the library's, not the consumer's: the covering suites ran against
+the jar the consumer holds, so the line numbers they captured are those of the source that jar
+was built from. The baseline is therefore the commit the held build was **published** at, read
+from its ledger row. The consumer's own sealed commit must not be used. It can sit past library
+changes the held jar does not contain, and a baseline there hides those changes from every later
+publish:
+
+| Changelist | Event                                                        |
+|------------|--------------------------------------------------------------|
+| 480        | library released; the consumer picks this jar up             |
+| 490        | library edited, not released                                 |
+| 500        | consumer run drains the 480 release and seals                |
+| 510        | library released, containing the 490 edit                    |
+
+With the baseline at 480 the release at 510 diffs `480..510` and stamps the 490 edit. A baseline
+of 500 would diff `500..510`, find nothing, and the consumer would upgrade to a jar containing an
+untested change.
+
+The baseline moves only when line numbers actually refresh, and only to a build the ledger knows:
+
+- **A primary run that drained the library's stamps** (the drain ran its covering suites with
+  coverage): to the resolved build's publish commit.
+- **A forced all-tests run** (`tiaSelectAllTests`, `tiaReseed`): every suite is re-covered, so the
+  drain identifies the held build of every tracked library, pending stamps or not, and each
+  baseline moves to its build's publish commit. This is the one case where the drain resolves
+  libraries with nothing pending; a normal selection still skips that work.
+- **Held build not in the ledger** (unresolvable, never published with stamping, or a downgrade):
+  the baseline stays where it is. The next publish diffs a wider range than strictly needed,
+  never a narrower one. The exception is a library with no baseline at all, which takes the
+  sealed commit on an all-tests run - the usual case being the first seed - so that its first
+  publish stamps instead of seeding.
+
+An all-tests run that was not forced (selection happened to ignore nothing) and has nothing
+pending does not resolve held builds, so its baselines stay put - again the wider, safe direction.
+
+The seal takes all of this from the drain result and the datastore. Identifying the held build
+uses the build model, the jar on disk and the ledger, at selection time; nothing in the test run
+or the seal reads the VCS, so runners without a repository are unaffected.
+
+Between advances the baseline diff is cumulative - it re-reports every
 method changed since the baseline on every publish - so a second diff filters that set down to what
 is genuinely new for each publish, as the next section explains.
 
@@ -246,9 +437,9 @@ Two properties fall out of the file-granular filter:
   run of already-green tests, never a skipped test. Method-precise dedup would require computing
   method boundaries at HEAD (a mapping run at publish time), not worth it for that residual.
 
-The first publish in each baseline window - the seed, and the first publish after a drain advances
-the baseline - has its previous publish equal to the baseline, so Diff 2 is skipped and the publish
-stamps the full precise Diff 1.
+The first publish in each baseline window - the seed, and the first publish after a consumer on
+the latest build drains and moves the baseline to that build's publish commit - has its previous
+publish equal to the baseline, so Diff 2 is skipped and the publish stamps the full precise Diff 1.
 
 ### Library-declared forced selection
 
@@ -330,11 +521,12 @@ the working tree.
 ### Reporting
 
 - The `libraries` task/mojo lists every tracked library with its ledger state
-  (`last applied publish seq`, mapping baseline) and its pending batches (seq, version, method
-  count).
+  (`last applied publish seq`, mapping baseline, followed source line) and its pending batches
+  (seq, version, method count).
 - `library-publishes` (`-DtiaLibrary=group:artifact` on Maven, `--library=group:artifact` on
   Gradle's `tia-library-publishes`) prints the library's ledger as a table: seq, version, jar
-  hash, commit, publish time and how many of the build's stamped methods still await drain.
+  hash, commit, publish time, how many of the build's stamped methods still await drain, and the
+  source line the build was published from.
 - `library-pending-methods` / `tia-library-pending-methods` prints one row per pending method:
   the publish it shipped in (seq + version) and the method's tracked name and line range.
 - The HTML `tia-libraries.html` page renders all three: tracked libraries, the publish ledger and
@@ -356,6 +548,10 @@ the working tree.
 - **Duplicate ledger matches** (identical artifact republished): the lookup takes the highest
   matching seq - contents are identical or cumulative, so the higher seq drains a superset, the
   safe direction.
+- **Several release lines of one library** (a `1.x` hotfix line alongside `2.x`, or a copy of the
+  library per stream): each consumer schema follows the line it takes builds from and runs
+  tests only for that line's stamps; the others' are discarded at its drain. Moving a consumer to
+  another line runs all of its tests once and re-points it; see [Source lines](#source-lines).
 - **A pinned consumer** accumulates stamps by design and drains them in one catch-up when the
   dependency finally moves; union semantics dedupe repeated methods.
 - **Library commits not yet published** are kept out of the app run's source selection and
@@ -365,7 +561,8 @@ the working tree.
   it would discard. The library-diff partition stays as a guard for configured source dirs that
   themselves cover a tracked library. The recorded `tia_library` source dirs are therefore read by
   the app run only in local-changes mode and by that partition. The app's commit cursor and the
-  mapping baseline are independent; no coordination or timing window exists.
+  mapping baseline are independent - the baseline is a library publish commit, never the app's
+  sealed commit - so no coordination or timing window exists.
 - **Reconcile owns identity only.** The reconciler inserts/updates/deletes `tia_library` rows from
   the `tiaSourceLibs` config (project dir, source dirs); the ledger state (`mapping_baseline_commit`,
   `last_applied_seq`) is owned by the publish task and the post-run cleanup and survives config
@@ -382,6 +579,13 @@ the working tree.
   and requires access Tia does not otherwise need.
 - **Run Tia in the window between commit and version bump**: a timing constraint on someone else's
   schedule; not a correctness mechanism.
+- **Order the builds of different lines by version number**: would let one sequence span a `1.x`
+  and a `2.x` line, but a version says nothing about which source a build contains - a `1.4.1`
+  hotfix published after `2.0.0` is not contained in it - and snapshots of one version carry no
+  order at all. Lines are kept apart instead and a move between them runs everything once.
+- **Decide containment from VCS ancestry** (is the publish commit an ancestor of the held build's):
+  Git-only - Perforce has no ancestry between streams' changelists - and it would put a VCS read on
+  the consumer's drain, which today needs none.
 - **Match by jar hash alone, without a sequence**: cannot order snapshot builds, so a stale
   resolve (an older cached jar) would drain newer stamps against a jar that does not contain
   them - a silent false green. The sequence makes that impossible.

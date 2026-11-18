@@ -520,7 +520,7 @@ gradle tia-status
 ```
 
 ### Libraries — tracked libraries and their pending changes
-Lists every tracked library (see library impact analysis) with its recorded state - the same details as the `tia-libraries.html` report page, plus the per-batch pending detail: project dir, source dirs, last applied publish seq, mapping baseline commit, and the library's pending impacted-method batches.
+Lists every tracked library (see library impact analysis) with its recorded state - the same details as the `tia-libraries.html` report page, plus the per-batch pending detail: project dir, source dirs, last applied publish seq, mapping baseline commit, the source line the consumer follows, and the library's pending impacted-method batches.
 Example output:
 ```
 Tracked libraries:
@@ -529,6 +529,7 @@ Tracked libraries:
 		Source dirs: /abs/path/to/libA/src/main/java
 		Last applied publish seq: 2
 		Mapping baseline commit: 993f44ec47f4957ff6b8ae5ebdcbce2cdf1c3a2c
+		Followed source line: main
 		Pending batches: 1
 			seq 3 @ 1.1.0 - 3 methods pending
 ```
@@ -544,14 +545,14 @@ gradle tia-libraries
 ```
 
 ### Library publishes — the publish ledger for one library
-Prints a tracked library's publish ledger as a table: one row per published build with its sequence, version, jar hash, commit, publish time, and how many of the build's stamped methods still await their drain. The library is selected with a `groupId:artifactId` parameter.
+Prints a tracked library's publish ledger as a table: one row per published build with its sequence, version, jar hash, commit, publish time, how many of the build's stamped methods still await their drain, and the source line it was published from. The library is selected with a `groupId:artifactId` parameter.
 Example output:
 ```
 Publishes for library com.example:libA:
-Seq | Version        | Jar hash        | Commit          | Published at         | Methods pending
-----+----------------+-----------------+-----------------+----------------------+----------------
-1   | 1.0.0-SNAPSHOT | 3f9358826797... | 993f44ec47f4... | 2026-07-01T10:14:02Z | -
-2   | 1.1.0          | a1b2c3d4e5f6... | 1c63c66aa01b... | 2026-07-12T08:30:11Z | 3
+Seq | Version        | Jar hash        | Commit          | Published at         | Methods pending | Source line
+----+----------------+-----------------+-----------------+----------------------+-----------------+------------
+1   | 1.0.0-SNAPSHOT | 3f9358826797... | 993f44ec47f4... | 2026-07-01T10:14:02Z | -               | main
+2   | 1.1.0          | a1b2c3d4e5f6... | 1c63c66aa01b... | 2026-07-12T08:30:11Z | 3               | main
 ```
 
 **Maven**
@@ -803,7 +804,6 @@ Two Surefire settings can hide this output even when a binding is present:
 |tiaDBPassword|dbPassword|<string>|Database password for server-mode H2 or a non-H2 vendor (`tiaDBUrl`). Putting it here means committing a secret; see [Keeping the password out of checked-in config](#keeping-the-password-out-of-checked-in-config) for the alternatives.| (empty)                                                                                       |false|
 |tiaDBPasswordFile|dbPasswordFile|<string>|Path of a file holding the database password, read by Tia and never written by it. Intended for a mounted Docker or Kubernetes secret, or a file CI writes. Exactly one trailing newline is stripped, so `echo secret > pw.txt` works; nothing else is trimmed. An empty file means an explicitly empty password. Only the path is forwarded to the test JVM.| |false|
 |tiaDBServerId|N/A|<string>|**Maven only.** Id of a `<server>` entry in `~/.m2/settings.xml` to take the database username and password from. A server id is not a secret, so it can live in a committed parent POM while the credential stays on each developer's machine - and this is the only route on which Maven's own password encryption applies. A machine with no matching `<server>` falls through to the next channel rather than failing, so one POM can serve both CI and developer machines. See [Keeping the password out of checked-in config](#keeping-the-password-out-of-checked-in-config).| |false|
-|tiaLibraryStampSchemas|libraryStampSchemas|<string>|Comma-separated schema suffixes a library publish stamp is written to - the schemas of the projects that **consume** this library. Only needed by a project publishing a tracked library to consumers that isolate their test tasks into suffixed schemas: the consuming app is a separate build, so Tia cannot see its schemas, and a stamp written where no consumer reads it is never drained and the affected suites are never re-run. Stamping several schemas is not atomic - every one is attempted, and the build then fails naming which hold the stamp and which do not. Leave unset when consumers use the plain `tia_<branch>` schema.| (the publishing project's own schema)                                                        |false|
 |tiaDBSchemaSuffix|schemaSuffix|<string>|Isolates this test task's datastore into its own schema, `tia_<branch>_<suffix>`. Declare one per test task (Gradle) or per test execution (Maven) where a project runs more than one Tia-enabled test run: two that share a schema delete each other's tracked test suites and share one stored commit value, which costs selectivity and can silently under-select. Both build systems refuse a configuration whose Tia-enabled test runs resolve to the same schema, naming them and this setting. Leave unset for a single-test-task project - the schema is then the `tia_<branch>` Tia has always used, so nothing moves.| (none - the plain `tia_<branch>` schema)                                                    |false|
 |tiaRunSource|runSource|<string>|The label recorded in the history row's `run_source` column, overriding Tia's own detection. Leave unset unless the detection gets it wrong: Tia reads the CI marker environment variables (which a forked test JVM inherits), so a CI job is already labelled `CI` and a developer's machine `LOCAL` with nothing configured. Set it to distinguish a build the detection cannot tell apart from any other (a nightly, a performance rig), or to label a CI system Tia does not recognise. Can also be supplied as the `TIA_RUN_SOURCE` environment variable, which reaches the forked test JVM by inheritance. Set one of the two when tests run inside a Docker container or a hosted build service (e.g. Google Cloud Build), which do not pass the CI system's marker variables through, e.g. `docker run -e TIA_RUN_SOURCE=CI`. A distributed build takes its source from the plan step, so there it only needs to be set where the plan runs.| detected: `CI` when a CI marker environment variable is present, else `LOCAL`                 |false|
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.| ${project.build.directory}/tia                                                                |true|

@@ -11,7 +11,7 @@ import java.util.Map;
 
 /**
  * Generate the publish-ledger listing for a single tracked library - one table row per published
- * build (sequence, version, jar hash, commit, publish time) plus the count of impacted methods
+ * build (sequence, version, jar hash, commit, publish time, source line) plus the count of impacted methods
  * still pending for that build. Backs the {@code library-publishes} task/mojo, which takes the
  * {@code group:artifact} coordinate as input.
  */
@@ -46,7 +46,8 @@ public class LibraryPublishesReportGenerator {
         Map<Long, Integer> pendingCountBySeq = countPendingMethodsBySeq(
                 dataStore.readPendingLibraryImpactedMethods(coordinate));
 
-        TextTable table = new TextTable("Seq", "Version", "Jar hash", "Commit", "Published at", "Methods pending");
+        TextTable table = new TextTable("Seq", "Version", "Jar hash", "Commit", "Published at", "Methods pending",
+                "Source line");
         for (LibraryPublish publish : ledger) {
             Integer pendingCount = pendingCountBySeq.get(publish.getPublishSeq());
             table.addRow(
@@ -55,7 +56,8 @@ public class LibraryPublishesReportGenerator {
                     truncate(publish.getJarHash()),
                     truncate(publish.getCommitValue()),
                     Instant.ofEpochMilli(publish.getPublishedAt()).toString(),
-                    pendingCount != null ? String.valueOf(pendingCount) : "-");
+                    pendingCount != null ? String.valueOf(pendingCount) : "-",
+                    publish.getSourceLine() != null ? publish.getSourceLine() : "-");
         }
         sb.append(table.render(lineSep));
         return sb.toString();

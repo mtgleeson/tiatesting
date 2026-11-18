@@ -77,6 +77,43 @@ public class P4DiffAnalyzer {
     }
 
     /**
+     * Resolve the source line for a set of source directories: the depot paths the client view
+     * maps them to. A virtual or importing stream resolves to the real depot location, so the
+     * same source gives the same line through any workspace. Costs one {@code p4 where}.
+     *
+     * @param p4Context the Perforce context for the workspace
+     * @param sourceDirs the absolute source directories of the module being published
+     * @return the line, or null when no directory resolves through the client view
+     */
+    String resolveSourceLine(final P4Context p4Context, final List<String> sourceDirs) {
+        if (sourceDirs == null || sourceDirs.isEmpty()) {
+            return null;
+        }
+        List<String> depotPaths = new ArrayList<>();
+        for (IFileSpec spec : getSourceAndTestFilesSpecs(p4Context.getP4Connection(), sourceDirs)) {
+            depotPaths.add(spec.getDepotPathString());
+        }
+        return joinSourceLine(depotPaths, p4Context.getP4Connection().getServer().isCaseSensitive());
+    }
+
+    /**
+     * Build a source line from resolved depot paths: each stripped of a trailing {@code /...},
+     * keyed by the server's case rule, de-duplicated, sorted and comma-joined.
+     *
+     * @param depotPaths the depot paths the source directories resolved to
+     * @param caseSensitive whether the server compares depot paths case-sensitively
+     * @return the line, or null when there are no depot paths
+     */
+    static String joinSourceLine(final List<String> depotPaths, final boolean caseSensitive) {
+        TreeSet<String> keys = new TreeSet<>();
+        for (String depotPath : depotPaths) {
+            String trimmed = depotPath.endsWith("/...") ? depotPath.substring(0, depotPath.length() - 4) : depotPath;
+            keys.add(depotPathKey(trimmed, caseSensitive));
+        }
+        return keys.isEmpty() ? null : String.join(",", keys);
+    }
+
+    /**
      * Load the before/after file content onto the given diff contexts, keyed by each context's
      * {@link SourceFileDiffContext#getVcsFetchKey() depot-path fetch key}. For the submitted-range
      * case the "before" is read at {@code baseCl} and the "after" at head; for local changes the
@@ -449,6 +486,18 @@ public class P4DiffAnalyzer {
         } catch (IOException e) {
             throw new VCSAnalyzerException(e);
         }
+    }
+
+    /**
+     * Name the directory {@link #getChangedFilePaths} relativizes local paths against: the
+     * client's configured root. Read from the client spec loaded on connect, with no server call.
+     *
+     * @param p4Context object used to hold data about a Perforce server being analysed by Tia.
+     * @return the client root, or null when the client has none
+     */
+    protected String getWorkspaceRoot(final P4Context p4Context) {
+        String root = p4Context.getP4Connection().getClient().getRoot();
+        return root == null || root.trim().isEmpty() ? null : root;
     }
 
     /**

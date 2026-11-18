@@ -54,8 +54,9 @@ class SchemaManager {
      * see {@link #hasTestSupportCounterColumns(Connection)} - and the TEMPORARY test run tables
      * check - see {@link #addTestRunTables()} - the TEMPORARY group counter column drop - see
      * {@link #dropGroupCounterColumns()} - the TEMPORARY updates-mapping column add - see {@link
-     * #addUpdatesMappingColumn()} - and the TEMPORARY coverage-failure column add - see {@link
-     * #addCoverageFailureColumn()}.
+     * #addUpdatesMappingColumn()} - the TEMPORARY coverage-failure column add - see {@link
+     * #addCoverageFailureColumn()} - and the TEMPORARY library line columns add - see {@link
+     * #addLibraryLineColumns()}.
      *
      * @param connection the connection to check on
      * @return {@code true} if the Tia DB already existed before this call (or an earlier call
@@ -88,6 +89,9 @@ class SchemaManager {
         }
         if (dbExisted && lacksColumn(connection, TABLE_TIA_TEST_RUN, COL_COVERAGE_FAILURE)) {
             addCoverageFailureColumn();
+        }
+        if (dbExisted && lacksColumn(connection, TABLE_TIA_LIBRARY_PUBLISH, COL_SOURCE_LINE)) {
+            addLibraryLineColumns();
         }
 
         schemaEnsured = true;
@@ -534,7 +538,8 @@ class SchemaManager {
                 + COL_PROJECT_DIR + " VARCHAR(1000), "
                 + COL_SOURCE_DIRS_CSV + " VARCHAR(2000), "
                 + COL_MAPPING_BASELINE_COMMIT + " VARCHAR(128), "
-                + COL_LAST_APPLIED_SEQ + " BIGINT)";
+                + COL_LAST_APPLIED_SEQ + " BIGINT, "
+                + COL_FOLLOWED_LINE + " VARCHAR(2000))";
     }
 
     /**
@@ -582,6 +587,7 @@ class SchemaManager {
                 + COL_PUBLISHED_VERSION + " VARCHAR(128) NOT NULL, "
                 + COL_JAR_HASH + " VARCHAR(128), "
                 + COL_COMMIT_VALUE + " VARCHAR(128), "
+                + COL_SOURCE_LINE + " VARCHAR(2000), "
                 + COL_PUBLISHED_AT + " BIGINT NOT NULL, "
                 + "PRIMARY KEY (" + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + "), "
                 + "FOREIGN KEY (" + COL_GROUP_ARTIFACT + ") REFERENCES " + TABLE_TIA_LIBRARY + "(" + COL_GROUP_ARTIFACT + ") ON DELETE CASCADE)";
@@ -697,6 +703,36 @@ class SchemaManager {
              Statement statement = connection.createStatement()) {
             statement.execute("ALTER TABLE " + TABLE_TIA_TEST_RUN + " ADD COLUMN IF NOT EXISTS "
                     + COL_COVERAGE_FAILURE + " VARCHAR(" + COVERAGE_FAILURE_MAX_LENGTH + ")");
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * TEMPORARY one-off migration: add the {@code followed_line} column to a {@code tia_library}
+     * table and the {@code source_line} column to a {@code tia_library_publish} table created
+     * before they existed. Existing rows get NULL, which matches any line, so existing ledgers and
+     * pending stamps keep draining as before. Remove this method and its call in {@link
+     * #ensureSchema} once the shared database has been migrated - Tia otherwise has no migrations
+     * (see the class javadoc).
+     *
+     * <p>{@code source_line} is added last because it is the column {@link #ensureSchema} checks:
+     * a migration interrupted between the two statements is found incomplete and run again.
+     * Runs on a fresh connection, like {@link #createTiaDB()}, so the DDL (which H2 commits
+     * implicitly) never touches a caller's transaction. {@code IF NOT EXISTS} makes two JVMs
+     * migrating the same schema at once harmless.
+     *
+     * @throws TiaPersistenceException if a statement fails
+     */
+    private void addLibraryLineColumns() {
+        log.info("Adding the {} column to {} and the {} column to {} at {}", COL_FOLLOWED_LINE,
+                TABLE_TIA_LIBRARY, COL_SOURCE_LINE, TABLE_TIA_LIBRARY_PUBLISH, jdbcUrl);
+        try (Connection connection = connections.get();
+             Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE " + TABLE_TIA_LIBRARY + " ADD COLUMN IF NOT EXISTS "
+                    + COL_FOLLOWED_LINE + " VARCHAR(2000)");
+            statement.execute("ALTER TABLE " + TABLE_TIA_LIBRARY_PUBLISH + " ADD COLUMN IF NOT EXISTS "
+                    + COL_SOURCE_LINE + " VARCHAR(2000)");
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }

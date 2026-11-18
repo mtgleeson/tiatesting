@@ -75,10 +75,13 @@ does, and its savings are zero.
 ### Pending library stamps are never cleared
 
 The library drain still runs on a forced run (see
-[Library publish-time stamping](library-publish-time-stamping.md)). It costs one ledger lookup and a
-stamp read, adds no tests, and reports which stamps (`publish_seq <= R`) this run applied, so the
-seal deletes exactly those and advances `last_applied_seq` as on any run. Every tracked library's
-`mapping_baseline_commit` advances anyway, because a full run re-covers every suite.
+[Library publish-time stamping](library-publish-time-stamping.md)). It adds no tests, and reports
+which stamps (`publish_seq <= R`) this run applied, so the seal deletes exactly those and advances
+`last_applied_seq` as on any run. Because a full run re-covers every suite, the drain on a forced
+run also identifies the held build of every tracked library - one dependency resolution, then a jar
+hash and a ledger lookup per library, even with nothing pending - and the seal moves each library's
+`mapping_baseline_commit` to the commit its held build was published at. A library whose held build
+the ledger does not know keeps its baseline.
 
 A re-seed deliberately does **not** clear the pending stamp tables. Stamps above R belong to library
 builds the app has not resolved yet: deleting them would mean the later run that finally picks up

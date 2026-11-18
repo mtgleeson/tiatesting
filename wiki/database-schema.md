@@ -143,6 +143,7 @@ erDiagram
         VARCHAR source_dirs_csv
         VARCHAR mapping_baseline_commit
         BIGINT last_applied_seq
+        VARCHAR followed_line
     }
 
     tia_library_publish {
@@ -151,6 +152,7 @@ erDiagram
         VARCHAR published_version
         VARCHAR jar_hash
         VARCHAR commit_value
+        VARCHAR source_line
         BIGINT published_at
     }
 
@@ -308,10 +310,14 @@ rather than needing their own cleanup.)
   [Run history details](run-history-details.md) chapter.
 - **tia_library** - tracked in-repo libraries for library-impact analysis: declared coordinates and
   source dirs (config-owned), the `mapping_baseline_commit` the publish stamper diffs from, and the
-  `last_applied_seq` high-water mark used for downgrade warnings and reporting.
+  `last_applied_seq` high-water mark used for downgrade warnings and reporting, and the
+  `followed_line` - the source line this schema's consumer takes its builds from (null until the
+  first primary run resolves a known build).
 - **tia_library_publish** - the publish ledger: one row per published build of a tracked library,
   ordered per library by the `publish_seq` assigned at publish time. Gives builds the total order
   that version strings (shared across SNAPSHOT builds) and jar hashes (opaque) cannot provide.
+  `commit_value` is the publish commit, which becomes the consumer's mapping baseline once it holds
+  that build; `source_line` is where the build's source lives (null when unknown).
 - **tia_pending_library_impacted_method** - source methods impacted by a library publish, keyed by
   the publish sequence they shipped in (`stamp_version` is display-only) and awaiting "drain" once
   the consuming project resolves a build at or past that sequence (FK to `tia_library`,
