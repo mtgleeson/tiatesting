@@ -319,7 +319,12 @@ Operational notes:
   published. Every schema is attempted, then the build fails naming the schemas that hold the
   stamp and those that do not. Re-run the publish stamp once the cause is fixed.
 - **Cost.** One metadata listing plus one indexed lookup per `tia_*` schema, then one stamp per
-  consumer. It runs at publish time only; nothing is added to test selection.
+  consumer. It runs at publish time only; nothing is added to test selection. The stamps share
+  their VCS work for the length of the publish: the source line is resolved once, and each diff,
+  changed-paths query and content load is made once for all the schemas asking the same question.
+  Schemas that hold the same build share one baseline and one previous publish, so the VCS work
+  grows with the number of distinct baselines, not the number of schemas. Each schema still costs
+  its own database reads and writes.
 
 ### Line-number correctness: the mapping baseline
 

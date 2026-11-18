@@ -38,9 +38,14 @@ public final class LibraryPublishFanOut {
      * every schema is attempted rather than stopping at the first failure, leaving the smallest
      * possible gap. The caller fails the build from {@link FanOutResult#failureMessage}.
      *
+     * <p>The schemas share one {@link PublishScopedVCSReader}, so the VCS work is done once per
+     * distinct question - the source line once per publish, and each diff once for all the schemas
+     * whose baseline and previous publish match - rather than once per schema.
+     *
      * @param schemas the consuming schemas' names, from consumer discovery
      * @param dataStores opens a datastore on a named schema
-     * @param vcsReader the publishing workspace's VCS reader, shared across schemas
+     * @param vcsReader the publishing workspace's VCS reader, shared across schemas; the caller
+     *                  keeps ownership and closes it
      * @param groupArtifact the published library's {@code groupId:artifactId}
      * @param publishedVersion the version being published
      * @param jarFilePath the built archive's path, for content hashing; may be null
@@ -58,9 +63,10 @@ public final class LibraryPublishFanOut {
                                         final String publishingBranch) {
         Map<String, PublishStampResult> stamped = new LinkedHashMap<>();
         Map<String, String> failed = new LinkedHashMap<>();
+        VCSReader publishScopedReader = new PublishScopedVCSReader(vcsReader);
         for (String schema : schemas) {
             try (DataStore dataStore = dataStores.open(schema)) {
-                PublishStampResult result = new LibraryPublishStamper().stampPublish(dataStore, vcsReader,
+                PublishStampResult result = new LibraryPublishStamper().stampPublish(dataStore, publishScopedReader,
                         groupArtifact, publishedVersion, jarFilePath, staticConfig, publishingSourceDirs,
                         publishingBranch);
                 log.info("Tia publish stamp for {} {} into schema {}: {} (seq {}, {} methods).", groupArtifact,

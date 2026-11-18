@@ -160,7 +160,7 @@ class PendingLibraryForcedSelectionDrainerTest {
     /**
      * When a library has BOTH a pending method batch and a pending forced batch at the same
      * resolved seq, the drain applies both (their selected tests are unioned) AND the per-library
-     * build-sequence resolution - the ledger lookup at the heart of {@code resolveBuildSeqOrHold} -
+     * build-sequence resolution - the ledger lookup at the heart of {@code resolveBuildOrHold} -
      * runs exactly once for that library, not once per batch kind. Regression coverage for the
      * double-resolve fixed in the drain: previously a library with both batch kinds paid the
      * resolved-jar-hash + ledger lookup twice and logged "resolved to ledger seq" twice.
@@ -198,7 +198,7 @@ class PendingLibraryForcedSelectionDrainerTest {
     /**
      * Build a {@link DataStore} proxy that delegates every call to {@code delegate} unchanged,
      * while counting invocations of {@link DataStore#lookupLibraryPublish} - the ledger lookup
-     * {@code resolveBuildSeqOrHold} makes once per library resolution - so a test can assert the
+     * {@code resolveBuildOrHold} makes once per library resolution - so a test can assert the
      * per-library resolve step ran a specific number of times without a mocking library dependency.
      *
      * @param delegate the real data store every call is forwarded to.

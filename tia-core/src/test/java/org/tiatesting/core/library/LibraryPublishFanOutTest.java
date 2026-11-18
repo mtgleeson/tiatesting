@@ -15,6 +15,8 @@ import org.tiatesting.core.vcs.MappingDrift;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -105,6 +107,29 @@ class LibraryPublishFanOutTest {
         }
     }
 
+    @Test
+    void schemasWithTheSameBaselineShareOneVcsReadPerQuestion(@TempDir Path dir) {
+        // given three consumer schemas, two holding the build at baseline c0 and one at c5
+        String db = dir.toString();
+        trackIn(db, "mainline", null);
+        trackIn(db, "future-development", null);
+        trackIn(db, "release", null, "c5");
+        List<String> schemas = DataStoreFactory.findSchemasTrackingLibrary(db, null, null, null, null, LIB);
+        NoChangeVCSReader vcs = new NoChangeVCSReader();
+
+        // when the publish is fanned out
+        FanOutResult result = new LibraryPublishFanOut().stampEachSchema(schemas, schema -> open(db, schema), vcs,
+                LIB, "1.0", null, StaticTestSelectionConfig.EMPTY, Collections.<String>emptyList(), "main");
+
+        // then every schema is stamped, the line and head were read once, and each distinct
+        // baseline was diffed once
+        assertEquals(3, result.getStamped().size());
+        assertEquals(1, vcs.sourceLineReads);
+        assertEquals(1, vcs.headReads);
+        assertEquals(new HashSet<>(Arrays.asList("c0", "c5")), new HashSet<>(vcs.diffBases));
+        assertEquals(2, vcs.diffBases.size());
+    }
+
     /**
      * Fan a publish of version 1.0 out to the given schemas.
      *
@@ -139,24 +164,56 @@ class LibraryPublishFanOutTest {
      * @param followedLine the line the schema follows, or null for none
      */
     private static void trackIn(String db, String branch, String followedLine) {
+        trackIn(db, branch, followedLine, "c0");
+    }
+
+    /**
+     * Create a branch schema tracking the library at the given baseline, optionally following a line.
+     *
+     * @param db the embedded database directory
+     * @param branch the consumer branch whose schema to create
+     * @param followedLine the line the schema follows, or null for none
+     * @param baseline the library's mapping baseline commit in that schema
+     */
+    private static void trackIn(String db, String branch, String followedLine, String baseline) {
         try (DataStore dataStore = DataStoreFactory.fromConfig(db, null, null, null, null, branch, null)) {
             TrackedLibrary library = new TrackedLibrary(LIB, "/projects/lib", "/projects/lib/src/main/java");
-            library.setMappingBaselineCommit("c0");
+            library.setMappingBaselineCommit(baseline);
             library.setFollowedLine(followedLine);
             dataStore.persistTrackedLibrary(library);
         }
     }
 
-    /** A reader at a fixed head with nothing changed; its line is the workspace branch. */
+    /**
+     * A reader at a fixed head with nothing changed; its line is the workspace branch. Counts the
+     * questions a publish asks, so a test can see what the fan-out shares across schemas.
+     */
     private static final class NoChangeVCSReader implements VCSReader {
+        private final List<String> diffBases = new ArrayList<>();
+        private int headReads;
+        private int sourceLineReads;
+
         @Override public String getBranchName() { return "test"; }
-        @Override public String getHeadCommit() { return "c1"; }
+
+        @Override
+        public String getHeadCommit() {
+            headReads++;
+            return "c1";
+        }
+
         @Override public boolean isHeadBehind(String commit) { return false; }
 
         @Override
         public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
                                                        List<String> testFilesDirs, boolean checkLocalChanges) {
+            diffBases.add(baseChangeNum);
             return new HashSet<>();
+        }
+
+        @Override
+        public String getSourceLine(List<String> sourceDirs, String workspaceBranch) {
+            sourceLineReads++;
+            return workspaceBranch;
         }
 
         @Override
